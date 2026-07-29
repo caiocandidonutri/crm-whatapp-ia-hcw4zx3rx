@@ -1,0 +1,1391 @@
+{
+  "generatedAt": "2026-07-29T01:46:01.755Z",
+  "collections": [
+    {
+      "name": "users",
+      "type": "auth",
+      "apiRules": {
+        "list": "id = @request.auth.id",
+        "view": "id = @request.auth.id",
+        "create": "",
+        "update": "id = @request.auth.id",
+        "delete": "id = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "avatar",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_tokenKey__pb_users_auth_` ON `users` (`tokenKey`)",
+        "CREATE UNIQUE INDEX `idx_email__pb_users_auth_` ON `users` (`email`) WHERE `email` != ''"
+      ]
+    },
+    {
+      "name": "whatsapp_instances",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "instance_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "instance_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "instance_hash",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "creating",
+            "qrcode",
+            "connected",
+            "disconnected"
+          ]
+        },
+        {
+          "name": "phone_number",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "needs_initial_sync",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "needs_resync",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "auth_failure_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        },
+        {
+          "name": "is_importing_history",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "import_messages_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "import_started_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "import_finished_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sync_period_days",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "qrcode_base64",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_instance_name_user ON whatsapp_instances (user_id, instance_name)"
+      ]
+    },
+    {
+      "name": "conversations",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "instance_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "remote_jid",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "contact_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contact_phone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_group",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "type",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "individual",
+            "group"
+          ]
+        },
+        {
+          "name": "avatar",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "avatar_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unread_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        },
+        {
+          "name": "picture_fetched_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "group_size",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "enrich_debug",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "history_synced_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "history_oldest_timestamp",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_message_timestamp",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "archived",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ai_agent_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "ai_agents"
+        },
+        {
+          "name": "ai_enabled",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "category_ids",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ai_conversation_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "whatsapp_messages",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "instance_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "remote_jid",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "from_me",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "message_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "push_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "message_type",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "media_file",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "timestamp",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        },
+        {
+          "name": "participant_jid",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "participant_pushname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "media_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "media_mimetype",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "media_filename",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reactions",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "link_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "link_title",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "link_description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "link_thumbnail_b64",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "pending_ai_response",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ai_response_attempted_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ai_response_error",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "mark_read_queue",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "instance_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "remote_jid",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        },
+        {
+          "name": "message_ids",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "crm_contacts",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "instance_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "jid",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "phone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "push_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contact_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "avatar_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "editor",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_synced_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        },
+        {
+          "name": "role",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "company_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "crm_companies"
+        },
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "assigned_to",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "category_ids",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "stage",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX `idx_crm_contacts_company_id` ON `crm_contacts` (company_id)"
+      ]
+    },
+    {
+      "name": "crm_companies",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "website",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "linkedin_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "industry",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "size",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "logo_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "editor",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        },
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "ai_agents",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "system_prompt",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        },
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "tasks",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "description",
+          "type": "editor",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "pendente",
+            "em_andamento",
+            "concluida",
+            "cancelada"
+          ]
+        },
+        {
+          "name": "priority",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "baixa",
+            "media",
+            "alta",
+            "urgente"
+          ]
+        },
+        {
+          "name": "due_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "crm_contact_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "crm_contacts"
+        },
+        {
+          "name": "crm_company_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "crm_companies"
+        },
+        {
+          "name": "conversation_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "conversations"
+        },
+        {
+          "name": "linked_message_ids",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "completed_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        },
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "assigned_to",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_tasks_user_status ON tasks (user_id, status)",
+        "CREATE INDEX idx_tasks_user_due ON tasks (user_id, due_date)"
+      ]
+    },
+    {
+      "name": "accounts",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": null,
+        "update": "@request.auth.id != '' && owner_id = @request.auth.id",
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "owner_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "account_members",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (user_id = @request.auth.id || account_id.account_members_via_account_id.user_id ?= @request.auth.id)",
+        "view": "@request.auth.id != '' && (user_id = @request.auth.id || account_id.account_members_via_account_id.user_id ?= @request.auth.id)",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "role",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "owner",
+            "member"
+          ]
+        },
+        {
+          "name": "joined_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_account_members_acc_user ON account_members (account_id, user_id)"
+      ]
+    },
+    {
+      "name": "account_invites",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.owner_id = @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.owner_id = @request.auth.id",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "email",
+          "type": "email",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "role",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "owner",
+            "member"
+          ]
+        },
+        {
+          "name": "invited_by",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_account_invites_acc_email ON account_invites (account_id, email)"
+      ]
+    },
+    {
+      "name": "categories",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "color",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "slate",
+            "red",
+            "orange",
+            "amber",
+            "yellow",
+            "lime",
+            "green",
+            "emerald",
+            "teal",
+            "cyan",
+            "sky",
+            "blue",
+            "indigo",
+            "violet",
+            "purple",
+            "fuchsia",
+            "pink",
+            "rose"
+          ]
+        },
+        {
+          "name": "icon",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_categories_account ON categories (account_id)"
+      ]
+    },
+    {
+      "name": "crm_stages",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "key",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "label",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "color",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "slate",
+            "red",
+            "orange",
+            "amber",
+            "yellow",
+            "lime",
+            "green",
+            "emerald",
+            "teal",
+            "cyan",
+            "sky",
+            "blue",
+            "indigo",
+            "violet",
+            "purple",
+            "fuchsia",
+            "pink",
+            "rose"
+          ]
+        },
+        {
+          "name": "position",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate"
+          ]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": [
+            "onCreate",
+            "onUpdate"
+          ]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_crm_stages_account ON crm_stages (account_id)",
+        "CREATE UNIQUE INDEX idx_crm_stages_acc_key ON crm_stages (account_id, key)"
+      ]
+    }
+  ]
+}

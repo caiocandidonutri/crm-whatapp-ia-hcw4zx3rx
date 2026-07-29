@@ -12,19 +12,11 @@ dist
 dist-ssr
 dev-dist
 dev-dist-ssr
+dev-dist*
+dev-dist.bak-*
 *.local
 .pnpm-store
 .pnpm
-
-# pods-manager atomic build operations (rename/restore leftovers).
-# AppManager creates these during build (set-aside previous output before
-# running pnpm build, restore on failure). Success path cleans them up;
-# failure paths may leave orphans. Always ignore them in version control +
-# in the sandbox memGit hydration (see ProjectSandbox.hydrate).
-*.bak-*
-*.legacy-bak-*
-*.failed-*
-*.tmp
 
 # Editor directories and files
 .vscode/*
@@ -44,7 +36,26 @@ screenshot.png
 
 # Environment variables
 .env*
-!.env
 
-# Linux kernel core dumps (e.g. when oxfmt or pnpm crash)
-core.[0-9]*
+# Linux core dumps — arquivos gerados quando um processo crasha. O
+# PocketBase do Skip às vezes deixa esses arquivos no working dir
+# após crash, e eles são GIGANTES (centenas de MB ou GB). Sem essas
+# regras, o auto-commit do Skip pegava eles e o GitHub rejeitava o
+# push (limite 100MB por arquivo).
+core
+core.*
+*.core
+*.dmp
+*.dump
+
+# PocketBase runtime data — banco SQLite, arquivos de mídia uploads,
+# backups. Tudo isso é estado de runtime do servidor, não código,
+# e o Skip já mantém uma cópia gerenciada do lado dele.
+pb_data/
+pb_data.zip
+pb_logs/
+pocketbase/pb_data/
+pocketbase/pb_logs/
+pocketbase/backups/
+pocketbase/*.db
+pocketbase/*.db-*
