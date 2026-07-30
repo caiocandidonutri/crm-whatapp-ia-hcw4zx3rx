@@ -18,7 +18,7 @@ import { useAuth } from '@/hooks/use-auth'
 import { useCurrentAccount } from '@/hooks/use-current-account'
 import { useRealtime } from '@/hooks/use-realtime'
 import { getAiAgents, createAiAgent, updateAiAgent, deleteAiAgent } from '@/services/ai_agents'
-import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { getErrorMessage, extractFieldErrors } from '@/lib/pocketbase/errors'
 import { AgenteCard } from '@/components/agentes/AgenteCard'
 import { AgenteFormDialog } from '@/components/agentes/AgenteFormDialog'
 
@@ -87,7 +87,10 @@ export default function Agentes() {
         toast.success('Agente criado com sucesso!')
       }
     } catch (err) {
-      toast.error('Erro ao salvar agente', { description: getErrorMessage(err) })
+      const fieldErrors = extractFieldErrors(err)
+      if (Object.keys(fieldErrors).length === 0) {
+        toast.error('Erro ao salvar agente', { description: getErrorMessage(err) })
+      }
       throw err
     }
   }

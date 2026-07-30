@@ -4,7 +4,6 @@ import type { AiAgent } from '@/types/models'
 export const getAiAgents = async () => {
   return pb.collection<AiAgent>('ai_agents').getFullList({
     sort: 'name',
-    requestKey: null,
   })
 }
 

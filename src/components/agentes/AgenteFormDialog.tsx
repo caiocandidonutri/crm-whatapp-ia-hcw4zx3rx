@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Bot, Save } from 'lucide-react'
+import { Bot, Save, Loader2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -18,12 +18,12 @@ import {
   FormLabel,
   FormControl,
   FormMessage,
-  FormDescription,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { AiAgent } from '@/types/models'
+import { extractFieldErrors } from '@/lib/pocketbase/errors'
 
 const formSchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
@@ -74,6 +74,18 @@ export function AgenteFormDialog({ open, onOpenChange, agent, onSubmit }: Props)
     try {
       await onSubmit(values)
       onOpenChange(false)
+    } catch (err) {
+      const fieldErrors = extractFieldErrors(err)
+      if (Object.keys(fieldErrors).length > 0) {
+        Object.entries(fieldErrors).forEach(([field, message]) => {
+          if (field === 'name' || field === 'system_prompt') {
+            form.setError(field as 'name' | 'system_prompt', {
+              type: 'server',
+              message,
+            })
+          }
+        })
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -138,7 +150,9 @@ export function AgenteFormDialog({ open, onOpenChange, agent, onSubmit }: Props)
               </Button>
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? (
-                  'Salvando...'
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...
+                  </>
                 ) : (
                   <>
                     <Save className="w-4 h-4 mr-2" /> Salvar
