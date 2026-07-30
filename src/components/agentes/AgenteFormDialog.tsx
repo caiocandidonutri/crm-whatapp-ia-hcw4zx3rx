@@ -30,7 +30,7 @@ const formSchema = z.object({
   system_prompt: z
     .string()
     .min(10, 'Prompt deve ter pelo menos 10 caracteres')
-    .max(8000, 'Máximo de 8000 caracteres'),
+    .max(50000, 'Máximo de 50000 caracteres'),
 })
 
 type FormValues = z.infer<typeof formSchema>
@@ -129,7 +129,7 @@ export function AgenteFormDialog({ open, onOpenChange, agent, onSubmit }: Props)
                   <FormLabel className="flex justify-between">
                     <span>Prompt do Sistema (Instruções)</span>
                     <span className="text-xs text-muted-foreground font-normal">
-                      {field.value?.length || 0} / 8000
+                      {field.value?.length || 0} / 50000
                     </span>
                   </FormLabel>
                   <FormControl>
