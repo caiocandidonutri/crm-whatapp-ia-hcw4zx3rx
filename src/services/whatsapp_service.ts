@@ -3,12 +3,17 @@ import pb from '@/lib/pocketbase/client'
 /** Períodos válidos para sync_period_days. 0 = importar tudo. */
 export type SyncPeriod = 0 | 1 | 7 | 30 | 90
 
-export const criarInstancia = async (instanceName?: string, syncPeriodDays?: SyncPeriod) => {
+export const criarInstancia = async (
+  instanceName?: string,
+  accountId?: string,
+  syncPeriodDays?: SyncPeriod,
+) => {
+  const name = instanceName || `instance_${Date.now()}`
   return pb.send<{ instanceName: string; qrcodeBase64: string; status: string }>(
     '/backend/v1/whatsapp/create-instance',
     {
       method: 'POST',
-      body: JSON.stringify({ instanceName, syncPeriodDays }),
+      body: JSON.stringify({ instance_name: name, account_id: accountId, syncPeriodDays }),
       headers: { 'Content-Type': 'application/json' },
     },
   )

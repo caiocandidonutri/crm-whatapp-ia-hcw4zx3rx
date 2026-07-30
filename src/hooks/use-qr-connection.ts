@@ -5,6 +5,7 @@ import {
   desconectarInstancia,
 } from '@/services/whatsapp_service'
 import { useToast } from '@/hooks/use-toast'
+import { useCurrentAccount } from '@/hooks/use-current-account'
 import pb from '@/lib/pocketbase/client'
 
 interface ExistingInstanceLike {
@@ -18,6 +19,7 @@ export function useQrConnection(
   existingInstance?: ExistingInstanceLike | null,
 ) {
   const { toast } = useToast()
+  const { accountId } = useCurrentAccount()
   const [instanceName, setInstanceName] = useState<string | null>(
     existingInstance?.instance_name || null,
   )
@@ -45,7 +47,7 @@ export function useQrConnection(
     setIsGenerating(true)
     setPollErrors(0)
     try {
-      const res = await criarInstancia(existingInstance?.instance_name)
+      const res = await criarInstancia(existingInstance?.instance_name, accountId || undefined)
       setInstanceName(res.instanceName)
       if (res.qrcodeBase64) {
         setQrCodeBase64(res.qrcodeBase64)
@@ -66,7 +68,7 @@ export function useQrConnection(
     } finally {
       setIsGenerating(false)
     }
-  }, [toast, existingInstance?.instance_name])
+  }, [toast, existingInstance?.instance_name, accountId])
 
   const disconnect = useCallback(async (name: string) => {
     try {

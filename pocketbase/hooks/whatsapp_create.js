@@ -3,10 +3,15 @@ routerAdd(
   '/backend/v1/whatsapp/create-instance',
   (e) => {
     const body = e.requestInfo().body || {}
-    let instanceName = body.instanceName
+    let instanceName = body.instance_name
 
     if (!instanceName) {
-      instanceName = 'wapp_' + e.auth.id + '_' + Date.now()
+      return e.badRequestError('instance_name is required')
+    }
+
+    let accountId = body.account_id
+    if (!accountId) {
+      return e.badRequestError('account_id is required')
     }
 
     // Período de sincronização inicial em dias.
@@ -137,18 +142,10 @@ routerAdd(
         },
       )
     } catch (_) {
-      let accountId = ''
-      try {
-        const member = $app.findFirstRecordByFilter('account_members', 'user_id = {:userId}', {
-          userId: e.auth.id,
-        })
-        accountId = member.getString('account_id')
-      } catch (_) {}
-
       const col = $app.findCollectionByNameOrId('whatsapp_instances')
       record = new Record(col)
       record.set('user_id', e.auth.id)
-      if (accountId) record.set('account_id', accountId)
+      record.set('account_id', accountId)
       record.set('instance_name', instanceName)
     }
 
