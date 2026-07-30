@@ -19,7 +19,7 @@ export function useQrConnection(
   existingInstance?: ExistingInstanceLike | null,
 ) {
   const { toast } = useToast()
-  const { accountId } = useCurrentAccount()
+  const { accountId, loading: accountLoading } = useCurrentAccount()
   const [instanceName, setInstanceName] = useState<string | null>(
     existingInstance?.instance_name || null,
   )
@@ -44,10 +44,25 @@ export function useQrConnection(
   }, [existingInstance?.instance_name, existingInstance?.qrcode_base64, existingInstance?.status])
 
   const generateQrCode = useCallback(async () => {
+    if (accountLoading) {
+      toast({
+        title: 'Aguarde',
+        description: 'Carregando informações da conta...',
+      })
+      return
+    }
+    if (!accountId) {
+      toast({
+        title: 'Conta não encontrada',
+        description: 'Não foi possível identificar sua conta ativa. Tente recarregar a página.',
+        variant: 'destructive',
+      })
+      return
+    }
     setIsGenerating(true)
     setPollErrors(0)
     try {
-      const res = await criarInstancia(existingInstance?.instance_name, accountId || undefined)
+      const res = await criarInstancia(existingInstance?.instance_name, accountId)
       setInstanceName(res.instanceName)
       if (res.qrcodeBase64) {
         setQrCodeBase64(res.qrcodeBase64)
@@ -68,7 +83,7 @@ export function useQrConnection(
     } finally {
       setIsGenerating(false)
     }
-  }, [toast, existingInstance?.instance_name, accountId])
+  }, [toast, existingInstance?.instance_name, accountId, accountLoading])
 
   const disconnect = useCallback(async (name: string) => {
     try {
