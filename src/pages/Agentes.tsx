@@ -70,7 +70,14 @@ export default function Agentes() {
   }
 
   const handleSubmit = async (values: any) => {
-    if (!user || !accountId) return
+    if (!user) {
+      toast.error('Usuário não autenticado')
+      throw new Error('Usuário não autenticado')
+    }
+    if (!accountId) {
+      toast.error('Conta não encontrada')
+      throw new Error('Conta não encontrada')
+    }
     try {
       if (selectedAgent) {
         await updateAiAgent(selectedAgent.id, values)
