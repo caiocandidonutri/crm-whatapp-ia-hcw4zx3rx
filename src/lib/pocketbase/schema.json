@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T14:49:43.365Z",
+  "generatedAt": "2026-08-05T15:23:47.471Z",
   "collections": [
     {
       "name": "users",
@@ -717,6 +717,18 @@
         {
           "name": "ai_priority",
           "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_patient",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "converted_at",
+          "type": "date",
           "required": false,
           "system": false
         }

@@ -26,8 +26,6 @@ routerAdd(
       return e.json(200, { total: 0, created: 0, classified: 0, skipped: 0, errors: 0 })
     }
 
-    const openaiKey = $secrets.get('OPENAI_API_KEY')
-
     let created = 0
     let classified = 0
     let skipped = 0
@@ -49,8 +47,10 @@ routerAdd(
       '  - "nao_respondido": contato parou de responder\n' +
       '- "role": "paciente" ou "nao_paciente"\n' +
       '  - "paciente": ja e paciente do Dr. Caio ou esta em processo de se tornar\n' +
-      '  - "nao_paciente": nao e paciente (ex: vendedor, contato pessoal, etc)\n\n' +
-      'Exemplo: {"stage":"em_atendimento","role":"paciente"}'
+      '  - "nao_paciente": nao e paciente (ex: vendedor, contato pessoal, etc)\n' +
+      '- "is_patient": true se o contato ja e paciente/cliente que fechou consulta, false caso contrario\n' +
+      '- "conversion_detected": true se detectou que o lead agendou/confirmou/fechou consulta nesta conversa\n\n' +
+      'Exemplo: {"stage":"em_atendimento","role":"paciente","is_patient":false,"conversion_detected":false}'
 
     for (let i = 0; i < conversations.length; i++) {
       const conv = conversations[i]
@@ -111,11 +111,6 @@ routerAdd(
         continue
       }
 
-      if (!openaiKey) {
-        skipped++
-        continue
-      }
-
       var sorted = messages.slice().reverse()
       var transcript = ''
       for (var j = 0; j < sorted.length; j++) {
@@ -126,40 +121,17 @@ routerAdd(
         transcript += sender + ': ' + content + '\n'
       }
 
-      var openaiRes
-      try {
-        openaiRes = $http.send({
-          url: 'https://api.openai.com/v1/chat/completions',
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: 'Bearer ' + openaiKey,
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: transcript },
-            ],
-            temperature: 0,
-            max_tokens: 100,
-          }),
-          timeout: 30,
-        })
-      } catch (err) {
-        errors++
-        continue
-      }
-
-      if (openaiRes.statusCode !== 200) {
-        errors++
-        continue
-      }
-
       var contentText = ''
       try {
-        contentText = openaiRes.json.choices[0].message.content
-      } catch (_) {
+        var classifyReply = $ai.chat({
+          model: 'fast',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: transcript },
+          ],
+        })
+        contentText = classifyReply.choices[0].message.content
+      } catch (aiErr) {
         errors++
         continue
       }
@@ -188,11 +160,25 @@ routerAdd(
           ? classification.role
           : null
 
-      if (newStage || newRole) {
+      var newIsPatient = classification.is_patient === true
+      var newConversion = classification.conversion_detected === true
+
+      if (newStage || newRole || newIsPatient || newConversion) {
         try {
           var contactRecord = $app.findRecordById('crm_contacts', contact.id)
           if (newStage) contactRecord.set('stage', newStage)
           if (newRole) contactRecord.set('role', newRole)
+          if (newIsPatient || newConversion) {
+            if (!contactRecord.getBool('is_patient')) {
+              contactRecord.set('is_patient', true)
+            }
+            if (!contactRecord.getString('converted_at')) {
+              contactRecord.set('converted_at', new Date().toISOString().split('T')[0])
+            }
+            if (newConversion) {
+              contactRecord.set('stage', 'cliente')
+            }
+          }
           $app.save(contactRecord)
           classified++
         } catch (err) {

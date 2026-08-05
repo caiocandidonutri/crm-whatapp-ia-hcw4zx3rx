@@ -17,6 +17,7 @@ import {
   Settings2,
   List,
   Columns3,
+  BarChart3,
   Workflow,
   Sparkles,
   Loader2,
@@ -68,6 +69,7 @@ import { CrmContactDetail } from '@/components/crm/CrmContactDetail'
 import { CrmCompaniesList } from '@/components/crm/CrmCompaniesList'
 import { CrmPipelineBoard } from '@/components/crm/CrmPipelineBoard'
 import { CrmDashboard } from '@/components/crm/CrmDashboard'
+import { CrmMonthlyReport } from '@/components/crm/CrmMonthlyReport'
 import { DailySummaryBanner } from '@/components/crm/DailySummaryBanner'
 import { PipelineEditorSheet } from '@/components/crm/PipelineEditorSheet'
 import { CategoriesSheet } from '@/components/categories/CategoriesSheet'
@@ -79,7 +81,7 @@ import { useCurrentAccount } from '@/hooks/use-current-account'
 
 const COMPANIES_TAB_ID = 'companies'
 
-type ViewMode = 'lista' | 'pipeline'
+type ViewMode = 'lista' | 'pipeline' | 'relatorio'
 
 export default function CRM() {
   const navigate = useNavigate()
@@ -281,7 +283,7 @@ export default function CRM() {
           </p>
         </div>
 
-        {!isCompanies && (
+        {!isCompanies && viewMode !== 'relatorio' && (
           <div className="relative w-full md:w-80 shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
@@ -295,7 +297,7 @@ export default function CRM() {
       </div>
 
       {/* Dashboard */}
-      {!isCompanies && (
+      {!isCompanies && viewMode !== 'relatorio' && (
         <CrmDashboard
           contacts={contacts}
           onStageClick={(stage) => {
@@ -307,7 +309,7 @@ export default function CRM() {
       )}
 
       {/* Daily Summary Banner */}
-      {!isCompanies && (
+      {!isCompanies && viewMode !== 'relatorio' && (
         <DailySummaryBanner
           summary={dailySummary}
           loading={summaryLoading}
@@ -355,10 +357,27 @@ export default function CRM() {
               <Columns3 className="w-3.5 h-3.5" />
               Pipeline
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setViewMode('relatorio')
+                setActiveTab('all')
+              }}
+              className={cn(
+                'h-7 px-3 rounded-full text-sm font-medium gap-1.5',
+                viewMode === 'relatorio' && !isCompanies
+                  ? 'bg-background shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              Relatório
+            </Button>
           </div>
 
           {/* Editar pipeline */}
-          {!isCompanies && (
+          {!isCompanies && viewMode !== 'relatorio' && (
             <Button
               variant="outline"
               className="rounded-full h-9 px-4 font-sans font-medium whitespace-nowrap shrink-0 bg-white/50 backdrop-blur-sm hover:bg-white/80 border-border/40"
@@ -370,7 +389,7 @@ export default function CRM() {
           )}
 
           {/* Importar conversas */}
-          {!isCompanies && (
+          {!isCompanies && viewMode !== 'relatorio' && (
             <Button
               variant="outline"
               className={cn(
@@ -439,7 +458,7 @@ export default function CRM() {
             Empresas
           </Button>
 
-          {!isCompanies && (
+          {!isCompanies && viewMode !== 'relatorio' && (
             <>
               <Popover>
                 <PopoverTrigger asChild>
@@ -589,6 +608,7 @@ export default function CRM() {
         </div>
 
         {!isCompanies &&
+          viewMode !== 'relatorio' &&
           (ownerFilter !== 'todos' || selectedCategoryIds.length > 0 || roleFilter !== 'todos') && (
             <div className="flex items-center gap-2 flex-wrap text-sm animate-in fade-in slide-in-from-top-1">
               <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
@@ -700,6 +720,11 @@ export default function CRM() {
             onAskDelete={setContactToDelete}
           />
         ))}
+
+      {/* Relatório Mensal */}
+      {!isCompanies && viewMode === 'relatorio' && (
+        <CrmMonthlyReport contacts={contacts} stages={stages} />
+      )}
 
       {/* Visão Lista */}
       {!isCompanies && viewMode === 'lista' && (
@@ -887,6 +912,18 @@ export default function CRM() {
                         </div>
                       </div>
 
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 rounded-full w-8 h-8 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          navigate(`/conversas?chat=${contact.jid}`)
+                        }}
+                        title="Abrir conversa no WhatsApp"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                      </Button>
                       <div
                         className="shrink-0 sm:opacity-0 group-hover:opacity-100 transition-opacity"
                         onClick={(e) => e.stopPropagation()}

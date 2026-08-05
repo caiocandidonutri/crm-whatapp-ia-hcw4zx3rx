@@ -137,6 +137,8 @@ export interface CrmContact {
   stage: string
   ai_suggested_action?: string
   ai_priority?: number
+  is_patient?: boolean
+  converted_at?: string
   last_synced_at?: string
   // Empresa (migration 0024)
   company_id?: string

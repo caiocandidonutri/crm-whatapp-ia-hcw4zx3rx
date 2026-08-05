@@ -337,13 +337,25 @@ export function CrmPipelineBoard({
                           ) : (
                             <span className="text-muted-foreground/50 italic">Sem responsável</span>
                           )}
-                          <span
-                            className="shrink-0 flex items-center gap-1"
-                            title={new Date(contact.updated).toLocaleString('pt-BR')}
-                          >
-                            <Clock className="w-3 h-3" />
-                            {relativeTime(contact.updated)}
-                          </span>
+                          <div className="shrink-0 flex items-center gap-1.5">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                navigate(`/conversas?chat=${contact.jid}`)
+                              }}
+                              className="flex items-center justify-center w-6 h-6 rounded-full text-emerald-600 hover:bg-emerald-50 transition-colors"
+                              title="Abrir conversa no WhatsApp"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                            </button>
+                            <span
+                              className="flex items-center gap-1"
+                              title={new Date(contact.updated).toLocaleString('pt-BR')}
+                            >
+                              <Clock className="w-3 h-3" />
+                              {relativeTime(contact.updated)}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     )

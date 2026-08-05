@@ -225,7 +225,7 @@ export default function Conversas() {
   }, [instance, loadingInstance, qrCodeBase64, isGenerating, pollErrors, generateQrCode])
 
   const activeConversation = React.useMemo(() => {
-    return conversations.find((c) => c.id === activeChatId) || null
+    return conversations.find((c) => c.id === activeChatId || c.remote_jid === activeChatId) || null
   }, [conversations, activeChatId])
 
   useHistorySync(activeConversation)
