@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T14:32:25.542Z",
+  "generatedAt": "2026-08-05T14:49:43.365Z",
   "collections": [
     {
       "name": "users",
@@ -705,6 +705,18 @@
         {
           "name": "stage",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ai_suggested_action",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ai_priority",
+          "type": "number",
           "required": false,
           "system": false
         }

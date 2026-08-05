@@ -1,6 +1,17 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreVertical, MessageSquare, Trash2, Phone, Users, Building2 } from 'lucide-react'
+import {
+  MoreVertical,
+  MessageSquare,
+  Trash2,
+  Phone,
+  Users,
+  Building2,
+  Sparkles,
+  AlertTriangle,
+  Clock,
+  UserCheck,
+} from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -96,7 +107,9 @@ export function CrmPipelineBoard({
       <div className="flex gap-4 min-w-max items-start">
         {stages.map((stage) => {
           const style = stageStyle(stage.color)
-          const stageContacts = contacts.filter((c) => c.stage === stage.key)
+          const stageContacts = contacts
+            .filter((c) => c.stage === stage.key)
+            .sort((a, b) => (b.ai_priority || 0) - (a.ai_priority || 0))
           const isDragOver = dragOverCol === stage.key
 
           return (
@@ -229,10 +242,16 @@ export function CrmPipelineBoard({
                               </div>
                             </div>
 
-                            {contact.role && (
-                              <p className="text-xs text-muted-foreground truncate leading-tight">
-                                {contact.role}
-                              </p>
+                            {contact.role === 'paciente' && (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-700">
+                                <UserCheck className="w-2.5 h-2.5" />
+                                Paciente
+                              </span>
+                            )}
+                            {contact.role === 'nao_paciente' && (
+                              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600">
+                                Não paciente
+                              </span>
                             )}
 
                             <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
@@ -241,6 +260,20 @@ export function CrmPipelineBoard({
                                 {formatPhoneBR(contact.phone)}
                               </span>
                             </div>
+                            {contact.ai_suggested_action && (
+                              <div className="flex items-center gap-1.5 mt-2 text-xs bg-primary/5 text-primary rounded-md px-2 py-1">
+                                <Sparkles className="w-3 h-3 shrink-0" />
+                                <span className="truncate font-medium">
+                                  {contact.ai_suggested_action}
+                                </span>
+                              </div>
+                            )}
+                            {contact.stage === 'nao_respondido' && (
+                              <div className="flex items-center gap-1 mt-1.5 text-xs bg-amber-50 text-amber-700 rounded-md px-2 py-0.5 w-fit">
+                                <AlertTriangle className="w-3 h-3 shrink-0" />
+                                <span className="font-medium">Precisa de atenção</span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -305,9 +338,10 @@ export function CrmPipelineBoard({
                             <span className="text-muted-foreground/50 italic">Sem responsável</span>
                           )}
                           <span
-                            className="shrink-0"
+                            className="shrink-0 flex items-center gap-1"
                             title={new Date(contact.updated).toLocaleString('pt-BR')}
                           >
+                            <Clock className="w-3 h-3" />
                             {relativeTime(contact.updated)}
                           </span>
                         </div>

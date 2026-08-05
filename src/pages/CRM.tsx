@@ -20,6 +20,9 @@ import {
   Workflow,
   Sparkles,
   Loader2,
+  UserCheck,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -55,6 +58,8 @@ import {
   updateCrmContactStage,
   deleteCrmContact,
   importarConversasCRM,
+  refreshAiSuggestions,
+  getDailySummary,
 } from '@/services/crm_service'
 import type { ImportConversasResult } from '@/services/crm_service'
 import { getDisplayName, isInvalidContactName } from '@/lib/whatsapp-mappers'
@@ -62,6 +67,8 @@ import { CrmContact } from '@/types/models'
 import { CrmContactDetail } from '@/components/crm/CrmContactDetail'
 import { CrmCompaniesList } from '@/components/crm/CrmCompaniesList'
 import { CrmPipelineBoard } from '@/components/crm/CrmPipelineBoard'
+import { CrmDashboard } from '@/components/crm/CrmDashboard'
+import { DailySummaryBanner } from '@/components/crm/DailySummaryBanner'
 import { PipelineEditorSheet } from '@/components/crm/PipelineEditorSheet'
 import { CategoriesSheet } from '@/components/categories/CategoriesSheet'
 import { useCategories } from '@/hooks/use-categories'
@@ -97,6 +104,10 @@ export default function CRM() {
   const [contactToDelete, setContactToDelete] = useState<CrmContact | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportConversasResult | null>(null)
+  const [roleFilter, setRoleFilter] = useState<'todos' | 'paciente' | 'nao_paciente'>('todos')
+  const [dailySummary, setDailySummary] = useState<string | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+  const [refreshingSuggestions, setRefreshingSuggestions] = useState(false)
 
   const isCompanies = activeTab === COMPANIES_TAB_ID
 
@@ -119,6 +130,23 @@ export default function CRM() {
     return () => clearTimeout(handler)
   }, [searchTerm])
 
+  useEffect(() => {
+    setSummaryLoading(true)
+    getDailySummary()
+      .then((res: any) => setDailySummary(res.summary))
+      .catch(() => {
+        const leads = contacts.filter((c) => c.stage === 'lead').length
+        const naoResp = contacts.filter((c) => c.stage === 'nao_respondido').length
+        const pacNaoResp = contacts.filter(
+          (c) => c.stage === 'nao_respondido' && c.role === 'paciente',
+        ).length
+        setDailySummary(
+          `Você tem ${leads} leads${naoResp > 0 ? `, ${naoResp} contatos não respondidos` : ''}${pacNaoResp > 0 ? `, ${pacNaoResp} pacientes precisam de retorno` : ''}.`,
+        )
+      })
+      .finally(() => setSummaryLoading(false))
+  }, [])
+
   // Filtros comuns (busca + responsável + categorias), sem o filtro de
   // etapa — reutilizado tanto pela lista quanto pelo board.
   const commonFiltered = useMemo(() => {
@@ -138,13 +166,18 @@ export default function CRM() {
         selectedCategoryIds.length === 0 ||
         selectedCategoryIds.every((catId) => c.category_ids?.includes(catId))
 
-      return matchSearch && matchMine && matchCategories
+      const matchRole = roleFilter === 'todos' || c.role === roleFilter
+
+      return matchSearch && matchMine && matchCategories && matchRole
     })
-  }, [contacts, debouncedSearch, ownerFilter, selectedCategoryIds])
+  }, [contacts, debouncedSearch, ownerFilter, selectedCategoryIds, roleFilter])
 
   const filteredContacts = useMemo(() => {
-    if (activeTab === 'all' || isCompanies) return commonFiltered
-    return commonFiltered.filter((c) => c.stage === activeTab)
+    const base =
+      activeTab === 'all' || isCompanies
+        ? commonFiltered
+        : commonFiltered.filter((c) => c.stage === activeTab)
+    return [...base].sort((a, b) => (b.ai_priority || 0) - (a.ai_priority || 0))
   }, [commonFiltered, activeTab, isCompanies])
 
   const getStageCount = (stageId: string) => {
@@ -183,6 +216,24 @@ export default function CRM() {
       toast.error('Erro ao importar conversas. Tente novamente.')
     } finally {
       setImporting(false)
+    }
+  }
+
+  const handleRefreshSuggestions = async () => {
+    setRefreshingSuggestions(true)
+    try {
+      await refreshAiSuggestions()
+      reload()
+      setSummaryLoading(true)
+      getDailySummary()
+        .then((res: any) => setDailySummary(res.summary))
+        .catch(() => {})
+        .finally(() => setSummaryLoading(false))
+      toast.success('Sugestões atualizadas com IA')
+    } catch (err) {
+      toast.error('Erro ao atualizar sugestões')
+    } finally {
+      setRefreshingSuggestions(false)
     }
   }
 
@@ -242,6 +293,28 @@ export default function CRM() {
           </div>
         )}
       </div>
+
+      {/* Dashboard */}
+      {!isCompanies && (
+        <CrmDashboard
+          contacts={contacts}
+          onStageClick={(stage) => {
+            setViewMode('lista')
+            setActiveTab(stage)
+          }}
+          onRoleClick={(role) => setRoleFilter(role)}
+        />
+      )}
+
+      {/* Daily Summary Banner */}
+      {!isCompanies && (
+        <DailySummaryBanner
+          summary={dailySummary}
+          loading={summaryLoading}
+          onRefresh={handleRefreshSuggestions}
+          refreshing={refreshingSuggestions}
+        />
+      )}
 
       {/* Controls */}
       <div className="flex flex-col gap-4 mt-2">
@@ -468,69 +541,130 @@ export default function CRM() {
                   </div>
                 </PopoverContent>
               </Popover>
+
+              <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-full border border-border/40 shrink-0">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setRoleFilter('todos')}
+                  className={cn(
+                    'h-7 px-3 rounded-full text-xs font-medium',
+                    roleFilter === 'todos'
+                      ? 'bg-background shadow-sm text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Todos
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setRoleFilter('paciente')}
+                  className={cn(
+                    'h-7 px-3 rounded-full text-xs font-medium gap-1',
+                    roleFilter === 'paciente'
+                      ? 'bg-background shadow-sm text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <UserCheck className="w-3 h-3" />
+                  Pacientes
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setRoleFilter('nao_paciente')}
+                  className={cn(
+                    'h-7 px-3 rounded-full text-xs font-medium',
+                    roleFilter === 'nao_paciente'
+                      ? 'bg-background shadow-sm text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Não pacientes
+                </Button>
+              </div>
             </>
           )}
         </div>
 
-        {!isCompanies && (ownerFilter !== 'todos' || selectedCategoryIds.length > 0) && (
-          <div className="flex items-center gap-2 flex-wrap text-sm animate-in fade-in slide-in-from-top-1">
-            <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              Filtros ativos:
-            </span>
+        {!isCompanies &&
+          (ownerFilter !== 'todos' || selectedCategoryIds.length > 0 || roleFilter !== 'todos') && (
+            <div className="flex items-center gap-2 flex-wrap text-sm animate-in fade-in slide-in-from-top-1">
+              <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                Filtros ativos:
+              </span>
 
-            {ownerFilter === 'meus' && (
-              <Badge
-                variant="secondary"
-                className="rounded-md font-normal pr-1.5 bg-white border border-border/40 text-foreground flex items-center gap-1 h-7"
-              >
-                <User className="w-3 h-3 text-muted-foreground" />
-                Meus contatos
-                <button
-                  onClick={() => setOwnerFilter('todos')}
-                  className="ml-0.5 hover:bg-muted rounded-full p-0.5 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </Badge>
-            )}
-
-            {selectedCategoryIds.map((catId) => {
-              const cat = categories.find((c) => c.id === catId)
-              if (!cat) return null
-              return (
+              {ownerFilter === 'meus' && (
                 <Badge
-                  key={catId}
                   variant="secondary"
-                  className="rounded-md font-normal pr-1.5 bg-white border border-border/40 text-foreground flex items-center gap-1.5 h-7"
+                  className="rounded-md font-normal pr-1.5 bg-white border border-border/40 text-foreground flex items-center gap-1 h-7"
                 >
-                  <div
-                    className={cn('w-2 h-2 rounded-full shrink-0', CATEGORY_COLOR_MAP[cat.color])}
-                  />
-                  <span className="truncate max-w-[150px]">{cat.name}</span>
+                  <User className="w-3 h-3 text-muted-foreground" />
+                  Meus contatos
                   <button
-                    onClick={() =>
-                      setSelectedCategoryIds((prev) => prev.filter((id) => id !== catId))
-                    }
-                    className="ml-0.5 hover:bg-muted rounded-full p-0.5 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    onClick={() => setOwnerFilter('todos')}
+                    className="ml-0.5 hover:bg-muted rounded-full p-0.5 text-muted-foreground hover:text-foreground transition-colors"
                   >
                     <X className="w-3 h-3" />
                   </button>
                 </Badge>
-              )
-            })}
+              )}
 
-            <button
-              className="text-xs text-muted-foreground hover:text-primary transition-colors ml-1 font-medium"
-              onClick={() => {
-                setOwnerFilter('todos')
-                setSelectedCategoryIds([])
-              }}
-            >
-              Limpar tudo
-            </button>
-          </div>
-        )}
+              {roleFilter !== 'todos' && (
+                <Badge
+                  variant="secondary"
+                  className="rounded-md font-normal pr-1.5 bg-white border border-border/40 text-foreground flex items-center gap-1 h-7"
+                >
+                  <UserCheck className="w-3 h-3 text-muted-foreground" />
+                  {roleFilter === 'paciente' ? 'Pacientes' : 'Não pacientes'}
+                  <button
+                    onClick={() => setRoleFilter('todos')}
+                    className="ml-0.5 hover:bg-muted rounded-full p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </Badge>
+              )}
+
+              {selectedCategoryIds.map((catId) => {
+                const cat = categories.find((c) => c.id === catId)
+                if (!cat) return null
+                return (
+                  <Badge
+                    key={catId}
+                    variant="secondary"
+                    className="rounded-md font-normal pr-1.5 bg-white border border-border/40 text-foreground flex items-center gap-1.5 h-7"
+                  >
+                    <div
+                      className={cn('w-2 h-2 rounded-full shrink-0', CATEGORY_COLOR_MAP[cat.color])}
+                    />
+                    <span className="truncate max-w-[150px]">{cat.name}</span>
+                    <button
+                      onClick={() =>
+                        setSelectedCategoryIds((prev) => prev.filter((id) => id !== catId))
+                      }
+                      className="ml-0.5 hover:bg-muted rounded-full p-0.5 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                )
+              })}
+
+              <button
+                className="text-xs text-muted-foreground hover:text-primary transition-colors ml-1 font-medium"
+                onClick={() => {
+                  setOwnerFilter('todos')
+                  setSelectedCategoryIds([])
+                  setRoleFilter('todos')
+                }}
+              >
+                Limpar tudo
+              </button>
+            </div>
+          )}
       </div>
 
       {isCompanies && <CrmCompaniesList />}
@@ -636,6 +770,23 @@ export default function CRM() {
                           <h4 className="font-serif font-bold text-primary text-base truncate">
                             {getContactTitle(contact)}
                           </h4>
+                          {contact.role === 'paciente' && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] bg-emerald-50 text-emerald-700 border-0 shrink-0"
+                            >
+                              <UserCheck className="w-2.5 h-2.5 mr-0.5" />
+                              Paciente
+                            </Badge>
+                          )}
+                          {contact.role === 'nao_paciente' && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] bg-slate-100 text-slate-600 border-0 shrink-0"
+                            >
+                              Não paciente
+                            </Badge>
+                          )}
                           {contact.category_ids && contact.category_ids.length > 0 && (
                             <div className="flex items-center gap-1 shrink-0">
                               {contact.category_ids.slice(0, 3).map((id) => {
@@ -671,6 +822,12 @@ export default function CRM() {
                             </>
                           )}
                         </div>
+                        {contact.ai_suggested_action && (
+                          <div className="flex items-center gap-1 text-xs text-primary mt-1">
+                            <Sparkles className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{contact.ai_suggested_action}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -682,6 +839,15 @@ export default function CRM() {
                         >
                           {stLabel}
                         </Badge>
+                        {contact.stage === 'nao_respondido' && (
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px] bg-amber-100 text-amber-700 border-0 w-fit sm:ml-auto"
+                          >
+                            <AlertTriangle className="w-2.5 h-2.5 mr-0.5" />
+                            Precisa de atenção
+                          </Badge>
+                        )}
                         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                           {contact.expand?.assigned_to && (
                             <div

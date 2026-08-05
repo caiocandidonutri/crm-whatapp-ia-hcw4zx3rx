@@ -197,5 +197,51 @@ onRecordAfterCreateSuccess((e) => {
     $app.logger().error('crm_classify_update_error', 'error', String(err), 'jid', remoteJid)
   }
 
+  try {
+    var sPrompt =
+      'You are an AI assistant for Dr. Caio, a nutritionist. Based on the conversation and contact info below, suggest the next best action and a priority score (1-10, where 10 is most urgent).\n\n' +
+      'Context: Dr. Caio is a nutritionist who sees patients. Conversations may be about appointment scheduling, nutritional questions, follow-ups, etc.\n\n' +
+      'Return ONLY a JSON object: {"action": "short action in Portuguese", "priority": number}\n\n' +
+      'Examples:\n{"action":"Seguir contato","priority":5}\n{"action":"Confirmar consulta","priority":8}\n{"action":"Agendar retorno","priority":7}'
+
+    var sInput =
+      'Stage: ' + newStage + '\nRole: ' + (newRole || '') + '\n\nTranscript:\n' + transcript
+
+    var sRes = $ai.chat({
+      model: 'fast',
+      messages: [
+        { role: 'system', content: sPrompt },
+        { role: 'user', content: sInput },
+      ],
+      temperature: 0,
+    })
+
+    var sText = ''
+    try {
+      sText = sRes.choices[0].message.content
+    } catch (_) {}
+
+    var sObj = null
+    try {
+      sObj = JSON.parse(sText)
+    } catch (_) {
+      var sMatch = sText.match(/\{[\s\S]*\}/)
+      if (sMatch) {
+        try {
+          sObj = JSON.parse(sMatch[0])
+        } catch (_) {}
+      }
+    }
+
+    if (sObj) {
+      var sRecord = $app.findRecordById('crm_contacts', contact.id)
+      sRecord.set('ai_suggested_action', sObj.action || '')
+      sRecord.set('ai_priority', Math.min(Math.max(parseInt(sObj.priority) || 5, 1), 10))
+      $app.save(sRecord)
+    }
+  } catch (sErr) {
+    $app.logger().warn('crm_classify_suggestion_error', 'error', String(sErr), 'jid', remoteJid)
+  }
+
   return e.next()
 }, 'whatsapp_messages')

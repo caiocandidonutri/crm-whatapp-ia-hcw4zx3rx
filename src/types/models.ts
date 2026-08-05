@@ -134,7 +134,9 @@ export interface CrmContact {
   contact_name?: string
   avatar_url?: string
   notes?: string
-  stage: 'lead' | 'em_atendimento' | 'cliente' | 'perdido'
+  stage: string
+  ai_suggested_action?: string
+  ai_priority?: number
   last_synced_at?: string
   // Empresa (migration 0024)
   company_id?: string

@@ -41,7 +41,7 @@ export const getCrmContacts = async (instance_name: string) => {
   return pb.collection('crm_contacts').getFullList<CrmContact>({
     filter: `instance_name = '${instance_name}'`,
     sort: '-created',
-    expand: 'assigned_to',
+    expand: 'assigned_to,company_id',
   })
 }
 
@@ -67,4 +67,19 @@ export const importarConversasCRM = async () => {
     body: JSON.stringify({}),
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+export const refreshAiSuggestions = async () => {
+  return pb.send<{ total: number; updated: number; errors: number }>(
+    '/backend/v1/crm/refresh-suggestions',
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' },
+    },
+  )
+}
+
+export const getDailySummary = async () => {
+  return pb.send<{ summary: string }>('/backend/v1/crm/daily-summary', { method: 'GET' })
 }
