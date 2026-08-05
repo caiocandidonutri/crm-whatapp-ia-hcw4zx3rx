@@ -2,105 +2,131 @@ routerAdd(
   'GET',
   '/backend/v1/crm/daily-summary',
   (e) => {
-    const authId = e.auth.id
+    const userId = e.auth && e.auth.id
+    if (!userId) return e.unauthorizedError('auth required')
 
-    let contacts = []
+    const accountId = e.auth.get('account_id')
+    if (!accountId) return e.json(200, { summary: '', contacts: 0, tasks: 0, pending: 0 })
+
     try {
-      contacts = $app.findRecordsByFilter(
+      const today = new Date()
+      const startOfDay =
+        new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000
+
+      const contacts = $app.findRecordsByFilter(
         'crm_contacts',
-        'user_id = {:userId}',
-        '-updated',
+        'account_id = {:accountId}',
+        '-created',
         500,
         0,
-        { userId: authId },
+        { accountId: accountId },
       )
-    } catch (_) {
-      return e.json(200, { summary: 'Nenhum contato encontrado no CRM.' })
-    }
 
-    if (contacts.length === 0) {
-      return e.json(200, { summary: 'Você ainda não tem contatos no CRM.' })
-    }
+      const tasks = $app.findRecordsByFilter(
+        'tasks',
+        'account_id = {:accountId}',
+        '-created',
+        500,
+        0,
+        { accountId: accountId },
+      )
 
-    let leads = 0,
-      emAtendimento = 0,
-      clientes = 0,
-      naoRespondidos = 0
-    let pacientesNaoResp = 0,
-      pacientesEmAtend = 0
-
-    for (let i = 0; i < contacts.length; i++) {
-      const c = contacts[i]
-      const stage = c.getString('stage')
-      const role = c.getString('role')
-
-      if (stage === 'lead') leads++
-      else if (stage === 'em_atendimento') {
-        emAtendimento++
-        if (role === 'paciente') pacientesEmAtend++
-      } else if (stage === 'cliente') clientes++
-      else if (stage === 'nao_respondido') {
-        naoRespondidos++
-        if (role === 'paciente') pacientesNaoResp++
-      }
-    }
-
-    const statsText =
-      'Leads: ' +
-      leads +
-      ', Em atendimento: ' +
-      emAtendimento +
-      ' (' +
-      pacientesEmAtend +
-      ' pacientes), Clientes: ' +
-      clientes +
-      ', Não respondidos: ' +
-      naoRespondidos +
-      ' (' +
-      pacientesNaoResp +
-      ' pacientes)'
-
-    try {
-      const aiRes = $ai.chat({
-        model: 'fast',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are an assistant for Dr. Caio, a nutritionist. Generate a concise daily summary in Portuguese (max 1 sentence) based on the CRM stats. Be specific, actionable and encouraging. Example: "Você tem 5 leads esperando resposta, 2 pacientes precisam de retorno."',
-          },
-          { role: 'user', content: statsText },
-        ],
-        temperature: 0.5,
+      const pendingTasks = tasks.filter(function (t) {
+        var s = t.getString('status')
+        return s === 'pendente' || s === 'em_andamento'
       })
 
-      let summary = ''
-      try {
-        summary = aiRes.choices[0].message.content
-      } catch (_) {}
+      const overdueTasks = pendingTasks.filter(function (t) {
+        var dd = t.getString('due_date')
+        if (!dd) return false
+        var due = new Date(dd).getTime() / 1000
+        return due < startOfDay
+      })
 
-      if (!summary) {
-        summary =
-          'Você tem ' +
-          leads +
-          ' leads, ' +
-          emAtendimento +
-          ' em atendimento' +
-          (naoRespondidos > 0 ? ', ' + naoRespondidos + ' não respondidos' : '') +
-          '.'
+      var stageCounts = {}
+      for (var i = 0; i < contacts.length; i++) {
+        var stage = contacts[i].getString('stage') || 'sem_estagio'
+        stageCounts[stage] = (stageCounts[stage] || 0) + 1
       }
 
-      return e.json(200, { summary: summary })
+      var lines = []
+      lines.push('Resumo Diario do CRM')
+      lines.push('Contatos totais: ' + contacts.length)
+      lines.push('Tarefas totais: ' + tasks.length)
+      lines.push('Tarefas pendentes: ' + pendingTasks.length)
+      lines.push('Tarefas atrasadas: ' + overdueTasks.length)
+
+      var stageKeys = Object.keys(stageCounts)
+      if (stageKeys.length > 0) {
+        lines.push('Contatos por estagio:')
+        for (var j = 0; j < stageKeys.length; j++) {
+          lines.push('  ' + stageKeys[j] + ': ' + stageCounts[stageKeys[j]])
+        }
+      }
+
+      var priorityTasks = pendingTasks
+        .sort(function (a, b) {
+          var pa = a.getString('priority')
+          var pb = b.getString('priority')
+          var order = { urgente: 0, alta: 1, media: 2, baixa: 3 }
+          return (order[pa] || 4) - (order[pb] || 4)
+        })
+        .slice(0, 5)
+
+      if (priorityTasks.length > 0) {
+        lines.push('Proximas tarefas prioritarias:')
+        for (var k = 0; k < priorityTasks.length; k++) {
+          var t = priorityTasks[k]
+          lines.push('  - ' + t.getString('title') + ' (' + t.getString('priority') + ')')
+        }
+      }
+
+      var summaryText = lines.join('\n')
+
+      var aiSummary = ''
+      try {
+        var reply = $ai.chat({
+          model: 'fast',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Voce e um assistente de CRM. Gere um resumo diario conciso e acionavel em portugues com base nos dados fornecidos. Destaque prioridades e tarefas atrasadas. Maximo 3 paragrafos.',
+            },
+            {
+              role: 'user',
+              content: summaryText,
+            },
+          ],
+        })
+        aiSummary = reply.choices[0].message.content
+      } catch (aiErr) {
+        $app.logger().error('AI summary failed', 'error', String(aiErr))
+        aiSummary = summaryText
+      }
+
+      return e.json(200, {
+        summary: aiSummary,
+        rawStats: {
+          contacts: contacts.length,
+          tasks: tasks.length,
+          pending: pendingTasks.length,
+          overdue: overdueTasks.length,
+          stageCounts: stageCounts,
+        },
+        topTasks: priorityTasks.map(function (t) {
+          return {
+            id: t.id,
+            title: t.getString('title'),
+            priority: t.getString('priority'),
+            status: t.getString('status'),
+            due_date: t.getString('due_date'),
+          }
+        }),
+      })
     } catch (err) {
-      const fallback =
-        'Você tem ' +
-        leads +
-        ' leads, ' +
-        emAtendimento +
-        ' em atendimento' +
-        (naoRespondidos > 0 ? ', ' + naoRespondidos + ' não respondidos' : '') +
-        '.'
-      return e.json(200, { summary: fallback })
+      $app.logger().error('daily summary error', 'error', String(err))
+      return e.json(500, { error: 'Falha ao gerar resumo diario' })
     }
   },
   $apis.requireAuth(),
