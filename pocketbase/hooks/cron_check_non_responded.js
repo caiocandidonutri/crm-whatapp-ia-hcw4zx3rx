@@ -1,6 +1,6 @@
 cronAdd('check_non_responded', '0 * * * *', () => {
   const nowTs = Math.floor(Date.now() / 1000)
-  const cutoffTs = nowTs - 24 * 60 * 60
+  const cutoffTs = nowTs - 8 * 60 * 60
 
   let conversations = []
   try {
