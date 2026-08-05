@@ -64,6 +64,7 @@ import {
 } from '@/services/crm_service'
 import type { ImportConversasResult } from '@/services/crm_service'
 import { getDisplayName, isInvalidContactName } from '@/lib/whatsapp-mappers'
+import { getErrorMessage } from '@/lib/pocketbase/errors'
 import { CrmContact } from '@/types/models'
 import { CrmContactDetail } from '@/components/crm/CrmContactDetail'
 import { CrmCompaniesList } from '@/components/crm/CrmCompaniesList'
@@ -224,16 +225,22 @@ export default function CRM() {
   const handleRefreshSuggestions = async () => {
     setRefreshingSuggestions(true)
     try {
-      await refreshAiSuggestions()
-      reload()
+      const result = await refreshAiSuggestions()
+      await reload()
       setSummaryLoading(true)
       getDailySummary()
         .then((res: any) => setDailySummary(res.summary))
         .catch(() => {})
         .finally(() => setSummaryLoading(false))
-      toast.success('Sugestões atualizadas com IA')
+      if (result.errors > 0 && result.updated === 0) {
+        toast.error('Não foi possível atualizar as sugestões. Tente novamente.')
+      } else if (result.errors > 0) {
+        toast.warning(`Sugestões atualizadas parcialmente (${result.updated} de ${result.total})`)
+      } else {
+        toast.success(`Sugestões atualizadas com IA (${result.updated} contatos)`)
+      }
     } catch (err) {
-      toast.error('Erro ao atualizar sugestões')
+      toast.error(getErrorMessage(err) || 'Erro ao atualizar sugestões. Tente novamente.')
     } finally {
       setRefreshingSuggestions(false)
     }
