@@ -40,6 +40,7 @@ export function useCrmContatos(instanceName?: string) {
 
   useRealtime('crm_contacts', (e) => {
     if (e.record.instance_name !== instanceName) return
+  }, !!instanceName)
 
     if (e.action === 'create') {
       const rec = e.record as CrmContact
@@ -69,7 +70,7 @@ export function useCrmContatos(instanceName?: string) {
     } else if (e.action === 'delete') {
       setContacts((prev) => prev.filter((c) => c.id !== e.record.id))
     }
-  })
+  }, !!instanceName)
 
   return { contacts, loading, reload: loadData }
 }

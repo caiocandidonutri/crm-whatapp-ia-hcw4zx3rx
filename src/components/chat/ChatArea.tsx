@@ -8,14 +8,10 @@ import {
   Image as ImageIcon,
   FileText,
   Mic,
-  FileDown,
-  Eye,
-  AlertCircle,
   Loader2,
   Trash2,
   Check,
   Pencil,
-  ListTodo,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -28,14 +24,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { alternarArquivamentoConversa, atualizarNomeContato } from '@/services/whatsapp_service'
-import { jidToDisplayName, isInvalidContactName } from '@/lib/whatsapp-mappers'
-import { useLinkPreview } from '@/hooks/use-link-preview'
+import { isInvalidContactName } from '@/lib/whatsapp-mappers'
 import { AddToCrmDialog } from '@/components/crm/AddToCrmDialog'
 import { AgenteConversaToggle } from '@/components/chat/AgenteConversaToggle'
 import { TaskActionBar } from '@/components/chat/TaskActionBar'
 import { TaskFormDialog } from '@/components/chat/TaskFormDialog'
 import { TaskViewDialog } from '@/components/chat/TaskViewDialog'
-import { useLongPress } from '@/hooks/use-long-press'
+import { MessageItem } from '@/components/chat/MessageItem'
 import pb from '@/lib/pocketbase/client'
 import { getTasks } from '@/services/tasks'
 import { Task } from '@/types/models'
@@ -52,181 +47,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-
-// Detecta URLs em texto e renderiza como hyperlink colorido. Sem dependência
-// externa — regex simples cobre http(s) URLs. Quando o texto vem com link,
-// o card de preview embedded (msg.linkPreview) continua aparecendo se o
-// backend conseguiu extrair OG tags via Baileys; se não conseguiu, o
-// usuário ainda tem o link clicável aqui em cor diferente, pelo menos.
-//
-// Cor: branco azulado em msgs minhas (fundo verde), azul padrão em msgs
-// recebidas (fundo branco). Mantém legibilidade em ambos os casos.
-const URL_REGEX = /(https?:\/\/[^\s<>]+)/g
-
-// Card de preview embedded para URLs detectadas no texto que NÃO têm
-// linkPreview vindo do banco. Faz lazy fetch via /backend/v1/whatsapp/
-// link-preview quando o componente monta. Se o backend não conseguir
-// extrair OG tags úteis, retorna null (não renderiza nada).
-function LinkPreviewCard({ url, isMe }: { url: string; isMe: boolean }) {
-  const preview = useLinkPreview(url)
-  if (!preview) return null
-
-  let hostname = ''
-  try {
-    hostname = new URL(preview.url).hostname
-  } catch {
-    hostname = preview.url
-  }
-
-  return (
-    <a
-      href={preview.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={(e) => e.stopPropagation()}
-      className={cn(
-        'block mb-1 mx-1 mt-1 rounded-lg overflow-hidden bg-black/5 hover:bg-black/10 transition-colors border-l-4',
-        isMe ? 'border-white/50' : 'border-primary/50',
-      )}
-    >
-      {preview.image && (
-        <img
-          src={preview.image}
-          alt="Preview"
-          className="w-full h-32 object-cover"
-          onError={(e) => {
-            ;(e.target as HTMLImageElement).style.display = 'none'
-          }}
-        />
-      )}
-      <div className="p-2">
-        {preview.title && <h4 className="font-bold text-sm line-clamp-1">{preview.title}</h4>}
-        {preview.description && (
-          <p className="text-xs opacity-80 line-clamp-2 mt-0.5">{preview.description}</p>
-        )}
-        <span className="text-[10px] opacity-60 uppercase mt-1 block truncate">{hostname}</span>
-      </div>
-    </a>
-  )
-}
-
-// Extrai todas as URLs do texto. Usada pra decidir se renderiza
-// LinkPreviewCard (apenas quando há exatamente 1 URL no texto).
-function extractUrls(text: string): string[] {
-  if (!text) return []
-  const matches = text.match(URL_REGEX)
-  return matches || []
-}
-function renderTextWithLinks(
-  text: string,
-  isMe: boolean,
-  isHighlighted?: boolean,
-): React.ReactNode[] {
-  if (!text) return []
-  const parts: React.ReactNode[] = []
-  let lastIndex = 0
-  let match: RegExpExecArray | null
-  URL_REGEX.lastIndex = 0
-  while ((match = URL_REGEX.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index))
-    }
-    parts.push(
-      <a
-        key={`link-${match.index}`}
-        href={match[0]}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()}
-        className={cn(
-          'underline break-all hover:opacity-80',
-          isHighlighted ? '!text-blue-700 font-medium' : isMe ? 'text-blue-100' : 'text-blue-600',
-        )}
-      >
-        {match[0]}
-      </a>,
-    )
-    lastIndex = match.index + match[0].length
-  }
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex))
-  }
-  return parts
-}
-
-function MessageRow({
-  msg,
-  isSelected,
-  isSelectionMode,
-  toggleSelection,
-  children,
-}: {
-  msg: any
-  isSelected: boolean
-  isSelectionMode: boolean
-  toggleSelection: (id: string) => void
-  children: React.ReactNode
-}) {
-  const { handlers, isPressing } = useLongPress({
-    onLongPress: () => {
-      if (!isSelectionMode) {
-        toggleSelection(msg.id)
-      }
-    },
-    onClick: () => {
-      if (isSelectionMode) {
-        toggleSelection(msg.id)
-      }
-    },
-  })
-
-  return (
-    <div
-      {...handlers}
-      className={cn(
-        'group relative flex flex-col w-full transition-colors -mx-4 px-4 py-0.5',
-        isSelectionMode || isPressing ? 'select-none' : '',
-        isSelected ? 'bg-primary/5' : '',
-      )}
-    >
-      <div
-        className={cn(
-          'absolute top-1/2 -translate-y-1/2 z-20 flex items-center justify-center transition-all duration-200',
-          isSelectionMode
-            ? 'left-6 opacity-100 cursor-pointer'
-            : 'left-2 opacity-0 md:group-hover:opacity-100 cursor-pointer',
-        )}
-        onClick={(e) => {
-          e.stopPropagation()
-          toggleSelection(msg.id)
-        }}
-        data-selection-toggle="true"
-        aria-label={isSelected ? 'Desmarcar mensagem' : 'Selecionar mensagem'}
-      >
-        <div
-          className={cn(
-            'w-5 h-5 rounded-full border flex items-center justify-center transition-colors',
-            isSelected
-              ? 'bg-primary border-primary'
-              : 'border-muted-foreground/40 bg-background/90 hover:border-primary',
-          )}
-        >
-          {isSelected && <Check className="w-3 h-3 text-white" />}
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          'flex flex-col w-full transition-all duration-200',
-          isSelectionMode ? 'pl-10' : '',
-        )}
-      >
-        {children}
-      </div>
-    </div>
-  )
-}
-
 type ChatAreaProps = {
   chat: any
   onBack: () => void
@@ -693,141 +513,17 @@ export function ChatArea({
     }
   }
 
-  const renderMedia = (msg: any, isMe: boolean) => {
-    if (msg.status === 'media_failed') {
-      return (
-        <div
-          className={cn(
-            'flex items-center gap-2 p-2 rounded-lg mb-1',
-            isMe ? 'bg-black/10 text-white/80' : 'bg-black/5 text-muted-foreground',
-          )}
-        >
-          <AlertCircle className="w-5 h-5 shrink-0" />
-          <span className="text-sm italic">Mídia indisponível</span>
-        </div>
-      )
-    }
+  const handleSelectMedia = useCallback(
+    (media: { url: string; type: string; mimetype?: string; name?: string }) => {
+      setSelectedMedia(media)
+      setMediaModalOpen(true)
+    },
+    [],
+  )
 
-    if (!msg.media) return null
-
-    const { type, url, name, mimetype } = msg.media
-
-    if (type === 'image') {
-      return (
-        <img
-          src={url}
-          alt="attachment"
-          className="rounded-lg mb-1 max-w-full w-auto max-h-[300px] object-cover cursor-pointer hover:opacity-90 transition-opacity"
-          onClick={(e) => {
-            e.stopPropagation()
-            setSelectedMedia({ url, type, mimetype, name })
-            setMediaModalOpen(true)
-          }}
-        />
-      )
-    }
-
-    if (type === 'video') {
-      return (
-        <video
-          src={url}
-          controls
-          onClick={(e) => e.stopPropagation()}
-          className="rounded-lg mb-1 max-w-full w-auto max-h-[300px] object-cover cursor-pointer"
-        />
-      )
-    }
-
-    if (type === 'audio') {
-      return (
-        <div className="mb-1 rounded-xl min-w-[200px] w-full flex items-center">
-          <audio
-            src={url}
-            controls
-            onClick={(e) => e.stopPropagation()}
-            className="w-full h-10 max-w-full bg-transparent"
-          />
-        </div>
-      )
-    }
-
-    if (type === 'document') {
-      return (
-        <div
-          className={cn(
-            'flex items-center gap-3 p-3 rounded-lg mb-1 w-full min-w-0',
-            isMe ? 'bg-black/10' : 'bg-black/5',
-          )}
-        >
-          <div className={cn('p-2 rounded-full shrink-0', isMe ? 'bg-white/20' : 'bg-primary/10')}>
-            <FileText className={cn('w-5 h-5', isMe ? 'text-white' : 'text-primary')} />
-          </div>
-          <div className="flex-1 min-w-0 overflow-hidden">
-            <p className="font-medium text-sm truncate" title={name}>
-              {name}
-            </p>
-            <p
-              className={cn(
-                'text-[11px] uppercase truncate',
-                isMe ? 'text-white/70' : 'text-muted-foreground',
-              )}
-            >
-              {mimetype ? mimetype.split('/')[1] || 'Documento' : 'Documento'}
-            </p>
-          </div>
-          <div className="flex shrink-0 gap-1">
-            {mimetype === 'application/pdf' && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  'rounded-full w-8 h-8',
-                  isMe ? 'hover:bg-black/20 text-white' : 'hover:bg-black/10 text-primary',
-                )}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedMedia({ url, type, mimetype, name })
-                  setMediaModalOpen(true)
-                }}
-              >
-                <Eye className="w-4 h-4" />
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              asChild
-              onClick={(e) => e.stopPropagation()}
-              className={cn(
-                'rounded-full w-8 h-8',
-                isMe ? 'hover:bg-black/20 text-white' : 'hover:bg-black/10 text-primary',
-              )}
-            >
-              <a href={url} download={name || 'document'} target="_blank" rel="noreferrer">
-                <FileDown className="w-4 h-4" />
-              </a>
-            </Button>
-          </div>
-        </div>
-      )
-    }
-
-    if (type === 'sticker') {
-      return (
-        <img src={url} alt="sticker" className="w-32 h-32 object-contain drop-shadow-sm mb-1" />
-      )
-    }
-
-    return null
-  }
-
-  const formatTime = (ts: string) => {
-    try {
-      return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    } catch {
-      return ts
-    }
-  }
+  const handleTaskView = useCallback((msgId: string) => {
+    setTaskViewMessageId(msgId)
+  }, [])
 
   return (
     <div className="flex flex-col h-full bg-[#f0f2f5] relative w-full">
@@ -971,249 +667,28 @@ export function ChatArea({
         )}
         {(chat.messages || []).map((msg: any, idx: number) => {
           const isMe = msg.senderId === 'me'
-
           const prevMsg = chat.messages?.[idx - 1]
           const isFirstInGroup = idx === 0 || prevMsg?.senderId !== msg.senderId
-
           const showSenderName = chat.type === 'group' && !isMe && isFirstInGroup
-
           const senderColor = chat.groupDetails?.colors?.[msg.senderId] || '#5A6B5A'
-          const isSticker = msg.media?.type === 'sticker'
-          const hasMedia = !!msg.media && !isSticker
-
           const isSelected = selectedMessages.has(msg.id)
 
           return (
-            <MessageRow
+            <MessageItem
               key={msg.id}
               msg={msg}
-              isSelected={isSelected}
+              isMe={isMe}
+              isFirstInGroup={isFirstInGroup}
+              showSenderName={showSenderName}
+              senderColor={senderColor}
               isSelectionMode={isSelectionMode}
-              toggleSelection={toggleSelection}
-            >
-              <div
-                data-message-id={msg.id}
-                className={cn(
-                  'flex flex-col w-fit min-w-0 max-w-[85%] sm:max-w-[70%] md:max-w-[60%]',
-                  isMe ? 'self-end' : 'self-start animate-fade-in-up',
-                  isFirstInGroup && idx !== 0 ? 'mt-2' : '',
-                )}
-              >
-                <div className="relative flex flex-col w-full">
-                  {!isSelectionMode &&
-                    tasksByMessageId.get(msg.id) &&
-                    tasksByMessageId.get(msg.id)!.length > 0 && (
-                      <div
-                        data-task-marker="true"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setTaskViewMessageId(msg.id)
-                        }}
-                        className={cn(
-                          'absolute top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-7 h-7 rounded-full text-white cursor-pointer shadow-sm ring-2 hover:scale-110 transition-transform',
-                          isMe ? '-left-10' : '-right-10',
-                          (() => {
-                            const tasks = tasksByMessageId.get(msg.id)!
-                            const active = tasks.find((t) => t.status === 'em_andamento')
-                            const pending = tasks.find((t) => t.status === 'pendente')
-                            const status = active?.status || pending?.status || tasks[0]?.status
-                            switch (status) {
-                              case 'pendente':
-                                return 'bg-slate-500 ring-slate-500/30'
-                              case 'em_andamento':
-                                return 'bg-amber-500 ring-amber-500/30'
-                              case 'concluida':
-                                return 'bg-emerald-500 ring-emerald-500/30'
-                              case 'cancelada':
-                                return 'bg-rose-500 ring-rose-500/30'
-                              default:
-                                return 'bg-slate-500 ring-slate-500/30'
-                            }
-                          })(),
-                        )}
-                      >
-                        <ListTodo className="w-3.5 h-3.5" />
-                        {tasksByMessageId.get(msg.id)!.length > 1 && (
-                          <span className="absolute -top-1 -right-1 bg-primary text-white text-[9px] font-bold w-3.5 h-3.5 rounded-full flex items-center justify-center ring-1 ring-white">
-                            {tasksByMessageId.get(msg.id)!.length}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  <div
-                    className={cn(
-                      'relative text-[15px] flex flex-col w-auto min-w-0 overflow-hidden transition-all duration-500',
-                      !isSticker && 'shadow-sm',
-                      !isSticker && (hasMedia ? 'p-1' : 'px-3 py-2 pb-5'),
-                      localHighlight === msg.id && !isSticker
-                        ? 'bg-yellow-100 ring-2 ring-yellow-400 !text-slate-900 z-10 scale-[1.02]'
-                        : isMe && !isSticker
-                          ? 'bg-[#0a7c52] text-white rounded-2xl ml-auto'
-                          : !isSticker
-                            ? 'bg-white text-foreground rounded-2xl border border-border/50'
-                            : 'ml-auto',
-                      isFirstInGroup && !isSticker
-                        ? isMe
-                          ? 'rounded-tr-none'
-                          : 'rounded-tl-none'
-                        : '',
-                    )}
-                  >
-                    {isFirstInGroup && !isSticker && (
-                      <div
-                        className={cn(
-                          'absolute top-0 w-3 h-3 overflow-hidden',
-                          isMe ? '-right-2' : '-left-2',
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            'w-4 h-4 rounded-full absolute -top-1',
-                            isMe
-                              ? '-left-1 bg-[#0a7c52]'
-                              : '-right-1 bg-white border border-border/50',
-                          )}
-                        />
-                      </div>
-                    )}
-
-                    {showSenderName && !isSticker && (
-                      <span
-                        className={cn('text-xs font-bold mb-1', hasMedia ? 'px-2 pt-1' : '')}
-                        style={{ color: senderColor }}
-                      >
-                        {(() => {
-                          // Hierarquia: pushName real > número formatado (BR ou +N)
-                          // > "Participante" (pra @lid e JIDs sem dígitos).
-                          // Antes, números longos como 148541477503216 apareciam
-                          // crus; agora vêm como +148541477503216 ou +55 11 99999-9999.
-                          if (msg.pushName) return msg.pushName
-                          const formatted = jidToDisplayName(msg.senderId)
-                          return formatted === 'Sem nome' ? 'Participante' : formatted
-                        })()}
-                      </span>
-                    )}
-
-                    {renderMedia(msg, isMe)}
-
-                    {msg.linkPreview && (
-                      <a
-                        href={msg.linkPreview.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className={cn(
-                          'block mb-1 mx-1 mt-1 rounded-lg overflow-hidden bg-black/5 hover:bg-black/10 transition-colors border-l-4',
-                          isMe ? 'border-white/50' : 'border-primary/50',
-                        )}
-                      >
-                        {msg.linkPreview.thumbnailB64 && (
-                          <img
-                            src={`data:image/jpeg;base64,${msg.linkPreview.thumbnailB64}`}
-                            alt="Preview"
-                            className="w-full h-32 object-cover"
-                          />
-                        )}
-                        <div className="p-2">
-                          <h4 className="font-bold text-sm line-clamp-1">
-                            {msg.linkPreview.title}
-                          </h4>
-                          <p className="text-xs opacity-80 line-clamp-2 mt-0.5">
-                            {msg.linkPreview.description}
-                          </p>
-                          <span className="text-[10px] opacity-60 uppercase mt-1 block truncate">
-                            {(() => {
-                              try {
-                                return new URL(msg.linkPreview.url).hostname
-                              } catch {
-                                return msg.linkPreview.url
-                              }
-                            })()}
-                          </span>
-                        </div>
-                      </a>
-                    )}
-
-                    {!msg.linkPreview &&
-                      msg.text &&
-                      (() => {
-                        // Render preview embedded automático quando há
-                        // EXATAMENTE 1 URL no texto e o backend não nos
-                        // deu um linkPreview pronto. Múltiplas URLs ficam
-                        // só com o linkify in-text — mostrar 3 cards num
-                        // só balão polui.
-                        const urls = extractUrls(msg.text)
-                        if (urls.length !== 1) return null
-                        return <LinkPreviewCard url={urls[0]} isMe={isMe} />
-                      })()}
-
-                    {msg.text && (
-                      <div className={cn('flex-1 min-w-0', hasMedia ? 'px-2 pb-5' : '')}>
-                        <p
-                          className={cn(
-                            'leading-snug break-words whitespace-pre-wrap',
-                            isSticker &&
-                              'bg-white/80 p-2 rounded-lg text-sm text-foreground mt-1 shadow-sm',
-                          )}
-                        >
-                          {renderTextWithLinks(msg.text, isMe, localHighlight === msg.id)}
-                        </p>
-                      </div>
-                    )}
-
-                    <span
-                      className={cn(
-                        'text-[10px] opacity-60 flex items-center gap-1 pointer-events-none transition-colors',
-                        localHighlight === msg.id
-                          ? '!text-slate-600'
-                          : isMe && !isSticker
-                            ? 'text-white'
-                            : 'text-muted-foreground',
-                        isSticker &&
-                          'bg-white/80 px-2 py-0.5 rounded-full backdrop-blur-sm self-end mt-1',
-                        !isSticker && 'absolute bottom-1 right-2',
-                      )}
-                    >
-                      {formatTime(msg.timestamp)}
-                      {isMe && <Check className="w-3 h-3 ml-0.5 opacity-80" />}
-                    </span>
-                  </div>
-
-                  {msg.ai_response_error && (
-                    <div className="mt-1 text-[10px] text-destructive flex items-center gap-1 bg-destructive/10 px-2 py-0.5 rounded-md">
-                      <AlertCircle className="w-3 h-3" />
-                      Erro na IA: {msg.ai_response_error}
-                    </div>
-                  )}
-
-                  {msg.reactions && msg.reactions.length > 0 && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className={cn(
-                        'absolute -bottom-2 flex flex-wrap gap-1 px-2 py-1 rounded-full bg-white border border-border shadow-sm text-base z-10',
-                        isMe ? 'right-2' : 'left-2',
-                      )}
-                    >
-                      {Array.from(new Set(msg.reactions.map((r: any) => r.emoji))).map(
-                        (emoji: string, i) => (
-                          <span key={i} className="leading-none">
-                            {emoji}
-                          </span>
-                        ),
-                      )}
-                      {msg.reactions.length > 1 && (
-                        <span className="text-[11px] font-bold text-muted-foreground ml-0.5 leading-none self-center">
-                          {msg.reactions.length}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Spacer for reactions overflow */}
-                {msg.reactions && msg.reactions.length > 0 && <div className="h-4 w-full" />}
-              </div>
-            </MessageRow>
+              isSelected={isSelected}
+              localHighlight={localHighlight}
+              tasksForMessage={tasksByMessageId.get(msg.id)}
+              onToggleSelection={toggleSelection}
+              onSelectMedia={handleSelectMedia}
+              onTaskView={handleTaskView}
+            />
           )
         })}
 
