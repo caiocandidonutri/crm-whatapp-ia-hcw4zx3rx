@@ -52,3 +52,19 @@ export const updateCrmContactStage = async (id: string, stage: string) => {
 export const deleteCrmContact = async (id: string) => {
   return pb.collection('crm_contacts').delete(id)
 }
+
+export interface ImportConversasResult {
+  total: number
+  created: number
+  classified: number
+  skipped: number
+  errors: number
+}
+
+export const importarConversasCRM = async () => {
+  return pb.send<ImportConversasResult>('/backend/v1/crm/import-conversations', {
+    method: 'POST',
+    body: JSON.stringify({}),
+    headers: { 'Content-Type': 'application/json' },
+  })
+}

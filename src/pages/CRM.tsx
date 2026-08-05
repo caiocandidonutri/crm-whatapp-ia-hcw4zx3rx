@@ -18,6 +18,8 @@ import {
   List,
   Columns3,
   Workflow,
+  Sparkles,
+  Loader2,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -49,7 +51,12 @@ import { useSearchParams } from 'react-router-dom'
 import pb from '@/lib/pocketbase/client'
 import { useInstanciaAtiva } from '@/hooks/use-whatsapp'
 import { useCrmContatos, formatPhoneBR } from '@/hooks/use-crm'
-import { updateCrmContactStage, deleteCrmContact } from '@/services/crm_service'
+import {
+  updateCrmContactStage,
+  deleteCrmContact,
+  importarConversasCRM,
+} from '@/services/crm_service'
+import type { ImportConversasResult } from '@/services/crm_service'
 import { getDisplayName, isInvalidContactName } from '@/lib/whatsapp-mappers'
 import { CrmContact } from '@/types/models'
 import { CrmContactDetail } from '@/components/crm/CrmContactDetail'
@@ -88,6 +95,8 @@ export default function CRM() {
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [contactToDelete, setContactToDelete] = useState<CrmContact | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<ImportConversasResult | null>(null)
 
   const isCompanies = activeTab === COMPANIES_TAB_ID
 
@@ -160,6 +169,20 @@ export default function CRM() {
       setContactToDelete(null)
     } catch (err) {
       toast.error('Erro ao remover contato')
+    }
+  }
+
+  const handleImportConversas = async () => {
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const result = await importarConversasCRM()
+      setImportResult(result)
+      reload()
+    } catch (err) {
+      toast.error('Erro ao importar conversas. Tente novamente.')
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -270,6 +293,25 @@ export default function CRM() {
             >
               <Workflow className="w-3.5 h-3.5 mr-1.5" />
               Editar pipeline
+            </Button>
+          )}
+
+          {/* Importar conversas */}
+          {!isCompanies && (
+            <Button
+              variant="outline"
+              className={cn(
+                'rounded-full h-9 px-4 font-sans font-medium whitespace-nowrap shrink-0 bg-primary/5 backdrop-blur-sm hover:bg-primary/10 border-primary/30 text-primary',
+              )}
+              onClick={handleImportConversas}
+              disabled={importing}
+            >
+              {importing ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              {importing ? 'Importando...' : 'Importar conversas'}
             </Button>
           )}
 
@@ -767,6 +809,78 @@ export default function CRM() {
               Remover
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Progress / Result Dialog */}
+      <Dialog open={importing || !!importResult} onOpenChange={(o) => !o && setImportResult(null)}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          {importing ? (
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                Importando conversas
+              </DialogTitle>
+              <DialogDescription>
+                Analisando até 70 conversas e classificando contatos com IA. Isso pode levar de 1 a
+                2 minutos...
+              </DialogDescription>
+            </DialogHeader>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-primary" />
+                  Importação concluída!
+                </DialogTitle>
+                <DialogDescription>
+                  {importResult && (
+                    <div className="space-y-2 mt-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          Total de conversas analisadas:
+                        </span>
+                        <span className="font-semibold text-foreground">{importResult.total}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Novos contatos criados:</span>
+                        <span className="font-semibold text-green-600">{importResult.created}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Classificados pela IA:</span>
+                        <span className="font-semibold text-blue-600">
+                          {importResult.classified}
+                        </span>
+                      </div>
+                      {importResult.skipped > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            Sem mensagens para analisar:
+                          </span>
+                          <span className="font-medium text-muted-foreground">
+                            {importResult.skipped}
+                          </span>
+                        </div>
+                      )}
+                      {importResult.errors > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Erros:</span>
+                          <span className="font-medium text-destructive">
+                            {importResult.errors}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="mt-4">
+                <Button onClick={() => setImportResult(null)} className="rounded-xl">
+                  Fechar
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
