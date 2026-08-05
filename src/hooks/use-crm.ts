@@ -38,39 +38,42 @@ export function useCrmContatos(instanceName?: string) {
     loadData()
   }, [instanceName])
 
-  useRealtime('crm_contacts', (e) => {
-    if (e.record.instance_name !== instanceName) return
-  }, !!instanceName)
+  useRealtime(
+    'crm_contacts',
+    (e) => {
+      if (e.record.instance_name !== instanceName) return
 
-    if (e.action === 'create') {
-      const rec = e.record as CrmContact
-      setContacts((prev) => {
-        if (prev.some((c) => c.id === rec.id)) return prev
-        return [rec, ...prev]
-      })
-      // O payload do realtime não traz `expand`. Se o contato tem
-      // responsável/empresa, buscamos o registro expandido pra empresa e
-      // avatar aparecerem no card imediatamente (sem esperar um reload).
-      if (rec.assigned_to || rec.company_id) {
-        pb.collection('crm_contacts')
-          .getOne<CrmContact>(rec.id, { expand: 'assigned_to,company_id' })
-          .then((full) => setContacts((prev) => prev.map((c) => (c.id === full.id ? full : c))))
-          .catch(() => {})
+      if (e.action === 'create') {
+        const rec = e.record as CrmContact
+        setContacts((prev) => {
+          if (prev.some((c) => c.id === rec.id)) return prev
+          return [rec, ...prev]
+        })
+        // O payload do realtime não traz `expand`. Se o contato tem
+        // responsável/empresa, buscamos o registro expandido pra empresa e
+        // avatar aparecerem no card imediatamente (sem esperar um reload).
+        if (rec.assigned_to || rec.company_id) {
+          pb.collection('crm_contacts')
+            .getOne<CrmContact>(rec.id, { expand: 'assigned_to,company_id' })
+            .then((full) => setContacts((prev) => prev.map((c) => (c.id === full.id ? full : c))))
+            .catch(() => {})
+        }
+      } else if (e.action === 'update') {
+        // Preserva o expand anterior (responsável/empresa) que o realtime não
+        // envia — senão o avatar/empresa some do card ao arrastar/atualizar.
+        setContacts((prev) =>
+          prev.map((c) => {
+            if (c.id !== e.record.id) return c
+            const next = e.record as CrmContact
+            return { ...next, expand: next.expand || c.expand }
+          }),
+        )
+      } else if (e.action === 'delete') {
+        setContacts((prev) => prev.filter((c) => c.id !== e.record.id))
       }
-    } else if (e.action === 'update') {
-      // Preserva o expand anterior (responsável/empresa) que o realtime não
-      // envia — senão o avatar/empresa some do card ao arrastar/atualizar.
-      setContacts((prev) =>
-        prev.map((c) => {
-          if (c.id !== e.record.id) return c
-          const next = e.record as CrmContact
-          return { ...next, expand: next.expand || c.expand }
-        }),
-      )
-    } else if (e.action === 'delete') {
-      setContacts((prev) => prev.filter((c) => c.id !== e.record.id))
-    }
-  }, !!instanceName)
+    },
+    !!instanceName,
+  )
 
   return { contacts, loading, reload: loadData }
 }
