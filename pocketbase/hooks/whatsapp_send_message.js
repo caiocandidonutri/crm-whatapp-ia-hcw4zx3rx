@@ -65,7 +65,50 @@ routerAdd(
         errBody = res.body ? new TextDecoder().decode(res.body) : ''
       } catch (err) {}
       $app.logger().error('Erro Evolution API sendText', 'status', res.statusCode, 'body', errBody)
-      throw new BadRequestError('Erro ao enviar mensagem pela Evolution API')
+
+      var errorDetail = ''
+      try {
+        if (res.json) {
+          var parsed = res.json
+          if (parsed.error) {
+            errorDetail =
+              typeof parsed.error === 'string' ? parsed.error : JSON.stringify(parsed.error)
+          } else if (parsed.message) {
+            errorDetail =
+              typeof parsed.message === 'string' ? parsed.message : JSON.stringify(parsed.message)
+          } else if (parsed.response && parsed.response.message) {
+            errorDetail = parsed.response.message
+          }
+        }
+      } catch (_) {}
+
+      if (!errorDetail && errBody) {
+        try {
+          var parsedBody = JSON.parse(errBody)
+          if (parsedBody.error) {
+            errorDetail =
+              typeof parsedBody.error === 'string'
+                ? parsedBody.error
+                : JSON.stringify(parsedBody.error)
+          } else if (parsedBody.message) {
+            errorDetail =
+              typeof parsedBody.message === 'string'
+                ? parsedBody.message
+                : JSON.stringify(parsedBody.message)
+          }
+        } catch (_) {
+          if (errBody.length < 500) errorDetail = errBody
+        }
+      }
+
+      var userMessage = 'Erro ao enviar mensagem pela Evolution API'
+      if (errorDetail) {
+        userMessage = userMessage + ': ' + errorDetail
+      } else {
+        userMessage = userMessage + ' (HTTP ' + res.statusCode + ')'
+      }
+
+      throw new BadRequestError(userMessage)
     }
 
     let accountId = ''

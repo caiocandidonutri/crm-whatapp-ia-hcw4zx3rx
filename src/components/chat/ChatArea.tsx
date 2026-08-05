@@ -12,7 +12,11 @@ import {
   Trash2,
   Check,
   Pencil,
+  AlertCircle,
+  X,
 } from 'lucide-react'
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { getErrorMessage } from '@/lib/pocketbase/errors'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -73,6 +77,7 @@ export function ChatArea({
 }: ChatAreaProps) {
   const [inputText, setInputText] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const [mediaModalOpen, setMediaModalOpen] = useState(false)
   const [selectedMedia, setSelectedMedia] = useState<{
     url: string
@@ -232,6 +237,7 @@ export function ChatArea({
   useEffect(() => {
     setHasMoreOlder(true)
     clearSelection()
+    setSendError(null)
   }, [chat?.id, clearSelection])
 
   // Atalho do teclado (Esc) para cancelar a seleção
@@ -484,11 +490,12 @@ export function ChatArea({
     if (!inputText.trim() || isSending || !onSendMessage) return
 
     setIsSending(true)
+    setSendError(null)
     try {
       await onSendMessage(inputText)
       setInputText('')
     } catch (error) {
-      // erro tratado no Conversas.tsx
+      setSendError(getErrorMessage(error))
     } finally {
       setIsSending(false)
     }
@@ -498,6 +505,7 @@ export function ChatArea({
     if (!mediaFile || !selectedMediaType || isSending || !onSendMedia) return
 
     setIsSending(true)
+    setSendError(null)
     try {
       await onSendMedia(mediaFile, selectedMediaType, mediaCaption)
       toast.success('Mídia enviada com sucesso')
@@ -507,7 +515,7 @@ export function ChatArea({
       if (mediaPreviewUrl) URL.revokeObjectURL(mediaPreviewUrl)
       setMediaPreviewUrl(null)
     } catch (error) {
-      toast.error('Falha ao enviar mídia. Tente novamente')
+      setSendError(getErrorMessage(error))
     } finally {
       setIsSending(false)
     }
@@ -730,6 +738,28 @@ export function ChatArea({
         }}
         tasks={taskViewTasks}
       />
+
+      {sendError && (
+        <div className="bg-destructive/5 px-3 pt-3 z-10 border-t border-destructive/20">
+          <Alert variant="destructive" className="relative pr-10">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Falha ao enviar mensagem</AlertTitle>
+            <AlertDescription>
+              <span className="block text-sm">{sendError}</span>
+              {chat?.name && (
+                <span className="block text-xs mt-1 opacity-80">Destinatário: {chat.name}</span>
+              )}
+            </AlertDescription>
+            <button
+              onClick={() => setSendError(null)}
+              className="absolute top-3 right-3 text-destructive/70 hover:text-destructive transition-colors"
+              aria-label="Fechar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </Alert>
+        </div>
+      )}
 
       {/* Input Area */}
       <div className="bg-white p-3 md:p-4 border-t border-border z-10 flex items-end gap-2">

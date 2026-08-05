@@ -269,12 +269,7 @@ export default function Conversas() {
     if (!instance?.instance_name || !activeConversation?.remote_jid) {
       throw new Error('Instância não conectada ou conversa inválida')
     }
-    try {
-      await enviarTexto(instance.instance_name, activeConversation.remote_jid, text)
-    } catch (error: any) {
-      toast.error('Erro ao enviar mensagem: ' + (error.message || 'Erro desconhecido'))
-      throw error
-    }
+    await enviarTexto(instance.instance_name, activeConversation.remote_jid, text)
   }
 
   const handleSendMedia = async (file: File, mediatype: string, caption?: string) => {
