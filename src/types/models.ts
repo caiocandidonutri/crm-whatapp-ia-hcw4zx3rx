@@ -63,6 +63,7 @@ export interface AiAgent {
   user_id: string
   name: string
   system_prompt: string
+  documents?: string
   created: string
   updated: string
 }

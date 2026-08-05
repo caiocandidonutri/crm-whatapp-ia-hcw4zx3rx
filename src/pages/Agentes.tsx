@@ -69,7 +69,7 @@ export default function Agentes() {
     setIsDeleteOpen(true)
   }
 
-  const handleSubmit = async (values: any) => {
+  const handleSubmit = async (values: any, newDocuments: File[], keptDocuments: string[]) => {
     if (!user) {
       toast.error('Usuário não autenticado')
       throw new Error('Usuário não autenticado')
@@ -80,10 +80,10 @@ export default function Agentes() {
     }
     try {
       if (selectedAgent) {
-        await updateAiAgent(selectedAgent.id, values)
+        await updateAiAgent(selectedAgent.id, values, newDocuments, keptDocuments)
         toast.success('Agente atualizado com sucesso!')
       } else {
-        await createAiAgent({ ...values, user_id: user.id, account_id: accountId })
+        await createAiAgent({ ...values, user_id: user.id, account_id: accountId }, newDocuments)
         toast.success('Agente criado com sucesso!')
       }
     } catch (err) {

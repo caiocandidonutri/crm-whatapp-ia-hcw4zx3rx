@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Bot, Save, Loader2 } from 'lucide-react'
+import { Bot, Save, Loader2, Paperclip, X, FileText } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -39,50 +39,67 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   agent: AiAgent | null
-  onSubmit: (data: FormValues) => Promise<void>
+  onSubmit: (data: FormValues, newDocuments: File[], keptDocuments: string[]) => Promise<void>
 }
 
 export function AgenteFormDialog({ open, onOpenChange, agent, onSubmit }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [newFiles, setNewFiles] = useState<File[]>([])
+  const [removedDocs, setRemovedDocs] = useState<string[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      name: '',
-      system_prompt: '',
-    },
+    defaultValues: { name: '', system_prompt: '' },
   })
+
+  const existingDocs: string[] = agent?.documents
+    ? agent.documents
+        .split(',')
+        .map((d) => d.trim())
+        .filter(Boolean)
+    : []
 
   useEffect(() => {
     if (open) {
+      setNewFiles([])
+      setRemovedDocs([])
       if (agent) {
-        form.reset({
-          name: agent.name,
-          system_prompt: agent.system_prompt,
-        })
+        form.reset({ name: agent.name, system_prompt: agent.system_prompt })
       } else {
-        form.reset({
-          name: '',
-          system_prompt: '',
-        })
+        form.reset({ name: '', system_prompt: '' })
       }
     }
   }, [open, agent, form])
 
+  const handleAddFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    setNewFiles((prev) => [...prev, ...files])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const removeNewFile = (idx: number) => {
+    setNewFiles((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  const toggleRemoveExisting = (filename: string) => {
+    setRemovedDocs((prev) =>
+      prev.includes(filename) ? prev.filter((f) => f !== filename) : [...prev, filename],
+    )
+  }
+
   const handleSubmit = async (values: FormValues) => {
     setIsSubmitting(true)
     try {
-      await onSubmit(values)
+      const kept = existingDocs.filter((d) => !removedDocs.includes(d))
+      await onSubmit(values, newFiles, kept)
       onOpenChange(false)
     } catch (err) {
       const fieldErrors = extractFieldErrors(err)
       if (Object.keys(fieldErrors).length > 0) {
         Object.entries(fieldErrors).forEach(([field, message]) => {
           if (field === 'name' || field === 'system_prompt') {
-            form.setError(field as 'name' | 'system_prompt', {
-              type: 'server',
-              message,
-            })
+            form.setError(field as 'name' | 'system_prompt', { type: 'server', message })
           }
         })
       }
@@ -90,6 +107,8 @@ export function AgenteFormDialog({ open, onOpenChange, agent, onSubmit }: Props)
       setIsSubmitting(false)
     }
   }
+
+  const visibleExisting = existingDocs.filter((d) => !removedDocs.includes(d))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -100,8 +119,8 @@ export function AgenteFormDialog({ open, onOpenChange, agent, onSubmit }: Props)
             {agent ? 'Editar Agente' : 'Novo Agente de IA'}
           </DialogTitle>
           <DialogDescription>
-            Configure as instruções e persona do agente. Ele é integrado nativamente ao Skip Cloud
-            AI.
+            Configure as instruções, persona e documentos do agente. Integrado nativamente ao Skip
+            Cloud AI.
           </DialogDescription>
         </DialogHeader>
 
@@ -143,6 +162,76 @@ export function AgenteFormDialog({ open, onOpenChange, agent, onSubmit }: Props)
                 </FormItem>
               )}
             />
+
+            <div className="space-y-3">
+              <FormLabel>Documentos do Agente</FormLabel>
+              <p className="text-xs text-muted-foreground">
+                PDFs, imagens e documentos que a IA pode enviar aos pacientes quando necessário.
+              </p>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                className="hidden"
+                onChange={handleAddFiles}
+              />
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip className="w-4 h-4 mr-2" />
+                Adicionar documento
+              </Button>
+
+              {(visibleExisting.length > 0 || newFiles.length > 0) && (
+                <div className="space-y-2">
+                  {visibleExisting.map((doc) => (
+                    <div
+                      key={doc}
+                      className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
+                    >
+                      <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm truncate flex-1">{doc}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => toggleRemoveExisting(doc)}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                  {newFiles.map((file, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2"
+                    >
+                      <FileText className="w-4 h-4 text-primary shrink-0" />
+                      <span className="text-sm truncate flex-1">{file.name}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {(file.size / 1024).toFixed(0)} KB
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeNewFile(idx)}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <DialogFooter className="pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
