@@ -1,247 +1,140 @@
-onRecordAfterCreateSuccess((e) => {
-  const msg = e.record
-
-  if (msg.getBool('from_me')) return e.next()
-
-  const remoteJid = msg.getString('remote_jid')
-  if (remoteJid.endsWith('@g.us')) return e.next()
-
-  const instanceName = msg.getString('instance_name')
-  const userId = msg.getString('user_id')
-  const msgType = msg.getString('message_type')
-  const isText = msgType === 'conversation' || msgType === 'extendedTextMessage'
-
-  const nowTs = Math.floor(Date.now() / 1000)
-  const msgTs = msg.getInt('timestamp') || 0
-  const msgAge = msgTs > 0 ? nowTs - msgTs : 999999
-  if (msgAge > 300) return e.next()
-
-  let conv = null
-  try {
-    conv = $app.findFirstRecordByFilter(
-      'conversations',
-      'remote_jid = {:jid} && instance_name = {:instance}',
-      { jid: remoteJid, instance: instanceName },
-    )
-  } catch (_) {}
-
-  if (conv && conv.getBool('is_group')) return e.next()
-
-  let accountId = msg.getString('account_id') || ''
-  if (!accountId && conv) {
-    accountId = conv.getString('account_id') || ''
-  }
-
-  let contact = null
-  let isNewContact = false
-
-  try {
-    contact = $app.findFirstRecordByFilter(
-      'crm_contacts',
-      'instance_name = {:instance} && jid = {:jid}',
-      { instance: instanceName, jid: remoteJid },
-    )
-  } catch (_) {
+routerAdd(
+  'POST',
+  '/backend/v1/whatsapp/crm-classify/{conversationId}',
+  (e) => {
     try {
-      const contactCol = $app.findCollectionByNameOrId('crm_contacts')
-      contact = new Record(contactCol)
-      contact.set('user_id', userId)
-      if (accountId) contact.set('account_id', accountId)
-      contact.set('instance_name', instanceName)
-      contact.set('jid', remoteJid)
-      contact.set('phone', remoteJid.split('@')[0])
-      const pushName =
-        msg.getString('push_name') || (conv ? conv.getString('contact_name') : '') || ''
-      contact.set('push_name', pushName)
-      contact.set('contact_name', (conv ? conv.getString('contact_name') : '') || pushName || '')
-      contact.set('avatar_url', (conv ? conv.getString('avatar_url') : '') || '')
-      contact.set('stage', 'lead')
-      contact.set('role', '')
-      $app.save(contact)
-      isNewContact = true
-    } catch (err) {
-      $app.logger().error('crm_classify_create_error', 'error', String(err), 'jid', remoteJid)
-      return e.next()
-    }
-  }
+      const conversationId = e.request.pathValue('conversationId')
+      if (!conversationId) return e.badRequestError('conversationId is required')
 
-  if (!isText) return e.next()
+      const userId = e.auth && e.auth.id
+      if (!userId) return e.unauthorizedError('auth required')
 
-  const openaiKey = $secrets.get('OPENAI_API_KEY')
-  if (!openaiKey) return e.next()
-
-  const CLASSIFY_EVERY_N = 5
-
-  let messageCount = 0
-  try {
-    const row = $app
-      .db()
-      .newQuery(
-        'SELECT COUNT(*) as cnt FROM whatsapp_messages WHERE remote_jid = {:jid} AND instance_name = {:instance} AND from_me = 0',
-      )
-      .bind({ jid: remoteJid, instance: instanceName })
-      .one()
-    if (row && row.cnt) messageCount = parseInt(row.cnt, 10) || 0
-  } catch (_) {
-    messageCount = 1
-  }
-
-  if (!isNewContact && messageCount > 1 && messageCount % CLASSIFY_EVERY_N !== 0) {
-    return e.next()
-  }
-
-  let recentMessages = []
-  try {
-    recentMessages = $app.findRecordsByFilter(
-      'whatsapp_messages',
-      'remote_jid = {:jid} && instance_name = {:instance}',
-      '-timestamp',
-      10,
-      0,
-      { jid: remoteJid, instance: instanceName },
-    )
-  } catch (_) {
-    return e.next()
-  }
-
-  if (recentMessages.length === 0) return e.next()
-
-  const sorted = recentMessages.slice().reverse()
-  let transcript = ''
-  for (const m of sorted) {
-    const fromMe = m.getBool('from_me')
-    const content = m.getString('content') || '[midia]'
-    const sender = fromMe ? 'Atendente' : m.getString('push_name') || 'Contato'
-    transcript += sender + ': ' + content + '\n'
-  }
-
-  const systemPrompt =
-    'Voce e um classificador de CRM para conversas de WhatsApp. Analise a conversa abaixo e classifique o contato.\n\n' +
-    'Retorne APENAS um objeto JSON valido (sem texto adicional) com:\n' +
-    '- "stage": uma de "lead", "em_atendimento", "cliente", "nao_respondido"\n' +
-    '  - "lead": contato inicial, sem conversa significativa ainda\n' +
-    '  - "em_atendimento": conversa ativa, sendo atendido\n' +
-    '  - "cliente": consulta confirmada ou servico contratado\n' +
-    '  - "nao_respondido": contato parou de responder\n' +
-    '- "role": "paciente" ou "nao_paciente"\n\n' +
-    'Exemplo: {"stage":"em_atendimento","role":"paciente"}'
-
-  let openaiRes
-  try {
-    openaiRes = $http.send({
-      url: 'https://api.openai.com/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + openaiKey,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: transcript },
-        ],
-        temperature: 0,
-        max_tokens: 100,
-      }),
-      timeout: 30,
-    })
-  } catch (err) {
-    $app.logger().error('crm_classify_openai_error', 'error', String(err), 'jid', remoteJid)
-    return e.next()
-  }
-
-  if (openaiRes.statusCode !== 200) {
-    $app
-      .logger()
-      .warn('crm_classify_openai_status', 'status', openaiRes.statusCode, 'jid', remoteJid)
-    return e.next()
-  }
-
-  let contentText = ''
-  try {
-    contentText = openaiRes.json.choices[0].message.content
-  } catch (_) {
-    return e.next()
-  }
-
-  let classification = null
-  try {
-    classification = JSON.parse(contentText)
-  } catch (_) {
-    const match = contentText.match(/\{[\s\S]*\}/)
-    if (match) {
+      let conversation
       try {
-        classification = JSON.parse(match[0])
-      } catch (_) {}
-    }
-  }
-
-  if (!classification) return e.next()
-
-  const validStages = ['lead', 'em_atendimento', 'cliente', 'nao_respondido']
-  const newStage = validStages.indexOf(classification.stage) >= 0 ? classification.stage : null
-  if (!newStage) return e.next()
-
-  const newRole =
-    classification.role === 'paciente' || classification.role === 'nao_paciente'
-      ? classification.role
-      : null
-
-  try {
-    const contactRecord = $app.findRecordById('crm_contacts', contact.id)
-    contactRecord.set('stage', newStage)
-    if (newRole) contactRecord.set('role', newRole)
-    $app.save(contactRecord)
-  } catch (err) {
-    $app.logger().error('crm_classify_update_error', 'error', String(err), 'jid', remoteJid)
-  }
-
-  try {
-    var sPrompt =
-      'You are an AI assistant for Dr. Caio, a nutritionist. Based on the conversation and contact info below, suggest the next best action and a priority score (1-10, where 10 is most urgent).\n\n' +
-      'Context: Dr. Caio is a nutritionist who sees patients. Conversations may be about appointment scheduling, nutritional questions, follow-ups, etc.\n\n' +
-      'Return ONLY a JSON object: {"action": "short action in Portuguese", "priority": number}\n\n' +
-      'Examples:\n{"action":"Seguir contato","priority":5}\n{"action":"Confirmar consulta","priority":8}\n{"action":"Agendar retorno","priority":7}'
-
-    var sInput =
-      'Stage: ' + newStage + '\nRole: ' + (newRole || '') + '\n\nTranscript:\n' + transcript
-
-    var sRes = $ai.chat({
-      model: 'fast',
-      messages: [
-        { role: 'system', content: sPrompt },
-        { role: 'user', content: sInput },
-      ],
-      temperature: 0,
-    })
-
-    var sText = ''
-    try {
-      sText = sRes.choices[0].message.content
-    } catch (_) {}
-
-    var sObj = null
-    try {
-      sObj = JSON.parse(sText)
-    } catch (_) {
-      var sMatch = sText.match(/\{[\s\S]*\}/)
-      if (sMatch) {
-        try {
-          sObj = JSON.parse(sMatch[0])
-        } catch (_) {}
+        conversation = $app.findRecordById('conversations', conversationId)
+      } catch (err) {
+        return e.notFoundError('conversation not found')
       }
-    }
 
-    if (sObj) {
-      var sRecord = $app.findRecordById('crm_contacts', contact.id)
-      sRecord.set('ai_suggested_action', sObj.action || '')
-      sRecord.set('ai_priority', Math.min(Math.max(parseInt(sObj.priority) || 5, 1), 10))
-      $app.save(sRecord)
-    }
-  } catch (sErr) {
-    $app.logger().warn('crm_classify_suggestion_error', 'error', String(sErr), 'jid', remoteJid)
-  }
+      const instanceName = conversation.getString('instance_name')
+      const remoteJid = conversation.getString('remote_jid')
+      const contactName = conversation.getString('contact_name') || remoteJid
 
-  return e.next()
-}, 'whatsapp_messages')
+      let messages = []
+      try {
+        messages = $app.findRecordsByFilter(
+          'whatsapp_messages',
+          'remote_jid = {:jid} && instance_name = {:inst}',
+          '-timestamp',
+          20,
+          0,
+          { jid: remoteJid, inst: instanceName },
+        )
+      } catch (err) {
+        $app.logger().error('crm-classify: failed to load messages', 'error', String(err))
+      }
+
+      if (messages.length === 0) {
+        return e.json(200, { classified: false, reason: 'no_messages' })
+      }
+
+      const transcript = messages
+        .slice(0, 15)
+        .reverse()
+        .map(function (m) {
+          const from = m.getBoolean('from_me') ? 'Atendente' : m.getString('push_name') || 'Cliente'
+          return from + ': ' + m.getString('content')
+        })
+        .join('\n')
+
+      let aiResult = null
+      try {
+        const reply = $ai.chat({
+          model: 'fast',
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Você é um assistente de CRM. Analise a conversa do WhatsApp e classifique o contato. Responda APENAS em JSON válido com os campos: stage (um de: lead, em_atendimento, cliente, nao_respondido), priority (um de: baixa, media, alta, urgente), suggested_action (breve próxima ação recomendada, max 120 chars).',
+            },
+            {
+              role: 'user',
+              content: 'Contato: ' + contactName + '\n\nTranscrição:\n' + transcript,
+            },
+          ],
+        })
+
+        const rawText =
+          reply.choices &&
+          reply.choices[0] &&
+          reply.choices[0].message &&
+          reply.choices[0].message.content
+        if (rawText) {
+          const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            aiResult = JSON.parse(jsonMatch[0])
+          }
+        }
+      } catch (aiErr) {
+        if (aiErr instanceof SkipAiConfigError) {
+          return e.json(503, { error: 'AI temporarily unavailable' })
+        }
+        $app.logger().error('crm-classify: AI call failed', 'error', String(aiErr))
+        return e.json(200, { classified: false, reason: 'ai_error' })
+      }
+
+      if (!aiResult) {
+        return e.json(200, { classified: false, reason: 'parse_failed' })
+      }
+
+      let crmContact = null
+      try {
+        crmContact = $app.findFirstRecordByFilter(
+          'crm_contacts',
+          'jid = {:jid} && instance_name = {:inst}',
+          { jid: remoteJid, inst: instanceName },
+        )
+      } catch (err) {
+        // no existing contact
+      }
+
+      if (crmContact) {
+        if (aiResult.stage) crmContact.set('stage', aiResult.stage)
+        if (aiResult.suggested_action)
+          crmContact.set('ai_suggested_action', aiResult.suggested_action)
+        if (aiResult.priority) crmContact.set('ai_priority', aiResult.priority)
+        $app.saveNoValidate(crmContact)
+      } else {
+        try {
+          const col = $app.findCollectionByNameOrId('crm_contacts')
+          crmContact = new Record(col)
+          crmContact.set('user_id', userId)
+          crmContact.set('instance_name', instanceName)
+          crmContact.set('jid', remoteJid)
+          crmContact.set('phone', conversation.getString('contact_phone') || '')
+          crmContact.set('push_name', contactName)
+          crmContact.set('contact_name', contactName)
+          if (aiResult.stage) crmContact.set('stage', aiResult.stage)
+          if (aiResult.suggested_action)
+            crmContact.set('ai_suggested_action', aiResult.suggested_action)
+          if (aiResult.priority) crmContact.set('ai_priority', aiResult.priority)
+          crmContact.set('account_id', conversation.getString('account_id'))
+          $app.saveNoValidate(crmContact)
+        } catch (createErr) {
+          $app.logger().error('crm-classify: failed to create contact', 'error', String(createErr))
+        }
+      }
+
+      return e.json(200, {
+        classified: true,
+        conversation_id: conversationId,
+        contact_id: crmContact ? crmContact.id : null,
+        classification: aiResult,
+      })
+    } catch (err) {
+      $app.logger().error('crm-classify: unexpected error', 'error', String(err))
+      return e.json(500, { error: 'classification failed' })
+    }
+  },
+  $apis.requireAuth(),
+)
