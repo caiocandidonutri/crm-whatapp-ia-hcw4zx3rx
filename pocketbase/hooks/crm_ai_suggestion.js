@@ -1,137 +1,108 @@
 routerAdd(
   'POST',
-  '/backend/v1/crm/refresh-suggestions',
+  '/backend/v1/crm/ai-suggestion',
   (e) => {
-    const authId = e.auth.id
-
-    let contacts = []
     try {
-      contacts = $app.findRecordsByFilter(
-        'crm_contacts',
-        'user_id = {:userId}',
-        '-updated',
-        100,
-        0,
-        { userId: authId },
-      )
-    } catch (_) {
-      return e.json(200, { total: 0, updated: 0, errors: 0 })
-    }
+      const body = e.requestInfo().body || {}
+      const userId = e.auth?.id
+      if (!userId) return e.unauthorizedError('auth required')
 
-    let updated = 0
-    let errors = 0
+      const contactId = body.contact_id
+      if (!contactId) return e.badRequestError('contact_id is required')
 
-    for (let i = 0; i < contacts.length; i++) {
-      const contact = contacts[i]
-      const remoteJid = contact.getString('remote_jid')
-      const instanceName = contact.getString('instance_name')
-      const stage = contact.getString('stage')
-      const role = contact.getString('role')
-
-      let messages = []
+      let contact
       try {
-        messages = $app.findRecordsByFilter(
-          'whatsapp_messages',
-          'remote_jid = {:jid} && instance_name = {:instance}',
-          '-timestamp',
-          10,
-          0,
-          { jid: remoteJid, instance: instanceName },
-        )
+        contact = $app.findRecordById('crm_contacts', contactId)
       } catch (_) {
-        errors++
-        continue
+        return e.notFoundError('contact not found')
       }
 
-      if (messages.length === 0) {
-        try {
-          const record = $app.findRecordById('crm_contacts', contact.id)
-          record.set('ai_suggested_action', 'Sem mensagens recentes')
-          record.set('ai_priority', 0)
-          $app.save(record)
-          updated++
-        } catch (_) {
-          errors++
+      const contactName =
+        contact.getString('contact_name') || contact.getString('push_name') || 'Contato'
+      const phone = contact.getString('phone') || ''
+      const stage = contact.getString('stage') || ''
+      const notes = contact.getString('notes') || ''
+
+      const messages = []
+      try {
+        const convFilter = 'remote_jid != "" && account_id != ""'
+        const conversations = $app.findRecordsByFilter(
+          'conversations',
+          'contact_phone = {:phone}',
+          '-created',
+          5,
+          0,
+          phone,
+        )
+        if (conversations.length > 0) {
+          const conv = conversations[0]
+          const recentMsgs = $app.findRecordsByFilter(
+            'whatsapp_messages',
+            'remote_jid = {:jid}',
+            '-timestamp',
+            10,
+            0,
+            conv.getString('remote_jid'),
+          )
+          for (const m of recentMsgs) {
+            const content = m.getString('content')
+            if (content) {
+              messages.push(m.getBool('from_me') ? 'Atendente: ' + content : 'Cliente: ' + content)
+            }
+          }
         }
-        continue
-      }
+      } catch (_) {}
 
-      let transcript = ''
-      const sorted = messages.slice().reverse()
-      for (let j = 0; j < sorted.length; j++) {
-        const content = sorted[j].getString('content') || ''
-        if (!content) continue
-        const fromMe = sorted[j].getBool('from_me')
-        const sender = fromMe ? 'Atendente' : sorted[j].getString('push_name') || 'Contato'
-        transcript += sender + ': ' + content + '\n'
-      }
-
-      if (!transcript.trim()) {
-        errors++
-        continue
-      }
+      const contextParts = [
+        'Nome: ' + contactName,
+        phone ? 'Telefone: ' + phone : '',
+        stage ? 'Estagio: ' + stage : '',
+        notes ? 'Notas: ' + notes : '',
+        messages.length > 0 ? 'Mensagens recentes:\n' + messages.join('\n') : '',
+      ].filter(Boolean)
 
       const systemPrompt =
-        'You are an AI assistant for Dr. Caio, a nutritionist. Based on the conversation and contact info below, suggest the next best action and a priority score (1-10, where 10 is most urgent).\n\n' +
-        'Context: Dr. Caio is a nutritionist who sees patients. Conversations may be about appointment scheduling, nutritional questions, follow-ups, etc.\n\n' +
-        'Return ONLY a JSON object: {"action": "short action in Portuguese", "priority": number}\n\n' +
-        'Examples:\n{"action":"Seguir contato","priority":5}\n{"action":"Confirmar consulta","priority":8}\n{"action":"Agendar retorno","priority":7}'
+        'Voce e um assistente de CRM. Analise o contato e as mensagens recentes. Responda em JSON com: { "suggested_action": string (proxima acao recomendada, max 200 chars), "priority": number (1-5, onde 5 e urgente) }. Responda apenas o JSON.'
 
-      let aiRes
+      const reply = $ai.chat({
+        model: 'fast',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: contextParts.join('\n') },
+        ],
+      })
+
+      const text = reply.choices[0].message.content.trim()
+      let parsed
       try {
-        aiRes = $ai.chat({
-          model: 'fast',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            {
-              role: 'user',
-              content: 'Stage: ' + stage + '\nRole: ' + role + '\n\nTranscript:\n' + transcript,
-            },
-          ],
-          temperature: 0,
+        const jsonMatch = text.match(/\{[\s\S]*\}/)
+        parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text)
+      } catch (_) {
+        parsed = { suggested_action: text.substring(0, 200), priority: 3 }
+      }
+
+      contact.set('ai_suggested_action', String(parsed.suggested_action || '').substring(0, 200))
+      const priority = Number(parsed.priority)
+      contact.set('ai_priority', Number.isFinite(priority) ? Math.min(Math.max(priority, 1), 5) : 3)
+      $app.save(contact)
+
+      return e.json(200, {
+        contact_id: contactId,
+        suggested_action: parsed.suggested_action || '',
+        priority: parsed.priority || 3,
+      })
+    } catch (err) {
+      if (err instanceof SkipAiConfigError) {
+        return e.json(503, { error: 'AI temporariamente indisponivel' })
+      }
+      if (err instanceof SkipAiError) {
+        const status = err.status || 502
+        return e.json(status, {
+          error: status >= 500 ? 'AI temporariamente indisponivel' : err.message,
         })
-      } catch (err) {
-        errors++
-        continue
       }
-
-      let contentText = ''
-      try {
-        contentText = aiRes.choices[0].message.content
-      } catch (_) {
-        errors++
-        continue
-      }
-
-      let suggestion = null
-      try {
-        suggestion = JSON.parse(contentText)
-      } catch (_) {
-        const match = contentText.match(/\{[\s\S]*\}/)
-        if (match) {
-          try {
-            suggestion = JSON.parse(match[0])
-          } catch (_) {}
-        }
-      }
-
-      if (!suggestion) {
-        errors++
-        continue
-      }
-
-      try {
-        const record = $app.findRecordById('crm_contacts', contact.id)
-        record.set('ai_suggested_action', suggestion.action || '')
-        record.set('ai_priority', Math.min(Math.max(parseInt(suggestion.priority) || 5, 1), 10))
-        $app.save(record)
-        updated++
-      } catch (_) {
-        errors++
-      }
+      throw err
     }
-
-    return e.json(200, { total: contacts.length, updated: updated, errors: errors })
   },
   $apis.requireAuth(),
 )
