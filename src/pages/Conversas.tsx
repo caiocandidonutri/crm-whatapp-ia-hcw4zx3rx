@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useInstanciaAtiva, useConversas, useMensagens } from '@/hooks/use-whatsapp'
 import {
   conversationsToChats,
@@ -236,24 +236,13 @@ export default function Conversas() {
     isImportingHistory,
   )
 
-  const { readyConversations, pendingCount } = React.useMemo(() => {
-    let pending = 0
-    const ready: typeof conversations = []
-    for (const c of conversations) {
-      const isReady = (c.last_message_timestamp ?? 0) > 0 && !!c.last_message
-      if (isReady) ready.push(c)
-      else pending++
-    }
-    return { readyConversations: ready, pendingCount: pending }
-  }, [conversations])
-
   const adaptedChats = React.useMemo(
     () =>
-      conversationsToChats(readyConversations).map((chat) => {
+      conversationsToChats(conversations).map((chat) => {
         const crmName = crmNameByJid.get(chat.remote_jid)
         return crmName ? { ...chat, name: crmName } : chat
       }),
-    [readyConversations, crmNameByJid],
+    [crmNameByJid],
   )
 
   const activeChatWithMessages = React.useMemo(() => {
@@ -268,15 +257,15 @@ export default function Conversas() {
   }, [activeConversation, rawMessages, crmNameByJid])
 
   useEffect(() => {
-    if (!isMobile && !activeChatId && readyConversations.length > 0) {
-      setActiveChatId(readyConversations[0].id)
+    if (!isMobile && !activeChatId && conversations.length > 0) {
+      setActiveChatId(conversations[0].id)
     }
-  }, [isMobile, activeChatId, readyConversations])
+  }, [isMobile, activeChatId, conversations])
 
-  const handleSelectChat = (id: string) => {
+  const handleSelectChat = useCallback((id: string) => {
     setActiveChatId(id)
     setHighlightMsgId(null)
-  }
+  }, [])
 
   const handleArchive = async (conversationId: string, archived: boolean) => {
     try {
@@ -444,7 +433,6 @@ export default function Conversas() {
               activeChatId={activeChatId}
               onSelectChat={handleSelectChat}
               loading={loadingChats || isConnecting}
-              pendingCount={pendingCount}
               loadingMore={loadingMoreChats}
               showArchived={showArchived}
               onToggleArchived={() => setShowArchived((v) => !v)}

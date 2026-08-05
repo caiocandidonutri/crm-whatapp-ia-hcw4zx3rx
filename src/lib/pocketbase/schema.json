@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T15:44:41.808Z",
+  "generatedAt": "2026-08-05T15:57:50.794Z",
   "collections": [
     {
       "name": "users",
@@ -341,7 +341,12 @@
           "system": false
         }
       ],
-      "indexes": []
+      "indexes": [
+        "CREATE INDEX `idx_conv_account_instance_archived` ON `conversations` (account_id, instance_name, archived)",
+        "CREATE INDEX `idx_conv_user_instance` ON `conversations` (user_id, instance_name)",
+        "CREATE INDEX `idx_conv_last_msg_ts` ON `conversations` (last_message_timestamp)",
+        "CREATE INDEX `idx_conv_updated` ON `conversations` (updated)"
+      ]
     },
     {
       "name": "whatsapp_messages",
@@ -521,7 +526,12 @@
           "collectionRef": "accounts"
         }
       ],
-      "indexes": []
+      "indexes": [
+        "CREATE INDEX `idx_msg_account_instance_jid` ON `whatsapp_messages` (account_id, instance_name, remote_jid)",
+        "CREATE INDEX `idx_msg_user_instance_jid` ON `whatsapp_messages` (user_id, instance_name, remote_jid)",
+        "CREATE INDEX `idx_msg_timestamp` ON `whatsapp_messages` (timestamp)",
+        "CREATE INDEX `idx_msg_created` ON `whatsapp_messages` (created)"
+      ]
     },
     {
       "name": "mark_read_queue",

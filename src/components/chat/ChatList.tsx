@@ -48,7 +48,6 @@ type ChatListProps = {
   hasMore?: boolean
   onLoadMore?: () => void
   onToggleArchived?: () => void
-  // Callbacks para ações do menu — só aparecem se definidos
   onRefresh?: () => void
   onReimportHistory?: () => void
   onDiagnose?: () => void
@@ -72,6 +71,108 @@ function ChatRowSkeleton() {
     </div>
   )
 }
+
+type ChatRowProps = {
+  chat: Chat
+  isActive: boolean
+  onSelectChat: (id: string) => void
+}
+
+const ChatRow = React.memo(function ChatRow({ chat, isActive, onSelectChat }: ChatRowProps) {
+  if (!chat) return null
+  const lastMsg = chat.messages?.[(chat.messages?.length || 0) - 1] ?? null
+  const unreadCount = chat.unread || 0
+  const hasAvatar = !!chat.avatar
+
+  return (
+    <button
+      onClick={() => onSelectChat(chat.id)}
+      className={cn(
+        'w-full p-4 flex items-center gap-3 transition-colors text-left relative overflow-hidden',
+        isActive ? 'bg-primary/5' : 'hover:bg-black/5',
+      )}
+    >
+      {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
+
+      <Avatar className="h-12 w-12 border border-border shrink-0">
+        {hasAvatar ? <AvatarImage src={chat.avatar} /> : null}
+        <AvatarFallback>{chat.name?.charAt(0)?.toUpperCase() || '?'}</AvatarFallback>
+      </Avatar>
+
+      <div className="flex-1 min-w-0 flex flex-col justify-center">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2 truncate">
+            <span className="font-semibold text-primary truncate">{chat.name || 'Sem nome'}</span>
+            {chat.type === 'group' && (
+              <Badge
+                variant="secondary"
+                className="text-[9px] px-1 py-0 h-4 bg-primary/10 text-primary shrink-0"
+              >
+                GRUPO
+              </Badge>
+            )}
+          </div>
+          <span
+            className={cn(
+              'text-xs whitespace-nowrap ml-2 shrink-0',
+              unreadCount > 0 ? 'text-emerald-600 font-semibold' : 'text-muted-foreground',
+            )}
+          >
+            {formatChatListTimestamp(chat.lastMessage?.timestamp || lastMsg?.timestamp)}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div
+            className={cn(
+              'text-sm truncate flex items-center gap-1 min-w-0',
+              unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground',
+            )}
+          >
+            {(chat.lastMessage?.fromMe || lastMsg?.senderId === 'me') && (
+              <span className="shrink-0">Você: </span>
+            )}
+
+            {(() => {
+              const type = chat.lastMessage?.type || lastMsg?.media?.type
+              const text = chat.lastMessage?.text || lastMsg?.text || ''
+              const isPhoto = type === 'image' || text === 'Foto'
+              const isVideo = type === 'video' || text === 'Vídeo'
+              const isAudio = type === 'audio' || text === 'Áudio'
+              const isDoc = type === 'document' || text === 'Documento'
+              const isSticker = type === 'sticker' || text === 'Figurinha'
+
+              if (isPhoto) return <ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />
+              if (isVideo) return <Video className="w-3.5 h-3.5 shrink-0 opacity-70" />
+              if (isAudio) return <Mic className="w-3.5 h-3.5 shrink-0 opacity-70" />
+              if (isDoc) return <FileText className="w-3.5 h-3.5 shrink-0 opacity-70" />
+              if (isSticker) return <Sticker className="w-3.5 h-3.5 shrink-0 opacity-70" />
+              return null
+            })()}
+
+            <span
+              className={cn(
+                'truncate',
+                ['Foto', 'Vídeo', 'Áudio', 'Documento', 'Figurinha'].includes(
+                  chat.lastMessage?.text || '',
+                ) || lastMsg?.media
+                  ? 'italic opacity-70'
+                  : '',
+              )}
+            >
+              {chat.lastMessage?.text || lastMsg?.text || (lastMsg?.media ? 'Mídia' : '')}
+            </span>
+          </div>
+          {unreadCount > 0 && (
+            <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shrink-0">
+              {unreadCount}
+            </div>
+          )}
+        </div>
+      </div>
+    </button>
+  )
+})
 
 export function ChatList({
   chats,
@@ -217,7 +318,6 @@ export function ChatList({
           </DropdownMenu>
         </div>
 
-        {/* Category Filters */}
         {categories.length > 0 && (
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             {selectedCategory && (
@@ -274,111 +374,14 @@ export function ChatList({
           </div>
         ) : (
           <div className="divide-y divide-border/50">
-            {filteredChats.map((chat) => {
-              if (!chat) return null
-              const lastMsg = chat.messages?.[(chat.messages?.length || 0) - 1] ?? null
-              const isActive = activeChatId === chat.id
-              const unreadCount = chat.unread || 0
-              const hasAvatar = !!chat.avatar
-
-              return (
-                <button
-                  key={chat.id}
-                  onClick={() => onSelectChat(chat.id)}
-                  className={cn(
-                    'w-full p-4 flex items-center gap-3 transition-colors text-left relative overflow-hidden',
-                    isActive ? 'bg-primary/5' : 'hover:bg-black/5',
-                  )}
-                >
-                  {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
-
-                  <Avatar className="h-12 w-12 border border-border shrink-0">
-                    {hasAvatar ? <AvatarImage src={chat.avatar} /> : null}
-                    <AvatarFallback>{chat.name?.charAt(0)?.toUpperCase() || '?'}</AvatarFallback>
-                  </Avatar>
-
-                  <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2 truncate">
-                        <span className="font-semibold text-primary truncate">
-                          {chat.name || 'Sem nome'}
-                        </span>
-                        {chat.type === 'group' && (
-                          <Badge
-                            variant="secondary"
-                            className="text-[9px] px-1 py-0 h-4 bg-primary/10 text-primary shrink-0"
-                          >
-                            GRUPO
-                          </Badge>
-                        )}
-                      </div>
-                      <span
-                        className={cn(
-                          'text-xs whitespace-nowrap ml-2 shrink-0',
-                          unreadCount > 0
-                            ? 'text-emerald-600 font-semibold'
-                            : 'text-muted-foreground',
-                        )}
-                      >
-                        {formatChatListTimestamp(chat.lastMessage?.timestamp || lastMsg?.timestamp)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2 min-w-0">
-                      <div
-                        className={cn(
-                          'text-sm truncate flex items-center gap-1 min-w-0',
-                          unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground',
-                        )}
-                      >
-                        {(chat.lastMessage?.fromMe || lastMsg?.senderId === 'me') && (
-                          <span className="shrink-0">Você: </span>
-                        )}
-
-                        {(() => {
-                          const type = chat.lastMessage?.type || lastMsg?.media?.type
-                          const text = chat.lastMessage?.text || lastMsg?.text || ''
-                          const isPhoto = type === 'image' || text === 'Foto'
-                          const isVideo = type === 'video' || text === 'Vídeo'
-                          const isAudio = type === 'audio' || text === 'Áudio'
-                          const isDoc = type === 'document' || text === 'Documento'
-                          const isSticker = type === 'sticker' || text === 'Figurinha'
-
-                          if (isPhoto)
-                            return <ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                          if (isVideo) return <Video className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                          if (isAudio) return <Mic className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                          if (isDoc) return <FileText className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                          if (isSticker)
-                            return <Sticker className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                          return null
-                        })()}
-
-                        <span
-                          className={cn(
-                            'truncate',
-                            ['Foto', 'Vídeo', 'Áudio', 'Documento', 'Figurinha'].includes(
-                              chat.lastMessage?.text || '',
-                            ) || lastMsg?.media
-                              ? 'italic opacity-70'
-                              : '',
-                          )}
-                        >
-                          {chat.lastMessage?.text ||
-                            lastMsg?.text ||
-                            (lastMsg?.media ? 'Mídia' : '')}
-                        </span>
-                      </div>
-                      {unreadCount > 0 && (
-                        <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shrink-0">
-                          {unreadCount}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
+            {filteredChats.map((chat) => (
+              <ChatRow
+                key={chat.id}
+                chat={chat}
+                isActive={activeChatId === chat.id}
+                onSelectChat={onSelectChat}
+              />
+            ))}
           </div>
         )}
       </div>

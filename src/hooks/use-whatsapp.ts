@@ -59,7 +59,10 @@ function applyConversationEvent(
   scope: { accountId: string; instanceName: string; showArchived: boolean },
 ): Conversation[] {
   const rec = e.record
-  if (!rec || rec.account_id !== scope.accountId || rec.instance_name !== scope.instanceName) {
+  if (!rec || rec.instance_name !== scope.instanceName) {
+    return prev
+  }
+  if (rec.account_id && rec.account_id !== scope.accountId) {
     return prev
   }
   if (e.action === 'delete') {
@@ -88,12 +91,10 @@ function applyMessageEvent(
   scope: { accountId: string; instanceName: string; remoteJid: string },
 ): WhatsappMessage[] {
   const rec = e.record
-  if (
-    !rec ||
-    rec.account_id !== scope.accountId ||
-    rec.instance_name !== scope.instanceName ||
-    rec.remote_jid !== scope.remoteJid
-  ) {
+  if (!rec || rec.instance_name !== scope.instanceName || rec.remote_jid !== scope.remoteJid) {
+    return prev
+  }
+  if (rec.account_id && rec.account_id !== scope.accountId) {
     return prev
   }
   if (e.action === 'delete') {
@@ -369,7 +370,7 @@ export function useConversas(
           }
           return next
         })
-      }, 500)
+      }, 150)
     },
     !!accountId && !!instanceName,
   )
