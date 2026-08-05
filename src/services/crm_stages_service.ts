@@ -20,6 +20,7 @@ export const DEFAULT_STAGES: Array<Pick<CrmStage, 'key' | 'label' | 'color' | 'p
   { key: 'em_atendimento', label: 'Em atendimento', color: 'amber', position: 1 },
   { key: 'cliente', label: 'Cliente', color: 'emerald', position: 2 },
   { key: 'perdido', label: 'Perdido', color: 'rose', position: 3 },
+  { key: 'nao_respondido', label: 'Não Respondidos', color: 'slate', position: 4 },
 ]
 
 async function resolveAccountId(): Promise<string | undefined> {

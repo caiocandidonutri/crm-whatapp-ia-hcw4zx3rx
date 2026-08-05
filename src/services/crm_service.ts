@@ -5,7 +5,7 @@ export type AddToCrmOptions = {
   /** Sobrescreve o contact_name da conversation. Útil quando o dialog
    *  de pré-validação coleta um nome editado pelo user. */
   contact_name?: string
-  stage?: 'lead' | 'em_atendimento' | 'cliente' | 'perdido'
+  stage?: string
   company_id?: string
   role?: string
   email?: string
