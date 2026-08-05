@@ -8,6 +8,7 @@ import {
 import { ChatList } from '@/components/chat/ChatList'
 import { ChatArea } from '@/components/chat/ChatArea'
 import { ImportProgressBanner } from '@/components/chat/ImportProgressBanner'
+import { DiagnosticModal } from '@/components/chat/DiagnosticModal'
 import { useIsMobile } from '@/hooks/use-mobile'
 import {
   MessageSquare,
@@ -200,21 +201,6 @@ export default function Conversas() {
       setIsReimporting(false)
     }
   }
-
-  const diagnosticState = React.useMemo(() => {
-    if (!diagnosticResult) return 'error'
-    if (!diagnosticResult.matches || !diagnosticResult.expectedWebhookUrl) return 'error'
-
-    const urlBefore =
-      diagnosticResult.webhookBefore?.body?.url ||
-      diagnosticResult.webhookBefore?.body?.webhook?.url
-    const isBeforeCorrect = urlBefore === diagnosticResult.expectedWebhookUrl
-
-    if (!isBeforeCorrect) return 'warning'
-    if (diagnosticResult.webhookAfter?.statusCode === 200) return 'success'
-
-    return 'error'
-  }, [diagnosticResult])
 
   useEffect(() => {
     if (!loadingInstance && (!instance || instance.status !== 'connected')) {
@@ -704,81 +690,7 @@ export default function Conversas() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!diagnosticResult} onOpenChange={(open) => !open && setDiagnosticResult(null)}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Diagnóstico do Webhook</DialogTitle>
-            <DialogDescription>
-              Este é um diagnóstico técnico da conexão com a Evolution API. Compartilhe o conteúdo
-              abaixo com o suporte se os problemas persistirem.
-            </DialogDescription>
-          </DialogHeader>
-
-          {diagnosticResult && (
-            <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
-              <div
-                className={cn(
-                  'p-4 rounded-lg border flex items-start gap-3 shrink-0',
-                  diagnosticState === 'success' &&
-                    'bg-green-500/10 border-green-500/20 text-green-700',
-                  diagnosticState === 'warning' &&
-                    'bg-yellow-500/10 border-yellow-500/20 text-yellow-700',
-                  diagnosticState === 'error' && 'bg-red-500/10 border-red-500/20 text-red-700',
-                )}
-              >
-                {diagnosticState === 'success' && (
-                  <CheckCircle2 className="w-5 h-5 mt-0.5 shrink-0" />
-                )}
-                {diagnosticState === 'warning' && (
-                  <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
-                )}
-                {diagnosticState === 'error' && <XCircle className="w-5 h-5 mt-0.5 shrink-0" />}
-
-                <div>
-                  <h4 className="font-semibold text-sm">
-                    {diagnosticState === 'success' && 'Webhook configurado corretamente'}
-                    {diagnosticState === 'warning' && 'Webhook reconfigurado com sucesso'}
-                    {diagnosticState === 'error' && 'Não foi possível configurar o webhook'}
-                  </h4>
-                  <p className="text-xs opacity-90 mt-1">
-                    {diagnosticState === 'success' &&
-                      'O webhook está ativo e apontando para a URL correta.'}
-                    {diagnosticState === 'warning' &&
-                      'Aguarde alguns segundos e mande uma mensagem de teste para confirmar.'}
-                    {diagnosticState === 'error' &&
-                      'Houve uma falha na comunicação ou faltam configurações. Veja detalhes abaixo.'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="relative flex-1 overflow-hidden rounded-md border bg-muted/50">
-                <ScrollArea className="h-full w-full p-4">
-                  <pre className="text-[11px] font-mono whitespace-pre-wrap break-all text-muted-foreground">
-                    {JSON.stringify(diagnosticResult, null, 2)}
-                  </pre>
-                </ScrollArea>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="absolute top-2 right-2 h-7 opacity-70 hover:opacity-100"
-                  onClick={() => {
-                    navigator.clipboard.writeText(JSON.stringify(diagnosticResult, null, 2))
-                    toast.success('Copiado para a área de transferência')
-                  }}
-                >
-                  <Copy className="h-3 w-3 mr-1" /> Copiar
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="shrink-0">
-            <DialogClose asChild>
-              <Button variant="outline">Fechar</Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DiagnosticModal result={diagnosticResult} onClose={() => setDiagnosticResult(null)} />
     </div>
   )
 }
