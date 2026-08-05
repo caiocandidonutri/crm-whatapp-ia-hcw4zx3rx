@@ -833,7 +833,7 @@ export default function CRM() {
                   <Sparkles className="w-5 h-5 text-primary" />
                   Importação concluída!
                 </DialogTitle>
-                <DialogDescription>
+                <div className="text-sm text-muted-foreground">
                   {importResult && (
                     <div className="space-y-2 mt-3">
                       <div className="flex justify-between text-sm">
@@ -872,7 +872,7 @@ export default function CRM() {
                       )}
                     </div>
                   )}
-                </DialogDescription>
+                </div>
               </DialogHeader>
               <DialogFooter className="mt-4">
                 <Button onClick={() => setImportResult(null)} className="rounded-xl">
