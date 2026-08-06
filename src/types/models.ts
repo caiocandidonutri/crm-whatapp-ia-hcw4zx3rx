@@ -90,6 +90,7 @@ export interface WhatsappInstance {
   qrcode_base64?: string
   is_importing_history?: boolean
   import_messages_count?: number
+  import_total_count?: number
   import_started_at?: string
   import_finished_at?: string
   sync_period_days?: number

@@ -71,6 +71,7 @@ import { CrmContactDetail } from '@/components/crm/CrmContactDetail'
 import { CrmCompaniesList } from '@/components/crm/CrmCompaniesList'
 import { CrmPipelineBoard } from '@/components/crm/CrmPipelineBoard'
 import { CrmDashboard } from '@/components/crm/CrmDashboard'
+import { CrmImportProgress } from '@/components/crm/CrmImportProgress'
 import { CrmMonthlyReport } from '@/components/crm/CrmMonthlyReport'
 import { DailySummaryBanner } from '@/components/crm/DailySummaryBanner'
 import { PipelineEditorSheet } from '@/components/crm/PipelineEditorSheet'
@@ -306,6 +307,8 @@ export default function CRM() {
           </div>
         )}
       </div>
+
+      <CrmImportProgress instance={instance} />
 
       {/* Dashboard */}
       {!isCompanies && viewMode !== 'relatorio' && (

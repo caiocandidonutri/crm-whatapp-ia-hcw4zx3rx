@@ -23,7 +23,8 @@ export function ImportProgressBanner({ instance }: ImportProgressBannerProps) {
   const lastInstanceIdRef = useRef<string | null>(null)
   const completedToastRef = useRef<Set<string>>(new Set())
 
-  const importing = instance?.is_importing_history === true
+  const isCrmImport = !!(instance?.import_total_count && instance.import_total_count > 0)
+  const importing = instance?.is_importing_history === true && !isCrmImport
   const count = instance?.import_messages_count || 0
   const period = instance?.sync_period_days
   const periodLabel =

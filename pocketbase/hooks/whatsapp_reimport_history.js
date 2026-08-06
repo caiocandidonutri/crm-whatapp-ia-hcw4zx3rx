@@ -140,6 +140,7 @@ routerAdd(
       try {
         instanceRecord.set('is_importing_history', true)
         instanceRecord.set('import_messages_count', 0)
+        instanceRecord.set('import_total_count', 0)
         instanceRecord.set('import_started_at', new Date().toISOString().replace('T', ' '))
         instanceRecord.set('import_finished_at', '')
       } catch (_) {}

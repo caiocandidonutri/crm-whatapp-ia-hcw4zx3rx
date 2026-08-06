@@ -2,6 +2,7 @@ routerAdd(
   'POST',
   '/backend/v1/crm/import-conversations',
   (e) => {
+    var instanceId = ''
     try {
       const authId = e.auth.id
 
@@ -11,6 +12,24 @@ routerAdd(
           userId: authId,
         })
         accountId = member.getString('account_id')
+      } catch (_) {}
+
+      let instanceRecord = null
+      try {
+        if (accountId) {
+          instanceRecord = $app.findFirstRecordByFilter(
+            'whatsapp_instances',
+            'account_id = {:accId} && status = {:status}',
+            { accId: accountId, status: 'connected' },
+          )
+        } else {
+          instanceRecord = $app.findFirstRecordByFilter(
+            'whatsapp_instances',
+            'user_id = {:userId} && status = {:status}',
+            { userId: authId, status: 'connected' },
+          )
+        }
+        if (instanceRecord) instanceId = instanceRecord.id
       } catch (_) {}
 
       let conversations = []
@@ -27,6 +46,15 @@ routerAdd(
         return e.json(200, { total: 0, created: 0, classified: 0, skipped: 0, errors: 0 })
       }
 
+      if (instanceRecord && conversations.length > 0) {
+        instanceRecord.set('is_importing_history', true)
+        instanceRecord.set('import_started_at', new Date().toISOString().replace('T', ' '))
+        instanceRecord.set('import_finished_at', '')
+        instanceRecord.set('import_total_count', conversations.length)
+        instanceRecord.set('import_messages_count', 0)
+        $app.saveNoValidate(instanceRecord)
+      }
+
       let created = 0
       let classified = 0
       let skipped = 0
@@ -36,10 +64,8 @@ routerAdd(
         'Voce e um classificador de CRM para conversas de WhatsApp do Dr. Caio (nutricionista).\n' +
         'Analise a conversa abaixo e classifique o contato.\n\n' +
         'Contexto: O Dr. Caio e um nutricionista que atende pacientes. As conversas podem ser sobre:\n' +
-        '- Agendamento de consultas\n' +
-        '- Duvidas sobre cuidados nutricionais\n' +
-        '- Retornos de pacientes existentes\n' +
-        '- Pessoas interessadas em conhecer o trabalho do Dr. Caio\n\n' +
+        '- Agendamento de consultas\n- Duvidas sobre cuidados nutricionais\n' +
+        '- Retornos de pacientes existentes\n- Pessoas interessadas em conhecer o trabalho do Dr. Caio\n\n' +
         'Retorne APENAS um objeto JSON valido (sem texto adicional) com:\n' +
         '- "stage": uma de "lead", "em_atendimento", "cliente", "nao_respondido"\n' +
         '  - "lead": contato inicial, querendo conhecer o Dr. Caio, sem conversa significativa ainda\n' +
@@ -180,6 +206,7 @@ routerAdd(
                 contactRecord.set('stage', 'cliente')
               }
             }
+            contactRecord.set('last_synced_at', new Date().toISOString().replace('T', ' '))
             $app.save(contactRecord)
             classified++
           } catch (err) {
@@ -236,9 +263,25 @@ routerAdd(
             sRecord.set('ai_priority', Math.min(Math.max(parseInt(sObj.priority) || 5, 1), 10))
             $app.save(sRecord)
           }
-        } catch (sErr) {
-          // non-fatal — classification already saved
+        } catch (sErr) {}
+
+        if (instanceId && (i % 3 === 0 || i === conversations.length - 1)) {
+          try {
+            var progInst = $app.findRecordById('whatsapp_instances', instanceId)
+            progInst.set('import_messages_count', i + 1)
+            $app.saveNoValidate(progInst)
+          } catch (_) {}
         }
+      }
+
+      if (instanceId) {
+        try {
+          var finInst = $app.findRecordById('whatsapp_instances', instanceId)
+          finInst.set('is_importing_history', false)
+          finInst.set('import_finished_at', new Date().toISOString().replace('T', ' '))
+          finInst.set('import_total_count', 0)
+          $app.saveNoValidate(finInst)
+        } catch (_) {}
       }
 
       return e.json(200, {
@@ -249,6 +292,15 @@ routerAdd(
         errors: errors,
       })
     } catch (err) {
+      if (instanceId) {
+        try {
+          var errInst = $app.findRecordById('whatsapp_instances', instanceId)
+          errInst.set('is_importing_history', false)
+          errInst.set('import_finished_at', new Date().toISOString().replace('T', ' '))
+          errInst.set('import_total_count', 0)
+          $app.saveNoValidate(errInst)
+        } catch (_) {}
+      }
       return e.json(500, {
         total: 0,
         created: 0,

@@ -26,6 +26,7 @@ cronAdd('finish_stale_imports', '* * * * *', () => {
   for (const record of records) {
     try {
       record.set('is_importing_history', false)
+      record.set('import_total_count', 0)
       if (!record.getString('import_finished_at')) {
         record.set('import_finished_at', new Date().toISOString().replace('T', ' '))
       }

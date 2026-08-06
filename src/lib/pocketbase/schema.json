@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-06T20:31:22.885Z",
+  "generatedAt": "2026-08-06T20:51:56.478Z",
   "collections": [
     {
       "name": "users",
@@ -167,6 +167,12 @@
           "required": false,
           "system": false,
           "collectionRef": "accounts"
+        },
+        {
+          "name": "import_total_count",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
