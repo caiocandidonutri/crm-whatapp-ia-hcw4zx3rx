@@ -48,6 +48,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useSearchParams } from 'react-router-dom'
@@ -107,6 +108,8 @@ export default function CRM() {
   const [contactToDelete, setContactToDelete] = useState<CrmContact | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportConversasResult | null>(null)
+  const [importError, setImportError] = useState(false)
+  const [importErrorDismissed, setImportErrorDismissed] = useState(false)
   const [roleFilter, setRoleFilter] = useState<'todos' | 'paciente' | 'nao_paciente'>('todos')
   const [dailySummary, setDailySummary] = useState<string | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(true)
@@ -211,15 +214,16 @@ export default function CRM() {
   const handleImportConversas = async () => {
     setImporting(true)
     setImportResult(null)
-    try {
-      const result = await importarConversasCRM()
-      setImportResult(result)
-      reload()
-    } catch (err) {
-      toast.error('Erro ao importar conversas. Tente novamente.')
-    } finally {
-      setImporting(false)
+    setImportError(false)
+    setImportErrorDismissed(false)
+    const result = await importarConversasCRM()
+    setImporting(false)
+    if (result.error) {
+      setImportError(true)
+      return
     }
+    setImportResult(result)
+    reload()
   }
 
   const handleRefreshSuggestions = async () => {
@@ -324,6 +328,46 @@ export default function CRM() {
           refreshing={refreshingSuggestions}
         />
       )}
+
+      {/* Import Error Warning */}
+      {!isCompanies &&
+        viewMode !== 'relatorio' &&
+        importError &&
+        !importErrorDismissed &&
+        !importing && (
+          <Alert className="border-amber-200 bg-amber-50 animate-fade-in">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <AlertTitle className="text-amber-900 text-sm font-semibold">
+                  Não foi possível importar as conversas
+                </AlertTitle>
+                <AlertDescription className="text-amber-700 text-xs mt-0.5">
+                  Verifique sua conexão com a internet ou tente novamente em instantes.
+                </AlertDescription>
+                <div className="flex gap-2 mt-2.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100"
+                    onClick={() => handleImportConversas()}
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1.5" />
+                    Tentar novamente
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs text-amber-700 hover:bg-amber-100"
+                    onClick={() => setImportErrorDismissed(true)}
+                  >
+                    Dispensar
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Alert>
+        )}
 
       {/* Controls */}
       <div className="flex flex-col gap-4 mt-2">

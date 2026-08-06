@@ -59,14 +59,26 @@ export interface ImportConversasResult {
   classified: number
   skipped: number
   errors: number
+  error?: string
 }
 
-export const importarConversasCRM = async () => {
-  return pb.send<ImportConversasResult>('/backend/v1/crm/import-conversations', {
-    method: 'POST',
-    body: JSON.stringify({}),
-    headers: { 'Content-Type': 'application/json' },
-  })
+export const importarConversasCRM = async (): Promise<ImportConversasResult> => {
+  try {
+    return await pb.send<ImportConversasResult>('/backend/v1/crm/import-conversations', {
+      method: 'POST',
+      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' },
+    })
+  } catch (err: any) {
+    return {
+      total: 0,
+      created: 0,
+      classified: 0,
+      skipped: 0,
+      errors: 1,
+      error: err?.message || 'Falha ao importar conversas. Verifique sua conexão.',
+    }
+  }
 }
 
 export const refreshAiSuggestions = async () => {
