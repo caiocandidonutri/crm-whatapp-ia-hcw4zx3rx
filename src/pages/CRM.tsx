@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search,
@@ -55,6 +55,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import pb from '@/lib/pocketbase/client'
 import { useInstanciaAtiva } from '@/hooks/use-whatsapp'
+import { useRealtime } from '@/hooks/use-realtime'
 import { useCrmContatos, formatPhoneBR } from '@/hooks/use-crm'
 import {
   updateCrmContactStage,
@@ -73,6 +74,7 @@ import { CrmPipelineBoard } from '@/components/crm/CrmPipelineBoard'
 import { CrmDashboard } from '@/components/crm/CrmDashboard'
 import { CrmImportProgress } from '@/components/crm/CrmImportProgress'
 import { CrmMonthlyReport } from '@/components/crm/CrmMonthlyReport'
+import { CrmAiReport } from '@/components/crm/CrmAiReport'
 import { DailySummaryBanner } from '@/components/crm/DailySummaryBanner'
 import { PipelineEditorSheet } from '@/components/crm/PipelineEditorSheet'
 import { CategoriesSheet } from '@/components/categories/CategoriesSheet'
@@ -84,13 +86,15 @@ import { useCurrentAccount } from '@/hooks/use-current-account'
 
 const COMPANIES_TAB_ID = 'companies'
 
-type ViewMode = 'lista' | 'pipeline' | 'relatorio'
+type ViewMode = 'lista' | 'pipeline' | 'relatorio' | 'ia_report'
 
 export default function CRM() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { instance } = useInstanciaAtiva()
-  const { contacts, loading, reload } = useCrmContatos(instance?.instance_name)
+  const { contacts, loading, reload, recentlyChangedIds, markRecentlyChanged } = useCrmContatos(
+    instance?.instance_name,
+  )
   const { accountId } = useCurrentAccount()
   const { categories } = useCategories(accountId || undefined)
   // O CRM é a tela "dona" das etapas → faz o lazy seed das 4 padrão se a
@@ -115,6 +119,27 @@ export default function CRM() {
   const [dailySummary, setDailySummary] = useState<string | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [refreshingSuggestions, setRefreshingSuggestions] = useState(false)
+  const importingRef = useRef(false)
+
+  useEffect(() => {
+    importingRef.current = instance?.is_importing_history || false
+  }, [instance?.id])
+
+  useRealtime(
+    'whatsapp_instances',
+    (e) => {
+      if (e.record.id !== instance?.id) return
+      const isImporting = (e.record as any).is_importing_history
+      if (importingRef.current && !isImporting) {
+        reload()
+        toast.info('Sincronização automática concluída', {
+          description: 'Seus contatos foram atualizados.',
+        })
+      }
+      importingRef.current = isImporting
+    },
+    !!instance?.id,
+  )
 
   const isCompanies = activeTab === COMPANIES_TAB_ID
 
@@ -225,6 +250,15 @@ export default function CRM() {
     }
     setImportResult(result)
     reload()
+    if (result.createdIds) markRecentlyChanged(result.createdIds)
+    if (result.updatedIds) markRecentlyChanged(result.updatedIds)
+    const newCount = result.createdIds?.length ?? result.created
+    const updatedCount = result.updatedIds?.length ?? 0
+    if (newCount === 0 && updatedCount === 0) {
+      toast.info('Nenhuma novidade', { description: 'Nenhum contato novo ou atualizado.' })
+    } else {
+      toast.success(`Importação concluída — ${newCount} novos, ${updatedCount} atualizados`)
+    }
   }
 
   const handleRefreshSuggestions = async () => {
@@ -295,7 +329,7 @@ export default function CRM() {
           </p>
         </div>
 
-        {!isCompanies && viewMode !== 'relatorio' && (
+        {!isCompanies && viewMode !== 'relatorio' && viewMode !== 'ia_report' && (
           <div className="relative w-full md:w-80 shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
@@ -311,7 +345,7 @@ export default function CRM() {
       <CrmImportProgress instance={instance} />
 
       {/* Dashboard */}
-      {!isCompanies && viewMode !== 'relatorio' && (
+      {!isCompanies && viewMode !== 'relatorio' && viewMode !== 'ia_report' && (
         <CrmDashboard
           contacts={contacts}
           onStageClick={(stage) => {
@@ -323,7 +357,7 @@ export default function CRM() {
       )}
 
       {/* Daily Summary Banner */}
-      {!isCompanies && viewMode !== 'relatorio' && (
+      {!isCompanies && viewMode !== 'relatorio' && viewMode !== 'ia_report' && (
         <DailySummaryBanner
           summary={dailySummary}
           loading={summaryLoading}
@@ -427,6 +461,23 @@ export default function CRM() {
             >
               <BarChart3 className="w-3.5 h-3.5" />
               Relatório
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setViewMode('ia_report')
+                setActiveTab('all')
+              }}
+              className={cn(
+                'h-7 px-3 rounded-full text-sm font-medium gap-1.5',
+                viewMode === 'ia_report' && !isCompanies
+                  ? 'bg-background shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              IA
             </Button>
           </div>
 
@@ -780,6 +831,9 @@ export default function CRM() {
         <CrmMonthlyReport contacts={contacts} stages={stages} />
       )}
 
+      {/* Relatórios de IA */}
+      {!isCompanies && viewMode === 'ia_report' && <CrmAiReport stages={stages} />}
+
       {/* Visão Lista */}
       {!isCompanies && viewMode === 'lista' && (
         <Card className="border-border/40 shadow-sm bg-white/50 backdrop-blur-sm rounded-2xl overflow-hidden min-h-[400px]">
@@ -831,7 +885,10 @@ export default function CRM() {
                 return (
                   <div
                     key={contact.id}
-                    className="bg-white border border-border/60 rounded-xl px-4 py-3 hover:border-primary/40 hover:shadow-sm transition-all group cursor-pointer flex flex-col sm:flex-row sm:items-center gap-4"
+                    className={cn(
+                      'bg-white border border-border/60 rounded-xl px-4 py-3 hover:border-primary/40 hover:shadow-sm transition-all group cursor-pointer flex flex-col sm:flex-row sm:items-center gap-4',
+                      recentlyChangedIds.has(contact.id) && 'ring-2 ring-primary/40 bg-primary/5',
+                    )}
                     onClick={() => openContact(contact.id)}
                   >
                     <div className="flex items-center gap-4 flex-1 min-w-0">

@@ -60,6 +60,8 @@ export interface ImportConversasResult {
   skipped: number
   errors: number
   error?: string
+  createdIds?: string[]
+  updatedIds?: string[]
 }
 
 export const importarConversasCRM = async (): Promise<ImportConversasResult> => {

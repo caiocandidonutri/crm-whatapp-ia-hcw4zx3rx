@@ -59,6 +59,8 @@ routerAdd(
       let classified = 0
       let skipped = 0
       let errors = 0
+      let createdIds = []
+      let updatedIds = []
 
       const systemPrompt =
         'Voce e um classificador de CRM para conversas de WhatsApp do Dr. Caio (nutricionista).\n' +
@@ -96,6 +98,7 @@ routerAdd(
           )
         } catch (_) {}
 
+        var wasNew = false
         if (!contact) {
           try {
             const contactCol = $app.findCollectionByNameOrId('crm_contacts')
@@ -112,6 +115,8 @@ routerAdd(
             contact.set('role', '')
             $app.save(contact)
             created++
+            createdIds.push(contact.id)
+            wasNew = true
           } catch (err) {
             errors++
             continue
@@ -209,6 +214,9 @@ routerAdd(
             contactRecord.set('last_synced_at', new Date().toISOString().replace('T', ' '))
             $app.save(contactRecord)
             classified++
+            if (!wasNew && updatedIds.indexOf(contact.id) === -1) {
+              updatedIds.push(contact.id)
+            }
           } catch (err) {
             errors++
           }
@@ -262,6 +270,9 @@ routerAdd(
             sRecord.set('ai_suggested_action', sObj.action || '')
             sRecord.set('ai_priority', Math.min(Math.max(parseInt(sObj.priority) || 5, 1), 10))
             $app.save(sRecord)
+            if (!wasNew && updatedIds.indexOf(contact.id) === -1) {
+              updatedIds.push(contact.id)
+            }
           }
         } catch (sErr) {}
 
@@ -290,6 +301,8 @@ routerAdd(
         classified: classified,
         skipped: skipped,
         errors: errors,
+        createdIds: createdIds,
+        updatedIds: updatedIds,
       })
     } catch (err) {
       if (instanceId) {

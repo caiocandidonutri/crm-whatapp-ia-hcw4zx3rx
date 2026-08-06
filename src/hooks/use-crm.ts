@@ -20,6 +20,24 @@ export function formatPhoneBR(phone?: string) {
 export function useCrmContatos(instanceName?: string) {
   const [contacts, setContacts] = useState<CrmContact[]>([])
   const [loading, setLoading] = useState(true)
+  const [recentlyChangedIds, setRecentlyChangedIds] = useState<Set<string>>(new Set())
+
+  const markRecentlyChanged = (ids: string[]) => {
+    setRecentlyChangedIds((prev) => {
+      const next = new Set(prev)
+      ids.forEach((id) => next.add(id))
+      return next
+    })
+    ids.forEach((id) => {
+      setTimeout(() => {
+        setRecentlyChangedIds((prev) => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+      }, 30000)
+    })
+  }
 
   const loadData = async () => {
     if (!instanceName) return
@@ -45,6 +63,7 @@ export function useCrmContatos(instanceName?: string) {
 
       if (e.action === 'create') {
         const rec = e.record as CrmContact
+        markRecentlyChanged([rec.id])
         setContacts((prev) => {
           if (prev.some((c) => c.id === rec.id)) return prev
           return [rec, ...prev]
@@ -59,6 +78,7 @@ export function useCrmContatos(instanceName?: string) {
             .catch(() => {})
         }
       } else if (e.action === 'update') {
+        markRecentlyChanged([e.record.id])
         // Preserva o expand anterior (responsável/empresa) que o realtime não
         // envia — senão o avatar/empresa some do card ao arrastar/atualizar.
         setContacts((prev) =>
@@ -75,5 +95,5 @@ export function useCrmContatos(instanceName?: string) {
     !!instanceName,
   )
 
-  return { contacts, loading, reload: loadData }
+  return { contacts, loading, reload: loadData, recentlyChangedIds, markRecentlyChanged }
 }
