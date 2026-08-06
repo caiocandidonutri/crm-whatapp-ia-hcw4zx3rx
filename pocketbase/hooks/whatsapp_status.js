@@ -11,6 +11,14 @@ routerAdd(
     const apiUrl = urlStr.endsWith('/') ? urlStr.slice(0, -1) : urlStr
     const apiKey = $secrets.get('EVOLUTION_API_KEY') || ''
 
+    if (!apiUrl) {
+      return e.json(502, {
+        status: 'error',
+        error: 'URL da API do WhatsApp não configurada',
+        instanceName: instanceName,
+      })
+    }
+
     let record
     try {
       record = $app.findFirstRecordByFilter(
@@ -22,17 +30,39 @@ routerAdd(
         },
       )
     } catch (_) {
-      return e.notFoundError('Instância não encontrada para este usuário')
+      return e.json(404, {
+        status: 'error',
+        error: 'Instância não encontrada para este usuário',
+        instanceName: instanceName,
+      })
     }
 
     const headers = { apikey: apiKey }
 
-    let connectRes = $http.send({
-      url: apiUrl + '/instance/connectionState/' + instanceName,
-      method: 'GET',
-      headers: headers,
-      timeout: 10,
-    })
+    let connectRes
+    try {
+      connectRes = $http.send({
+        url: apiUrl + '/instance/connectionState/' + instanceName,
+        method: 'GET',
+        headers: headers,
+        timeout: 10,
+      })
+    } catch (err) {
+      $app
+        .logger()
+        .error(
+          'Failed to reach Evolution API for connection state',
+          'instanceName',
+          instanceName,
+          'error',
+          String(err),
+        )
+      return e.json(502, {
+        status: 'error',
+        error: 'Não foi possível conectar à API do WhatsApp',
+        instanceName: instanceName,
+      })
+    }
 
     let status = 'disconnected'
     let rawState = ''
@@ -98,9 +128,6 @@ routerAdd(
     let qrcodeBase64 = ''
 
     if (rawState !== 'connecting' && rawState !== 'open') {
-      // Tentar primeiro o cache: webhook qrcode.updated mantém este campo atualizado
-      // a cada novo QR que a Evolution gera. Evita chamar /connect a cada poll
-      // (3s), o que invalidaria o QR anterior antes do usuário conseguir ler.
       let cachedQr = ''
       try {
         cachedQr = record.getString('qrcode_base64') || ''
@@ -119,14 +146,30 @@ routerAdd(
         })
       }
 
-      // Sem cache (primeira vez ou pós-deploy): chamar /connect uma vez para
-      // obter o QR inicial. As próximas atualizações virão via webhook.
-      let res = $http.send({
-        url: apiUrl + '/instance/connect/' + instanceName,
-        method: 'GET',
-        headers: headers,
-        timeout: 10,
-      })
+      let res
+      try {
+        res = $http.send({
+          url: apiUrl + '/instance/connect/' + instanceName,
+          method: 'GET',
+          headers: headers,
+          timeout: 10,
+        })
+      } catch (err) {
+        $app
+          .logger()
+          .error(
+            'Failed to reach Evolution API for QR code',
+            'instanceName',
+            instanceName,
+            'error',
+            String(err),
+          )
+        return e.json(502, {
+          status: 'error',
+          error: 'Não foi possível obter o QR Code da API do WhatsApp',
+          instanceName: instanceName,
+        })
+      }
 
       if (res.statusCode === 200 && res.json && res.json.base64) {
         status = 'qrcode'
@@ -142,6 +185,14 @@ routerAdd(
           status: 'qrcode',
           state: rawState,
           qrcodeBase64: qrcodeBase64,
+          instanceName: instanceName,
+        })
+      }
+
+      if (res.statusCode !== 200) {
+        return e.json(502, {
+          status: 'error',
+          error: 'Erro ao comunicar com a API do WhatsApp (código ' + res.statusCode + ')',
           instanceName: instanceName,
         })
       }

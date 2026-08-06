@@ -19,13 +19,35 @@ export const criarInstancia = async (
   )
 }
 
-export const consultarStatusInstancia = async (instanceName: string) => {
-  return pb.send<{ status: string; instanceName: string; qrcodeBase64?: string }>(
-    `/backend/v1/whatsapp/instance-status?instanceName=${encodeURIComponent(instanceName)}`,
-    {
+export const consultarStatusInstancia = async (
+  instanceName: string,
+): Promise<{
+  status: string
+  instanceName: string
+  qrcodeBase64?: string
+  state?: string
+  error?: string
+}> => {
+  try {
+    return await pb.send<{
+      status: string
+      instanceName: string
+      qrcodeBase64?: string
+      state?: string
+    }>(`/backend/v1/whatsapp/instance-status?instanceName=${encodeURIComponent(instanceName)}`, {
       method: 'GET',
-    },
-  )
+    })
+  } catch (err: any) {
+    return {
+      status: 'unknown',
+      instanceName,
+      error:
+        err?.response?.error ||
+        err?.response?.message ||
+        err?.message ||
+        'Falha ao verificar status da instância',
+    }
+  }
 }
 
 export const desconectarInstancia = async (instanceName: string) => {

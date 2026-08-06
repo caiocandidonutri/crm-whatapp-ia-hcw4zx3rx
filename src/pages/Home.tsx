@@ -13,6 +13,8 @@ import {
   AudioLines,
   ListTodo,
   CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
 import { useTeamMembers } from '@/hooks/use-team-members'
@@ -30,6 +32,8 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { TaskViewDialog } from '@/components/TaskViewDialog'
+import { consultarStatusInstancia } from '@/services/whatsapp_service'
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 
 export default function Home() {
   const { user } = useAuth()
@@ -53,6 +57,8 @@ export default function Home() {
 
   const [selectedTask, setSelectedTask] = useState<any | null>(null)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
+  const [statusCheckFailed, setStatusCheckFailed] = useState(false)
+  const [statusWarningDismissed, setStatusWarningDismissed] = useState(false)
 
   useEffect(() => {
     if (!instance?.instance_name) return
@@ -80,6 +86,22 @@ export default function Home() {
     }
     fetchCrmStats()
   }, [instance?.instance_name])
+
+  const checkInstanceStatus = useCallback(async () => {
+    if (!instance?.instance_name) return
+    setStatusWarningDismissed(false)
+    const res = await consultarStatusInstancia(instance.instance_name)
+    setStatusCheckFailed(!!res.error)
+  }, [instance?.instance_name])
+
+  useEffect(() => {
+    if (instance?.instance_name && instance?.status === 'connected') {
+      checkInstanceStatus()
+    } else {
+      setStatusCheckFailed(false)
+      setStatusWarningDismissed(false)
+    }
+  }, [instance?.instance_name, instance?.status, checkInstanceStatus])
 
   const fetchChartData = useCallback(
     async (silent = false) => {
@@ -355,10 +377,24 @@ export default function Home() {
   const formattedDate = currentDateStr.charAt(0).toUpperCase() + currentDateStr.slice(1)
 
   const instanceStatus = instance?.status || 'disconnected'
-  const isConnected = instanceStatus === 'connected'
-  const isConnecting = instanceStatus === 'qrcode' || instanceStatus === 'creating'
-  const statusColor = isConnected ? 'bg-emerald-500' : isConnecting ? 'bg-amber-500' : 'bg-gray-500'
-  const statusText = isConnected ? 'Conectado' : isConnecting ? 'Conectando' : 'Desconectado'
+  const isStatusUnavailable = statusCheckFailed
+  const isConnected = !isStatusUnavailable && instanceStatus === 'connected'
+  const isConnecting =
+    !isStatusUnavailable && (instanceStatus === 'qrcode' || instanceStatus === 'creating')
+  const statusColor = isStatusUnavailable
+    ? 'bg-red-500'
+    : isConnected
+      ? 'bg-emerald-500'
+      : isConnecting
+        ? 'bg-amber-500'
+        : 'bg-gray-500'
+  const statusText = isStatusUnavailable
+    ? 'Indisponível'
+    : isConnected
+      ? 'Conectado'
+      : isConnecting
+        ? 'Conectando'
+        : 'Desconectado'
   const instanceLabel = instance?.instance_name || 'WhatsApp principal'
 
   const maxTotal = Math.max(...chartData.map((d) => d.total), 1)
@@ -479,6 +515,41 @@ export default function Home() {
           <ChevronRight className="w-4 h-4 text-muted-foreground/60 group-hover:translate-x-0.5 transition-transform" />
         </button>
       </div>
+
+      {statusCheckFailed && !statusWarningDismissed && (
+        <Alert className="border-amber-200 bg-amber-50 animate-fade-in">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <AlertTitle className="text-amber-900 text-sm font-semibold">
+                Não foi possível verificar o status da instância
+              </AlertTitle>
+              <AlertDescription className="text-amber-700 text-xs mt-0.5">
+                Verifique sua conexão e tente novamente.
+              </AlertDescription>
+              <div className="flex gap-2 mt-2.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100"
+                  onClick={() => checkInstanceStatus()}
+                >
+                  <RefreshCw className="w-3 h-3 mr-1.5" />
+                  Tentar novamente
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs text-amber-700 hover:bg-amber-100"
+                  onClick={() => setStatusWarningDismissed(true)}
+                >
+                  Dispensar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Alert>
+      )}
 
       {/* Section 2: Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">

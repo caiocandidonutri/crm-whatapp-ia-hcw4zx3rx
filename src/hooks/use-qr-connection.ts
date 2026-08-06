@@ -103,6 +103,10 @@ export function useQrConnection(
       interval = setInterval(async () => {
         try {
           const res = await consultarStatusInstancia(instanceName)
+          if (res.error) {
+            setPollErrors((prev) => prev + 1)
+            return
+          }
           if (res.state) {
             setRawState(res.state)
             if (res.state === 'connecting') {
