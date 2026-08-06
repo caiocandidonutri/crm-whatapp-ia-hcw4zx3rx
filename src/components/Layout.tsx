@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import pb from '@/lib/pocketbase/client'
+import { DisconnectBanner } from '@/components/DisconnectBanner'
 
 const NAV_LINKS = [
   { name: 'Início', path: '/home' },
@@ -163,6 +164,9 @@ export default function Layout() {
           )}
         </div>
       )}
+
+      {/* Global Disconnect Banner */}
+      <DisconnectBanner />
 
       {/* Main Content Area */}
       <div className="flex-1 pt-24 pb-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full z-10">
