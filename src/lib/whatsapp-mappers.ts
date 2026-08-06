@@ -173,7 +173,7 @@ export function whatsappMessagesToMessages(messages: WhatsappMessage[]) {
       isRead: m.status === 'read' || m.status === 'played',
       linkPreview,
       reactions: parsedReactions,
-      ...(isMedia && mediaType
+      ...(isMedia && mediaType && mediaUrl
         ? {
             media: {
               type: mediaType as any,

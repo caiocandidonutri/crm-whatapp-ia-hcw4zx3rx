@@ -5,7 +5,7 @@ export type LinkPreview = {
   url: string
   title: string
   description: string
-  image: string
+  image: string | null
 }
 
 // Cache em memória: por URL → preview ou null (não encontrado/erro).
@@ -36,7 +36,7 @@ async function fetchPreview(url: string): Promise<LinkPreview | null> {
         url: res.url || url,
         title: res.title || '',
         description: res.description || '',
-        image: res.image || '',
+        image: res.image || null,
       }
     })
     .catch(() => null)

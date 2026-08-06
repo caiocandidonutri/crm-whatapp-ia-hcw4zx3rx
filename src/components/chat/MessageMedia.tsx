@@ -25,7 +25,7 @@ export function MessageMedia({ media, isMe, status, onSelectMedia }: MessageMedi
       </div>
     )
   }
-  if (!media) return null
+  if (!media || !media.url) return null
   const { type, url, name, mimetype } = media
 
   if (type === 'image')

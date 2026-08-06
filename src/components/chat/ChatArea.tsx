@@ -558,7 +558,7 @@ export function ChatArea({
             </Button>
           )}
           <Avatar className="h-10 w-10 border border-border cursor-pointer">
-            <AvatarImage src={chat.avatar} />
+            {chat.avatar ? <AvatarImage src={chat.avatar} /> : null}
             <AvatarFallback>{chat.name?.charAt(0)?.toUpperCase() || '?'}</AvatarFallback>
           </Avatar>
           <div className="flex flex-col cursor-pointer">
