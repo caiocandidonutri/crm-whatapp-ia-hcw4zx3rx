@@ -47,6 +47,35 @@ function formatTimestamp(ts: number): string {
   })
 }
 
+function formatDateRelative(dateStr: string): string {
+  if (!dateStr) return 'Nunca'
+  try {
+    const normalized = dateStr.includes(' ') ? dateStr.replace(' ', 'T') : dateStr
+    const d = new Date(normalized)
+    const diffSecs = Math.floor((Date.now() - d.getTime()) / 1000)
+    if (isNaN(diffSecs)) return '—'
+    if (diffSecs < 0) return 'agora'
+    if (diffSecs < 60) return 'há poucos segundos'
+    if (diffSecs < 3600) return `há ${Math.floor(diffSecs / 60)} min`
+    if (diffSecs < 86400) return `há ${Math.floor(diffSecs / 3600)}h`
+    return `há ${Math.floor(diffSecs / 86400)} dia(s)`
+  } catch {
+    return '—'
+  }
+}
+
+function formatTimeFromDate(dateStr: string): string {
+  if (!dateStr) return '—'
+  try {
+    const normalized = dateStr.includes(' ') ? dateStr.replace(' ', 'T') : dateStr
+    const d = new Date(normalized)
+    if (isNaN(d.getTime())) return '—'
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return '—'
+  }
+}
+
 function CheckCard({
   icon: Icon,
   label,
@@ -198,6 +227,46 @@ export function DiagnosticModal({ result, onClose }: DiagnosticModalProps) {
                 </p>
               </div>
             </div>
+
+            {(result.lastHealthCheckAt ||
+              result.lastWebhookReconfiguredAt ||
+              result.lastInstanceRestartAt) && (
+              <div className="rounded-lg border border-border p-3 space-y-1.5">
+                <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5" /> Verificação automática
+                </h5>
+                <div className="text-xs text-foreground space-y-0.5">
+                  <p>
+                    <span className="text-muted-foreground">Última verificação automática: </span>
+                    {result.lastHealthCheckAt
+                      ? formatDateRelative(result.lastHealthCheckAt)
+                      : 'Nunca'}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">
+                      Webhook reconfigurado automaticamente:{' '}
+                    </span>
+                    {result.lastWebhookReconfiguredAt
+                      ? `às ${formatTimeFromDate(result.lastWebhookReconfiguredAt)}`
+                      : 'Nunca'}
+                  </p>
+                  {result.lastInstanceRestartAt && (
+                    <p>
+                      <span className="text-muted-foreground">
+                        Última reinicialização automática:{' '}
+                      </span>
+                      {formatDateRelative(result.lastInstanceRestartAt)}
+                    </p>
+                  )}
+                  {result.healthCheckFailures > 0 && (
+                    <p>
+                      <span className="text-muted-foreground">Falhas consecutivas: </span>
+                      {result.healthCheckFailures}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {hasLastMsg && (
               <div className="rounded-lg border border-border p-3 space-y-1.5">

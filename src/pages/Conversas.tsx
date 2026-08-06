@@ -8,6 +8,7 @@ import {
 import { ChatList } from '@/components/chat/ChatList'
 import { ChatArea } from '@/components/chat/ChatArea'
 import { ImportProgressBanner } from '@/components/chat/ImportProgressBanner'
+import { AutoRecoveryNotice } from '@/components/chat/AutoRecoveryNotice'
 import { DiagnosticModal } from '@/components/chat/DiagnosticModal'
 import { useIsMobile } from '@/hooks/use-mobile'
 import {
@@ -399,6 +400,7 @@ export default function Conversas() {
   return (
     <div className="h-[calc(100vh-8rem)] animate-fade-in flex flex-col bg-background rounded-2xl shadow-elevation border border-border overflow-hidden">
       <ImportProgressBanner instance={instance} />
+      <AutoRecoveryNotice instance={instance} />
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <div
           className={cn(

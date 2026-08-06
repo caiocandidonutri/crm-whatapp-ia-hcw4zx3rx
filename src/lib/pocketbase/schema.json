@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-06T20:54:48.780Z",
+  "generatedAt": "2026-08-06T21:15:07.267Z",
   "collections": [
     {
       "name": "users",
@@ -170,6 +170,30 @@
         },
         {
           "name": "import_total_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_health_check_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_webhook_reconfigured_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_instance_restart_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "health_check_failures",
           "type": "number",
           "required": false,
           "system": false

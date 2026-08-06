@@ -94,6 +94,10 @@ export interface WhatsappInstance {
   import_started_at?: string
   import_finished_at?: string
   sync_period_days?: number
+  last_health_check_at?: string
+  last_webhook_reconfigured_at?: string
+  last_instance_restart_at?: string
+  health_check_failures?: number
   created: string
   updated: string
 }
