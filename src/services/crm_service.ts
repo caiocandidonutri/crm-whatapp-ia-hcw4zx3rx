@@ -45,6 +45,24 @@ export const getCrmContacts = async (instance_name: string) => {
   })
 }
 
+export const getCrmContactsPage = async (
+  instance_name: string,
+  page: number = 1,
+  perPage: number = 50,
+  search?: string,
+) => {
+  let filter = `instance_name = '${instance_name}'`
+  if (search && search.trim()) {
+    const s = search.trim()
+    filter += ` && (contact_name ~ '${s}' || push_name ~ '${s}' || phone ~ '${s}')`
+  }
+  return pb.collection('crm_contacts').getList<CrmContact>(page, perPage, {
+    filter,
+    sort: '-ai_priority,-created',
+    expand: 'assigned_to,company_id',
+  })
+}
+
 export const updateCrmContactStage = async (id: string, stage: string) => {
   return pb.collection('crm_contacts').update<CrmContact>(id, { stage })
 }

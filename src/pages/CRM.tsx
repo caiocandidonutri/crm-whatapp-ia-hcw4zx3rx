@@ -56,7 +56,8 @@ import { useSearchParams } from 'react-router-dom'
 import pb from '@/lib/pocketbase/client'
 import { useInstanciaAtiva } from '@/hooks/use-whatsapp'
 import { useRealtime } from '@/hooks/use-realtime'
-import { useCrmContatos, formatPhoneBR } from '@/hooks/use-crm'
+import { useCrmContatosPaginated, formatPhoneBR } from '@/hooks/use-crm'
+import { useInfiniteScroll } from '@/hooks/use-infinite-scroll'
 import {
   updateCrmContactStage,
   deleteCrmContact,
@@ -93,9 +94,18 @@ export default function CRM() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { instance } = useInstanciaAtiva()
-  const { contacts, loading, reload, recentlyChangedIds, markRecentlyChanged } = useCrmContatos(
-    instance?.instance_name,
-  )
+  const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const {
+    contacts,
+    loading,
+    reload,
+    recentlyChangedIds,
+    markRecentlyChanged,
+    loadMore,
+    loadingMore,
+    hasMore,
+  } = useCrmContatosPaginated(instance?.instance_name, debouncedSearch)
   const { accountId } = useCurrentAccount()
   const { categories } = useCategories(accountId || undefined)
   // O CRM é a tela "dona" das etapas → faz o lazy seed das 4 padrão se a
@@ -109,8 +119,6 @@ export default function CRM() {
   const [ownerFilter, setOwnerFilter] = useState<'todos' | 'meus'>('todos')
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
   const selectedContactId = searchParams.get('contact')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [contactToDelete, setContactToDelete] = useState<CrmContact | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportConversasResult | null>(null)
@@ -120,6 +128,14 @@ export default function CRM() {
   const [dailySummary, setDailySummary] = useState<string | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [refreshingSuggestions, setRefreshingSuggestions] = useState(false)
+  const sentinelRef = useInfiniteScroll(loadMore, hasMore, loadingMore || loading)
+
+  useEffect(() => {
+    if (viewMode === 'pipeline' && hasMore && !loadingMore) {
+      loadMore()
+    }
+  }, [viewMode, hasMore, loadingMore, loadMore])
+
   const importingRef = useRef(false)
 
   useEffect(() => {
@@ -1120,6 +1136,17 @@ export default function CRM() {
                   </div>
                 )
               })}
+              {hasMore && !loading && filteredContacts.length > 0 && (
+                <div ref={sentinelRef} className="flex justify-center py-4">
+                  {loadingMore ? (
+                    <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={loadMore}>
+                      Carregar mais contatos
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </Card>

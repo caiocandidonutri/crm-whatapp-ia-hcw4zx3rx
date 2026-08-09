@@ -299,3 +299,18 @@ export interface CareSilencePeriod {
   created: string
   updated: string
 }
+
+export interface Notification {
+  id: string
+  user_id: string
+  account_id?: string
+  type: 'message' | 'care_alert' | 'task'
+  title: string
+  body?: string
+  conversation_id?: string
+  crm_contact_id?: string
+  task_id?: string
+  read?: boolean
+  created: string
+  updated: string
+}

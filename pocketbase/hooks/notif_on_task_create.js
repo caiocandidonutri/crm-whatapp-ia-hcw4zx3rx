@@ -1,10 +1,12 @@
 onRecordAfterCreateSuccess((e) => {
   var task = e.record
-  var assignedTo = task.getString('assigned_to')
-  if (!assignedTo) return e.next()
-
   var accountId = task.getString('account_id') || ''
+  if (!accountId) return e.next()
+
   var title = task.getString('title') || ''
+  var assignedTo = task.getString('assigned_to')
+
+  if (!assignedTo) return e.next()
 
   var notifCol = $app.findCollectionByNameOrId('notifications')
   try {
