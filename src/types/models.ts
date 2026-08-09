@@ -227,3 +227,29 @@ export interface Task {
   created: string
   updated: string
 }
+
+export interface CareAlertSettings {
+  id: string
+  account_id: string
+  whatsapp_alert_phone: string
+  followup_alert_enabled: boolean
+  needs_care_alert_enabled: boolean
+  created: string
+  updated: string
+}
+
+export interface CareAlert {
+  id: string
+  account_id: string
+  type: 'followup' | 'needs_care'
+  crm_contact_id?: string
+  conversation_id?: string
+  message: string
+  status: 'pending' | 'sent' | 'failed'
+  sent_at?: string
+  created: string
+  updated: string
+  expand?: {
+    crm_contact_id?: CrmContact
+  }
+}

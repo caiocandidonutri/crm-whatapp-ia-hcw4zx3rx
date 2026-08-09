@@ -149,6 +149,71 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
       contact.set('ai_suggested_action', 'Follow-up: ' + followupText.substring(0, 120))
       contact.set('care_status', 'precisa_retorno')
       $app.saveNoValidate(contact)
+
+      // === CARE ALERT: followup generated ===
+      try {
+        var aId = contact.getString('account_id')
+        if (aId) {
+          var aSettings = null
+          try {
+            aSettings = $app.findFirstRecordByFilter('care_alert_settings', 'account_id = {:aid}', {
+              aid: aId,
+            })
+          } catch (_) {}
+          if (
+            aSettings &&
+            aSettings.getBool('followup_alert_enabled') &&
+            aSettings.getString('whatsapp_alert_phone')
+          ) {
+            var aPhone = aSettings.getString('whatsapp_alert_phone').replace(/\D/g, '')
+            var aCutoff = new Date(Date.now() - 86400000).toISOString()
+            var aDup = false
+            try {
+              $app.findFirstRecordByFilter(
+                'care_alerts',
+                'crm_contact_id = {:cid} && type = {:t} && created >= {:c}',
+                { cid: contactId, t: 'followup', c: aCutoff },
+              )
+              aDup = true
+            } catch (_) {}
+            if (!aDup && aPhone) {
+              var aMsg =
+                'Dr. Caio, a paciente ' +
+                contactName +
+                ' completou 10 dias desde a consulta e esta precisando de retorno. 💛\n\nSugestao: ' +
+                followupText.substring(0, 200)
+              var aInst = contact.getString('instance_name')
+              var aUrl = $secrets.get('EVOLUTION_API_URL')
+              var aKey = $secrets.get('EVOLUTION_API_KEY')
+              var aCol = $app.findCollectionByNameOrId('care_alerts')
+              var aRec = new Record(aCol)
+              aRec.set('account_id', aId)
+              aRec.set('type', 'followup')
+              aRec.set('crm_contact_id', contactId)
+              aRec.set('message', aMsg)
+              aRec.set('status', 'pending')
+              $app.save(aRec)
+              var aStatus = 'failed'
+              if (aUrl && aKey && aInst) {
+                var aU = aUrl.endsWith('/') ? aUrl.slice(0, -1) : aUrl
+                try {
+                  var aRes = $http.send({
+                    url: aU + '/message/sendText/' + aInst,
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', apikey: aKey },
+                    body: JSON.stringify({ number: aPhone, text: aMsg }),
+                    timeout: 15,
+                  })
+                  aStatus = aRes.statusCode === 200 || aRes.statusCode === 201 ? 'sent' : 'failed'
+                } catch (_) {}
+              }
+              aRec.set('status', aStatus)
+              aRec.set('sent_at', new Date().toISOString())
+              $app.save(aRec)
+            }
+          }
+        }
+      } catch (_) {}
     } catch (taskErr) {
       $app
         .logger()

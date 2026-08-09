@@ -7,6 +7,8 @@ import { toast } from 'sonner'
 import pb from '@/lib/pocketbase/client'
 import { streamAgentChat } from '@/lib/skipAi'
 import { streamCareAgentChat } from '@/services/crm_care_service'
+import { useCurrentAccount } from '@/hooks/use-current-account'
+import { CareAlertsSheet } from '@/components/crm/CareAlertsSheet'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -21,6 +23,7 @@ const SUGGESTED_PROMPTS = [
 ]
 
 export default function Chat() {
+  const { accountId } = useCurrentAccount()
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
@@ -95,12 +98,13 @@ export default function Chat() {
             <Bot className="w-5 h-5" />
           </AvatarFallback>
         </Avatar>
-        <div>
+        <div className="flex-1">
           <h1 className="font-serif text-xl font-bold text-primary">Secretária de Cuidado</h1>
           <p className="text-xs text-muted-foreground">
             Saúde metabólica & hormonal · sempre ativa
           </p>
         </div>
+        {accountId && <CareAlertsSheet accountId={accountId} />}
       </div>
 
       <div className="flex-1 overflow-y-auto bg-white/50 backdrop-blur-sm rounded-2xl border border-border/40 p-4 flex flex-col gap-3">
