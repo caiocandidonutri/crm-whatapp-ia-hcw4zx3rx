@@ -1,6 +1,15 @@
 import { useState, useMemo } from 'react'
 import { useTasks } from '@/hooks/use-tasks'
-import { TASK_STATUSES, TASK_PRIORITIES, CARE_CATEGORY_TABS } from '@/lib/task-meta'
+import {
+  TASK_STATUSES,
+  TASK_PRIORITIES,
+  CARE_CATEGORY_TABS,
+  getCareCategoryMeta,
+  getPriorityMeta,
+  getStatusMeta,
+} from '@/lib/task-meta'
+import { downloadCsv, extractPhoneFromJid } from '@/lib/csv-export'
+import { format } from 'date-fns'
 import { Task } from '@/types/models'
 import pb from '@/lib/pocketbase/client'
 import { Input } from '@/components/ui/input'
@@ -14,7 +23,7 @@ import {
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Search, Heart } from 'lucide-react'
+import { Search, Heart, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TaskViewDialog } from '@/components/TaskViewDialog'
 import { CareTaskCard } from '@/components/CareTaskCard'
@@ -98,6 +107,38 @@ export default function Tarefas() {
   const openSecretary = (task: Task | null) => {
     setSecretaryContext(task)
     setSecretaryOpen(true)
+  }
+
+  const handleExportCsv = () => {
+    const headers = [
+      'Nome do Paciente',
+      'Categoria de Cuidado',
+      'Prioridade',
+      'Status',
+      'Ação Sugerida (IA)',
+      'Data de Vencimento',
+      'Telefone WhatsApp',
+    ]
+
+    const rows = filteredTasks.map((task) => {
+      const contact = task.expand?.crm_contact_id
+      const careMeta = getCareCategoryMeta(task.care_category || 'sem_categoria')
+      const priorityMeta = getPriorityMeta(task.priority)
+      const statusMeta = getStatusMeta(task.status)
+      return [
+        contact?.contact_name || contact?.push_name || '',
+        careMeta.label,
+        priorityMeta.label,
+        statusMeta.label,
+        contact?.ai_suggested_action || '',
+        task.due_date ? format(new Date(task.due_date), 'dd/MM/yyyy') : '',
+        contact?.phone || extractPhoneFromJid(contact?.jid) || '',
+      ]
+    })
+
+    const dateStr = format(new Date(), 'yyyy-MM-dd')
+    const filename = `tarefas_${activeCategory}_${dateStr}.csv`
+    downloadCsv(filename, [headers, ...rows])
   }
 
   return (
@@ -206,6 +247,16 @@ export default function Tarefas() {
             ))}
           </SelectContent>
         </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExportCsv}
+          disabled={filteredTasks.length === 0}
+          className="ml-auto h-9"
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Exportar CSV
+        </Button>
       </div>
 
       <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4">
