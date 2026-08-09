@@ -49,6 +49,13 @@ export interface PatientGroupsData {
   }
 }
 
+export interface PatientGroupFilters {
+  period_days?: number
+  care_status?: string
+  stage?: string
+  min_priority?: number
+}
+
 export function streamCareAgentChat(
   message: string,
   conversationId: string | null,
@@ -66,6 +73,17 @@ export async function getCareDashboard(): Promise<CareDashboardData> {
   return pb.send('/backend/v1/crm-care/dashboard', { method: 'GET' })
 }
 
-export async function getPatientGroups(): Promise<PatientGroupsData> {
-  return pb.send('/backend/v1/crm-care/patient-groups', { method: 'GET' })
+export async function getPatientGroups(filters?: PatientGroupFilters): Promise<PatientGroupsData> {
+  const params = new URLSearchParams()
+  if (filters?.period_days) params.set('period_days', String(filters.period_days))
+  if (filters?.care_status) params.set('care_status', filters.care_status)
+  if (filters?.stage) params.set('stage', filters.stage)
+  if (filters?.min_priority !== undefined && filters.min_priority > 0) {
+    params.set('min_priority', String(filters.min_priority))
+  }
+  const query = params.toString()
+  const path = query
+    ? `/backend/v1/crm-care/patient-groups?${query}`
+    : '/backend/v1/crm-care/patient-groups'
+  return pb.send(path, { method: 'GET' })
 }

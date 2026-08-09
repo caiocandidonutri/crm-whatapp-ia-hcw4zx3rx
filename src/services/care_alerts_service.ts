@@ -17,6 +17,8 @@ export async function saveCareAlertSettings(
     whatsapp_alert_phone: string
     followup_alert_enabled: boolean
     needs_care_alert_enabled: boolean
+    confirmation_alert_enabled: boolean
+    confirmation_hours_before: number
   },
 ): Promise<CareAlertSettings> {
   const existing = await getCareAlertSettings(accountId)

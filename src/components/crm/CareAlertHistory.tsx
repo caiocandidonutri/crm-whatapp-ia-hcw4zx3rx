@@ -63,10 +63,16 @@ export function CareAlertHistory({ accountId }: CareAlertHistoryProps) {
                   'text-[10px] border-0',
                   alert.type === 'followup'
                     ? 'bg-blue-100 text-blue-700'
-                    : 'bg-amber-100 text-amber-700',
+                    : alert.type === 'confirmacao_24h'
+                      ? 'bg-teal-100 text-teal-700'
+                      : 'bg-amber-100 text-amber-700',
                 )}
               >
-                {alert.type === 'followup' ? 'Follow-up' : 'Precisa de cuidado'}
+                {alert.type === 'followup'
+                  ? 'Follow-up'
+                  : alert.type === 'confirmacao_24h'
+                    ? 'Confirmação 24h'
+                    : 'Precisa de cuidado'}
               </Badge>
               <div className="flex items-center gap-1 shrink-0">
                 {alert.status === 'sent' && (

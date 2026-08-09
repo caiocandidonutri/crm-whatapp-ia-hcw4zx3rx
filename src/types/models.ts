@@ -234,6 +234,8 @@ export interface CareAlertSettings {
   whatsapp_alert_phone: string
   followup_alert_enabled: boolean
   needs_care_alert_enabled: boolean
+  confirmation_alert_enabled: boolean
+  confirmation_hours_before: number
   created: string
   updated: string
 }
@@ -241,7 +243,7 @@ export interface CareAlertSettings {
 export interface CareAlert {
   id: string
   account_id: string
-  type: 'followup' | 'needs_care'
+  type: 'followup' | 'needs_care' | 'confirmacao_24h'
   crm_contact_id?: string
   conversation_id?: string
   message: string

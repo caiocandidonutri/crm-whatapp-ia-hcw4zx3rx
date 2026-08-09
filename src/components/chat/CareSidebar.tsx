@@ -3,14 +3,12 @@ import {
   X,
   RefreshCw,
   Clock,
-  AlertTriangle,
   Zap,
   Calendar,
   Hourglass,
   Flame,
   ChevronRight,
   MessageCircle,
-  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -22,7 +20,9 @@ import {
   getPatientGroups,
   type PatientGroupsData,
   type PatientCard,
+  type PatientGroupFilters,
 } from '@/services/crm_care_service'
+import { CareFilters, type CareFilterValues } from '@/components/chat/CareFilters'
 
 interface CareSidebarProps {
   open: boolean
@@ -118,9 +118,7 @@ function PatientCardItem({
 
   return (
     <div
-      className={cn(
-        'group rounded-xl border border-border/40 bg-white p-3 transition-all hover:shadow-md hover:border-primary/30 cursor-pointer',
-      )}
+      className="group rounded-xl border border-border/40 bg-white p-3 transition-all hover:shadow-md hover:border-primary/30 cursor-pointer"
       onClick={onClick}
     >
       <div className="flex items-start justify-between gap-2">
@@ -177,16 +175,29 @@ export function CareSidebar({ open, onClose, onSelectPatient }: CareSidebarProps
   const [data, setData] = useState<PatientGroupsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [filterValues, setFilterValues] = useState<CareFilterValues>({
+    period_days: '0',
+    care_status: '',
+    min_priority: '0',
+  })
 
   const load = useCallback(async () => {
     try {
-      const res = await getPatientGroups()
+      const filters: PatientGroupFilters = {}
+      const pd = Number(filterValues.period_days)
+      if (pd > 0) filters.period_days = pd
+      const mp = Number(filterValues.min_priority)
+      if (mp > 0) filters.min_priority = mp
+      const cs = filterValues.care_status === 'all' ? '' : filterValues.care_status
+      if (cs) filters.care_status = cs
+      const hasFilters = Object.keys(filters).length > 0
+      const res = await getPatientGroups(hasFilters ? filters : undefined)
       setData(res)
     } catch {
       /* ignored */
     }
     setLoading(false)
-  }, [])
+  }, [filterValues])
 
   useEffect(() => {
     load()
@@ -208,9 +219,7 @@ export function CareSidebar({ open, onClose, onSelectPatient }: CareSidebarProps
 
   const handleOpenWhatsapp = (patient: PatientCard) => {
     const phone = patient.phone || patient.jid?.split('@')[0] || ''
-    if (phone) {
-      window.open(`https://wa.me/${phone}`, '_blank')
-    }
+    if (phone) window.open(`https://wa.me/${phone}`, '_blank')
   }
 
   const overviewCards = data
@@ -248,6 +257,10 @@ export function CareSidebar({ open, onClose, onSelectPatient }: CareSidebarProps
         </Button>
       </div>
 
+      <div className="px-4 pt-3 pb-2 border-b border-border/60">
+        <CareFilters values={filterValues} onChange={setFilterValues} />
+      </div>
+
       {loading ? (
         <div className="p-4 space-y-3">
           <div className="grid grid-cols-3 gap-2">
@@ -276,7 +289,6 @@ export function CareSidebar({ open, onClose, onSelectPatient }: CareSidebarProps
               if (items.length === 0) return null
               const isCollapsed = collapsedGroups.has(config.key)
               const Icon = config.icon
-
               return (
                 <div
                   key={config.key}

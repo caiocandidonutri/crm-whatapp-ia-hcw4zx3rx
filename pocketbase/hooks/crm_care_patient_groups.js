@@ -28,6 +28,12 @@ routerAdd(
         })
       }
 
+      var query = e.requestInfo().query || {}
+      var periodDays = parseInt(query.period_days || '0', 10) || 0
+      var filterCareStatus = query.care_status || ''
+      var filterStage = query.stage || ''
+      var minPriority = parseInt(query.min_priority || '0', 10) || 0
+
       var contacts = []
       try {
         contacts = $app.findRecordsByFilter(
@@ -42,7 +48,46 @@ routerAdd(
 
       var nowTs = Math.floor(Date.now() / 1000)
       var twentyFourHoursAgo = nowTs - 86400
-      var eightHoursAgoTs = nowTs - 8 * 3600
+
+      if (periodDays > 0) {
+        var periodCutoff = nowTs - periodDays * 86400
+        contacts = contacts.filter(function (c) {
+          var updatedStr = c.getString('updated')
+          if (updatedStr) {
+            var updatedTs = Math.floor(new Date(updatedStr).getTime() / 1000)
+            return !isNaN(updatedTs) && updatedTs >= periodCutoff
+          }
+          return false
+        })
+      }
+
+      if (filterCareStatus) {
+        contacts = contacts.filter(function (c) {
+          var cs = c.getString('care_status') || 'em_dia'
+          if (filterCareStatus === 'desassistido') {
+            var lastSynced = c.getString('last_synced_at')
+            if (lastSynced) {
+              var lastTs = Math.floor(new Date(lastSynced.replace(' ', 'T')).getTime() / 1000)
+              return !isNaN(lastTs) && nowTs - lastTs >= 30 * 86400
+            }
+            var createdTs = Math.floor(new Date(c.getString('created')).getTime() / 1000)
+            return !isNaN(createdTs) && nowTs - createdTs >= 30 * 86400
+          }
+          return cs === filterCareStatus
+        })
+      }
+
+      if (filterStage) {
+        contacts = contacts.filter(function (c) {
+          return (c.getString('stage') || '') === filterStage
+        })
+      }
+
+      if (minPriority > 0) {
+        contacts = contacts.filter(function (c) {
+          return (c.getInt('ai_priority') || 0) >= minPriority
+        })
+      }
 
       var overview = { em_dia: 0, precisa_retorno: 0, desassistidos: 0 }
       var groups = {
