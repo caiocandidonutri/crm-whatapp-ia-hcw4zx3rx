@@ -235,6 +235,7 @@ export interface CareFollowupRule {
   account_id: string
   name: string
   followup_days: number
+  reminder_text?: string
   created: string
   updated: string
 }

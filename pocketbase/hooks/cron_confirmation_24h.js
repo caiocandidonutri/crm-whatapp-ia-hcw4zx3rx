@@ -50,6 +50,7 @@ cronAdd('confirmation_24h', '0 * * * *', () => {
         var contactName =
           contact.getString('contact_name') || contact.getString('push_name') || 'Paciente'
         var convertedAt = contact.getString('converted_at') || targetDate
+        var instanceName = contact.getString('instance_name')
 
         var isDuplicate = false
         try {
@@ -64,43 +65,70 @@ cronAdd('confirmation_24h', '0 * * * *', () => {
 
         if (isDuplicate) continue
 
-        var agentMessage =
-          'Gere uma mensagem de confirmacao de consulta para a paciente ' +
-          contactName +
-          ' que tem consulta agendada para ' +
-          convertedAt +
-          '. A mensagem deve ser acolhedora, confirmar a data, e ser curta (max 200 chars). ' +
-          'NUNCA inclua diagnostico ou prescricao medica.'
+        var dateStr = convertedAt || targetDate
+        var datePart = dateStr.split('T')[0].split(' ')[0]
+        var timePart = ''
+        if (dateStr.indexOf('T') > -1) {
+          var tStr = dateStr.split('T')[1]
+          if (tStr) timePart = tStr.substring(0, 5)
+        }
+        var dp = datePart.split('-')
+        var formattedDate = dp.length === 3 ? dp[2] + '/' + dp[1] + '/' + dp[0] : datePart
 
         var confirmText = ''
-        try {
-          var result = $ai.agent('crm-care-agent').chat({
-            user_id: userId,
-            conversation_id: null,
-            message: agentMessage,
-          })
-          confirmText = result.content || ''
-        } catch (agentErr) {
-          $app
-            .logger()
-            .error(
-              'cron_confirmation_24h: agent chat failed',
-              'contact',
-              contactId,
-              'error',
-              String(agentErr),
-            )
-          confirmText =
-            'Ola! Passando para confirmar sua consulta dia ' +
-            convertedAt +
-            '. Estamos te esperando! 🙏'
+        var customReminderText = ''
+        var followupRuleId = contact.getString('followup_rule_id')
+
+        if (followupRuleId) {
+          try {
+            var rule = $app.findRecordById('care_followup_rules', followupRuleId)
+            customReminderText = rule.getString('reminder_text') || ''
+          } catch (_) {}
         }
 
-        if (!confirmText) {
-          confirmText =
-            'Ola! Passando para confirmar sua consulta dia ' +
-            convertedAt +
-            '. Estamos te esperando! 🙏'
+        if (customReminderText) {
+          confirmText = customReminderText
+            .replace(/{nome}/g, contactName)
+            .replace(/{data}/g, formattedDate)
+            .replace(/{horario}/g, timePart || 'horário combinado')
+        } else {
+          var agentMessage =
+            'Gere uma mensagem de confirmacao de consulta para a paciente ' +
+            contactName +
+            ' que tem consulta agendada para ' +
+            formattedDate +
+            (timePart ? ' as ' + timePart : '') +
+            '. A mensagem deve ser acolhedora, confirmar a data, e ser curta (max 200 chars). ' +
+            'NUNCA inclua diagnostico ou prescricao medica.'
+
+          try {
+            var result = $ai.agent('crm-care-agent').chat({
+              user_id: userId,
+              conversation_id: null,
+              message: agentMessage,
+            })
+            confirmText = result.content || ''
+          } catch (agentErr) {
+            $app
+              .logger()
+              .error(
+                'cron_confirmation_24h: agent chat failed',
+                'contact',
+                contactId,
+                'error',
+                String(agentErr),
+              )
+          }
+
+          if (!confirmText) {
+            confirmText =
+              'Ola ' +
+              contactName +
+              '! Passando para confirmar sua consulta dia ' +
+              formattedDate +
+              (timePart ? ' as ' + timePart : '') +
+              '. Estamos te esperando! 🙏'
+          }
         }
 
         try {
@@ -116,7 +144,6 @@ cronAdd('confirmation_24h', '0 * * * *', () => {
           var alertStatus = 'failed'
           if (alertPhone) {
             var phone = alertPhone.replace(/\D/g, '')
-            var instanceName = contact.getString('instance_name')
             var apiUrl = $secrets.get('EVOLUTION_API_URL')
             var apiKey = $secrets.get('EVOLUTION_API_KEY')
 
