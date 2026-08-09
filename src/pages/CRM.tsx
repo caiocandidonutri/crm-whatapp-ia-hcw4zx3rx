@@ -54,6 +54,7 @@ import { cn } from '@/lib/utils'
 import { useSearchParams } from 'react-router-dom'
 
 import pb from '@/lib/pocketbase/client'
+import { searchMessageContent } from '@/services/message-search'
 import { useInstanciaAtiva } from '@/hooks/use-whatsapp'
 import { useRealtime } from '@/hooks/use-realtime'
 import { useCrmContatosPaginated, formatPhoneBR } from '@/hooks/use-crm'
@@ -128,6 +129,7 @@ export default function CRM() {
   const [dailySummary, setDailySummary] = useState<string | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [refreshingSuggestions, setRefreshingSuggestions] = useState(false)
+  const [messageMatchJids, setMessageMatchJids] = useState<Set<string>>(new Set())
   const sentinelRef = useInfiniteScroll(loadMore, hasMore, loadingMore || loading)
 
   useEffect(() => {
@@ -178,6 +180,26 @@ export default function CRM() {
     }, 300)
     return () => clearTimeout(handler)
   }, [searchTerm])
+
+  useEffect(() => {
+    if (!debouncedSearch.trim() || !instance?.instance_name || !accountId) {
+      setMessageMatchJids(new Set())
+      return
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const result = await searchMessageContent(
+          instance.instance_name,
+          accountId,
+          debouncedSearch,
+        )
+        setMessageMatchJids(result.jids)
+      } catch {
+        // ignore
+      }
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [debouncedSearch, instance?.instance_name, accountId])
 
   useEffect(() => {
     setSummaryLoading(true)

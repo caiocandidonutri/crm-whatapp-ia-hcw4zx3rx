@@ -47,6 +47,7 @@ import {
   arquivarConversa,
   type SyncPeriod,
 } from '@/services/whatsapp_service'
+import { searchMessageContent } from '@/services/message-search'
 import { Input } from '@/components/ui/input'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
@@ -122,9 +123,34 @@ export default function Conversas() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { signOut } = useAuth()
-  const { role } = useCurrentAccount()
+  const { role, accountId } = useCurrentAccount()
 
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null)
+
+  const [messageMatchJids, setMessageMatchJids] = useState<Set<string>>(new Set())
+  const [messageMatchPreviews, setMessageMatchPreviews] = useState<Map<string, string>>(new Map())
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleSearchChange = useCallback(
+    (term: string) => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+      if (!term.trim() || !instance?.instance_name || !accountId) {
+        setMessageMatchJids(new Set())
+        setMessageMatchPreviews(new Map())
+        return
+      }
+      searchDebounceRef.current = setTimeout(async () => {
+        try {
+          const result = await searchMessageContent(instance.instance_name, accountId, term)
+          setMessageMatchJids(result.jids)
+          setMessageMatchPreviews(result.previewByJid)
+        } catch {
+          // ignore
+        }
+      }, 400)
+    },
+    [instance?.instance_name, accountId],
+  )
 
   useEffect(() => {
     const chatParam = searchParams.get('chat')
@@ -432,6 +458,9 @@ export default function Conversas() {
                 role === 'owner' && instance ? () => disconnect(instance.instance_name) : undefined
               }
               onFactoryReset={role === 'owner' ? () => setIsResetConfirmOpen(true) : undefined}
+              onSearchChange={handleSearchChange}
+              messageMatchJids={messageMatchJids}
+              messageMatchPreviews={messageMatchPreviews}
             />
           </div>
         </div>

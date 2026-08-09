@@ -53,6 +53,9 @@ type ChatListProps = {
   onDiagnose?: () => void
   onDisconnect?: () => void
   onFactoryReset?: () => void
+  onSearchChange?: (term: string) => void
+  messageMatchJids?: Set<string>
+  messageMatchPreviews?: Map<string, string>
 }
 
 const SKELETON_ROWS = 6
@@ -76,9 +79,15 @@ type ChatRowProps = {
   chat: Chat
   isActive: boolean
   onSelectChat: (id: string) => void
+  messagePreview?: string
 }
 
-const ChatRow = React.memo(function ChatRow({ chat, isActive, onSelectChat }: ChatRowProps) {
+const ChatRow = React.memo(function ChatRow({
+  chat,
+  isActive,
+  onSelectChat,
+  messagePreview,
+}: ChatRowProps) {
   if (!chat) return null
   const lastMsg = chat.messages?.[(chat.messages?.length || 0) - 1] ?? null
   const unreadCount = chat.unread || 0
@@ -129,39 +138,48 @@ const ChatRow = React.memo(function ChatRow({ chat, isActive, onSelectChat }: Ch
               unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground',
             )}
           >
-            {(chat.lastMessage?.fromMe || lastMsg?.senderId === 'me') && (
-              <span className="shrink-0">Você: </span>
+            {messagePreview ? (
+              <>
+                <Search className="w-3 h-3 shrink-0 text-primary" />
+                <span className="truncate italic text-primary/70">{messagePreview}</span>
+              </>
+            ) : (
+              <>
+                {(chat.lastMessage?.fromMe || lastMsg?.senderId === 'me') && (
+                  <span className="shrink-0">Você: </span>
+                )}
+
+                {(() => {
+                  const type = chat.lastMessage?.type || lastMsg?.media?.type
+                  const text = chat.lastMessage?.text || lastMsg?.text || ''
+                  const isPhoto = type === 'image' || text === 'Foto'
+                  const isVideo = type === 'video' || text === 'Vídeo'
+                  const isAudio = type === 'audio' || text === 'Áudio'
+                  const isDoc = type === 'document' || text === 'Documento'
+                  const isSticker = type === 'sticker' || text === 'Figurinha'
+
+                  if (isPhoto) return <ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  if (isVideo) return <Video className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  if (isAudio) return <Mic className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  if (isDoc) return <FileText className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  if (isSticker) return <Sticker className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  return null
+                })()}
+
+                <span
+                  className={cn(
+                    'truncate',
+                    ['Foto', 'Vídeo', 'Áudio', 'Documento', 'Figurinha'].includes(
+                      chat.lastMessage?.text || '',
+                    ) || lastMsg?.media
+                      ? 'italic opacity-70'
+                      : '',
+                  )}
+                >
+                  {chat.lastMessage?.text || lastMsg?.text || (lastMsg?.media ? 'Mídia' : '')}
+                </span>
+              </>
             )}
-
-            {(() => {
-              const type = chat.lastMessage?.type || lastMsg?.media?.type
-              const text = chat.lastMessage?.text || lastMsg?.text || ''
-              const isPhoto = type === 'image' || text === 'Foto'
-              const isVideo = type === 'video' || text === 'Vídeo'
-              const isAudio = type === 'audio' || text === 'Áudio'
-              const isDoc = type === 'document' || text === 'Documento'
-              const isSticker = type === 'sticker' || text === 'Figurinha'
-
-              if (isPhoto) return <ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />
-              if (isVideo) return <Video className="w-3.5 h-3.5 shrink-0 opacity-70" />
-              if (isAudio) return <Mic className="w-3.5 h-3.5 shrink-0 opacity-70" />
-              if (isDoc) return <FileText className="w-3.5 h-3.5 shrink-0 opacity-70" />
-              if (isSticker) return <Sticker className="w-3.5 h-3.5 shrink-0 opacity-70" />
-              return null
-            })()}
-
-            <span
-              className={cn(
-                'truncate',
-                ['Foto', 'Vídeo', 'Áudio', 'Documento', 'Figurinha'].includes(
-                  chat.lastMessage?.text || '',
-                ) || lastMsg?.media
-                  ? 'italic opacity-70'
-                  : '',
-              )}
-            >
-              {chat.lastMessage?.text || lastMsg?.text || (lastMsg?.media ? 'Mídia' : '')}
-            </span>
           </div>
           {unreadCount > 0 && (
             <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shrink-0">
@@ -191,6 +209,9 @@ export function ChatList({
   onDiagnose,
   onDisconnect,
   onFactoryReset,
+  onSearchChange,
+  messageMatchJids,
+  messageMatchPreviews,
 }: ChatListProps) {
   const safeChats = chats || []
   const [searchTerm, setSearchTerm] = useState('')
@@ -210,7 +231,7 @@ export function ChatList({
       const q = searchTerm.toLowerCase().trim()
       filtered = filtered.filter((c) => {
         const haystack = `${c.name || ''} ${c.phone || ''}`.toLowerCase()
-        return haystack.includes(q)
+        return haystack.includes(q) || (messageMatchJids?.has(c.remote_jid || '') ?? false)
       })
     }
 
@@ -248,8 +269,11 @@ export function ChatList({
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar conversa..."
+              onChange={(e) => {
+                setSearchTerm(e.target.value)
+                onSearchChange?.(e.target.value)
+              }}
+              placeholder="Buscar conversa ou mensagem..."
               className="pl-9 bg-white border-border rounded-xl"
             />
           </div>
@@ -380,6 +404,7 @@ export function ChatList({
                 chat={chat}
                 isActive={activeChatId === chat.id}
                 onSelectChat={onSelectChat}
+                messagePreview={messageMatchPreviews?.get(chat.remote_jid || '')}
               />
             ))}
           </div>

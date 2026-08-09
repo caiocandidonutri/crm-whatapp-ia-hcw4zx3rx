@@ -4,6 +4,8 @@ import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AppProvider } from '@/stores/useAppStore'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
+import { usePushNotifications } from '@/hooks/use-push-notifications'
+import { PushPermissionBanner } from '@/components/PushPermissionBanner'
 import { Navigate, Outlet } from 'react-router-dom'
 
 import Layout from './components/Layout'
@@ -24,6 +26,38 @@ const ProtectedRoute = () => {
   return <Outlet />
 }
 
+function AppRoutes() {
+  const { isAuthenticated } = useAuth()
+  const { showBanner, requestPermission, dismissBanner } = usePushNotifications(isAuthenticated)
+
+  return (
+    <>
+      <Routes>
+        <Route path="/" element={<Index />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<Layout />}>
+            <Route path="/home" element={<Home />} />
+            <Route path="/conversas" element={<Conversas />} />
+            <Route path="/crm" element={<CRM />} />
+            <Route path="/agentes" element={<Agentes />} />
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/tarefas" element={<Tarefas />} />
+            <Route path="/equipe" element={<Equipe />} />
+          </Route>
+        </Route>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      {isAuthenticated && (
+        <PushPermissionBanner
+          show={showBanner}
+          onAccept={requestPermission}
+          onDismiss={dismissBanner}
+        />
+      )}
+    </>
+  )
+}
+
 const App = () => (
   <AuthProvider>
     <AppProvider>
@@ -31,25 +65,7 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <Routes>
-            {/* Routes without Global Layout */}
-            <Route path="/" element={<Index />} />
-
-            {/* Routes with Global Layout */}
-            <Route element={<ProtectedRoute />}>
-              <Route element={<Layout />}>
-                <Route path="/home" element={<Home />} />
-                <Route path="/conversas" element={<Conversas />} />
-                <Route path="/crm" element={<CRM />} />
-                <Route path="/agentes" element={<Agentes />} />
-                <Route path="/chat" element={<Chat />} />
-                <Route path="/tarefas" element={<Tarefas />} />
-                <Route path="/equipe" element={<Equipe />} />
-              </Route>
-            </Route>
-
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <AppRoutes />
         </TooltipProvider>
       </BrowserRouter>
     </AppProvider>
