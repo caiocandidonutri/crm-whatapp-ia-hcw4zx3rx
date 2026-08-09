@@ -23,7 +23,9 @@ import {
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Search, Heart, Download } from 'lucide-react'
+import { Search, Heart, Download, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
+import { resyncCareTasks } from '@/services/crm_care_service'
 import { cn } from '@/lib/utils'
 import { TaskViewDialog } from '@/components/TaskViewDialog'
 import { CareTaskCard } from '@/components/CareTaskCard'
@@ -31,7 +33,7 @@ import { CareSecretarySheet } from '@/components/CareSecretarySheet'
 import { updateTask, deleteTask } from '@/services/tasks'
 
 export default function Tarefas() {
-  const { tasks, loading } = useTasks()
+  const { tasks, loading, loadTasks } = useTasks()
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('todas')
   const [filterMine, setFilterMine] = useState(false)
@@ -42,6 +44,23 @@ export default function Tarefas() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [secretaryOpen, setSecretaryOpen] = useState(false)
   const [secretaryContext, setSecretaryContext] = useState<Task | null>(null)
+  const [syncing, setSyncing] = useState(false)
+
+  const handleResync = async () => {
+    setSyncing(true)
+    toast.info('Re-sincronizando categorias de cuidado...')
+    try {
+      const result = await resyncCareTasks()
+      toast.success(
+        `Sincronização concluída! ${result.tasks_created} criadas, ${result.tasks_updated} atualizadas, ${result.tasks_completed} concluídas.`,
+      )
+      loadTasks()
+    } catch (err) {
+      toast.error('Erro ao sincronizar. Tente novamente.')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
@@ -148,13 +167,24 @@ export default function Tarefas() {
           <h1 className="font-serif text-3xl font-bold text-primary">Tarefas</h1>
           <p className="text-muted-foreground mt-1">Gerencie as demandas da equipe.</p>
         </div>
-        <Button
-          onClick={() => openSecretary(null)}
-          className="rounded-full bg-rose-600 hover:bg-rose-700 text-white"
-        >
-          <Heart className="w-4 h-4 mr-2" />
-          Secretária de Cuidado
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleResync}
+            disabled={syncing}
+            className="rounded-full"
+          >
+            <RefreshCw className={cn('w-4 h-4 mr-2', syncing && 'animate-spin')} />
+            {syncing ? 'Sincronizando...' : 'Re-sincronizar'}
+          </Button>
+          <Button
+            onClick={() => openSecretary(null)}
+            className="rounded-full bg-rose-600 hover:bg-rose-700 text-white"
+          >
+            <Heart className="w-4 h-4 mr-2" />
+            Secretária de Cuidado
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 shrink-0">

@@ -58,6 +58,19 @@ export interface PatientGroupFilters {
   min_priority?: number
 }
 
+export interface ResyncResult {
+  success: boolean
+  contacts_processed: number
+  ai_classified: number
+  tasks_created: number
+  tasks_updated: number
+  tasks_completed: number
+}
+
+export async function resyncCareTasks(): Promise<ResyncResult> {
+  return pb.send('/backend/v1/crm-care/resync', { method: 'POST' })
+}
+
 export function streamCareAgentChat(
   message: string,
   conversationId: string | null,
