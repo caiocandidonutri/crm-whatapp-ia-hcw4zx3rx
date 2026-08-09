@@ -290,7 +290,7 @@ export default function Tarefas() {
       </div>
 
       <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4">
-        <div className="flex gap-6 min-w-max h-full items-start">
+        <div className="flex gap-6 min-w-max h-full items-stretch">
           {TASK_STATUSES.map((status) => {
             const columnTasks = filteredTasks.filter((t) => t.status === status.id)
             const isDragOver = dragOverColumn === status.id
