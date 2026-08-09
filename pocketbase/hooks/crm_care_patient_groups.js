@@ -144,6 +144,20 @@ routerAdd(
         }
       } catch (_) {}
 
+      var rulesById = {}
+      try {
+        var allRules = $app.findRecordsByFilter(
+          'care_followup_rules',
+          'id != ""',
+          'created',
+          500,
+          0,
+        )
+        for (var rl = 0; rl < allRules.length; rl++) {
+          rulesById[allRules[rl].id] = allRules[rl].getInt('followup_days') || 10
+        }
+      } catch (_) {}
+
       function buildCard(c) {
         var name =
           c.getString('contact_name') || c.getString('push_name') || c.getString('jid') || 'Contato'
@@ -156,6 +170,11 @@ routerAdd(
         var priority = c.getInt('ai_priority') || 0
         var isPatient = c.getBool('is_patient')
         var convertedAt = c.getString('converted_at') || ''
+        var followupRuleId = c.getString('followup_rule_id') || ''
+        var followupDays = 10
+        if (followupRuleId && rulesById[followupRuleId]) {
+          followupDays = rulesById[followupRuleId]
+        }
 
         var lastMsg = lastMsgByJid[jid] || null
         var lastMsgFromMe = lastMsg ? lastMsg.from_me : false
@@ -175,6 +194,8 @@ routerAdd(
           converted_at: convertedAt,
           last_message_from_me: lastMsgFromMe,
           last_message_timestamp: lastMsgTs,
+          followup_rule_id: followupRuleId,
+          followup_days: followupDays,
         }
       }
 
@@ -229,7 +250,8 @@ routerAdd(
           var convTs = Math.floor(new Date(convertedAt).getTime() / 1000)
           if (!isNaN(convTs)) {
             var daysSince = Math.floor((nowTs - convTs) / 86400)
-            if (daysSince >= 10 && daysSince <= 15) {
+            var fDays = card.followup_days || 10
+            if (daysSince >= fDays && daysSince <= fDays + 5) {
               groups.followup_window.push(card)
             }
           }

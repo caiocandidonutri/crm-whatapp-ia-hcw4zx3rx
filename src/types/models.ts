@@ -153,10 +153,12 @@ export interface CrmContact {
   email?: string
   assigned_to?: string
   category_ids?: string[]
+  followup_rule_id?: string
   // expand opcional do PB ao buscar com `?expand=company_id`
   expand?: {
     company_id?: CrmCompany
     assigned_to?: User
+    followup_rule_id?: CareFollowupRule
   }
   created: string
   updated: string
@@ -224,6 +226,15 @@ export interface Task {
   expand?: {
     assigned_to?: User
   }
+  created: string
+  updated: string
+}
+
+export interface CareFollowupRule {
+  id: string
+  account_id: string
+  name: string
+  followup_days: number
   created: string
   updated: string
 }

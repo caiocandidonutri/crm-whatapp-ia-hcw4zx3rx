@@ -1,4 +1,4 @@
-import { Filter } from 'lucide-react'
+import { Filter, FilterX } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -40,11 +40,25 @@ const PRIORITY_OPTIONS = [
 ]
 
 export function CareFilters({ values, onChange }: CareFiltersProps) {
+  const hasActiveFilters =
+    values.period_days !== '0' || values.care_status !== '' || values.min_priority !== '0'
+
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <Filter className="w-3 h-3" />
-        <span>Filtros</span>
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Filter className="w-3 h-3" />
+          <span>Filtros</span>
+        </div>
+        {hasActiveFilters && (
+          <button
+            onClick={() => onChange({ period_days: '0', care_status: '', min_priority: '0' })}
+            className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+          >
+            <FilterX className="w-3 h-3" />
+            Limpar
+          </button>
+        )}
       </div>
       <div className="grid grid-cols-3 gap-1.5">
         <Select

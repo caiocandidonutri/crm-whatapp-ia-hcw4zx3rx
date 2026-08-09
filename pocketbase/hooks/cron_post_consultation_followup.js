@@ -1,7 +1,22 @@
 cronAdd('post_consultation_followup', '0 9 * * *', () => {
   var nowTs = Math.floor(Date.now() / 1000)
   var todayStr = new Date().toISOString().split('T')[0]
-  var tenDaysAgo = new Date(Date.now() - 10 * 86400000).toISOString().split('T')[0]
+
+  var rulesById = {}
+  try {
+    var allRules = $app.findRecordsByFilter('care_followup_rules', 'id != ""', 'created', 500, 0)
+    for (var r = 0; r < allRules.length; r++) {
+      rulesById[allRules[r].id] = allRules[r].getInt('followup_days') || 10
+    }
+  } catch (_) {}
+
+  var DEFAULT_FOLLOWUP_DAYS = 10
+
+  function getFollowupDays(patient) {
+    var ruleId = patient.getString('followup_rule_id')
+    if (ruleId && rulesById[ruleId]) return rulesById[ruleId]
+    return DEFAULT_FOLLOWUP_DAYS
+  }
 
   var patients = []
   try {
@@ -14,18 +29,23 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
   if (!patients || patients.length === 0) return
 
   var updatedCount = 0
+  var followupCandidates = []
 
   for (var p = 0; p < patients.length; p++) {
     try {
       var patient = patients[p]
       var careStatus = 'em_dia'
       var convertedAt = patient.getString('converted_at')
+      var followupDays = getFollowupDays(patient)
 
       if (convertedAt) {
         var convertedTs = Math.floor(new Date(convertedAt).getTime() / 1000)
         var daysSinceConsultation = Math.floor((nowTs - convertedTs) / 86400)
-        if (daysSinceConsultation >= 10) {
+        if (daysSinceConsultation >= followupDays) {
           careStatus = 'precisa_retorno'
+        }
+        if (daysSinceConsultation === followupDays) {
+          followupCandidates.push(patient)
         }
       }
 
@@ -46,30 +66,16 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
     } catch (_) {}
   }
 
-  var followupContacts = []
-  try {
-    followupContacts = $app.findRecordsByFilter(
-      'crm_contacts',
-      'is_patient = true && converted_at = {:date}',
-      '-created',
-      50,
-      0,
-      { date: tenDaysAgo },
-    )
-  } catch (err) {
-    $app.logger().error('cron_followup: query followup contacts failed', 'error', String(err))
-    followupContacts = []
-  }
-
   var tasksCreated = 0
 
-  for (var i = 0; i < followupContacts.length; i++) {
-    var contact = followupContacts[i]
+  for (var i = 0; i < followupCandidates.length; i++) {
+    var contact = followupCandidates[i]
     var contactId = contact.id
     var userId = contact.getString('user_id')
     var accountId = contact.getString('account_id')
     var contactName =
       contact.getString('contact_name') || contact.getString('push_name') || 'Paciente'
+    var patientFollowupDays = getFollowupDays(contact)
 
     var existingTask = null
     try {
@@ -103,9 +109,10 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
     var agentMessage =
       'Gere uma mensagem de follow-up para o paciente ' +
       contactName +
-      ' que teve consulta há 10 dias (em ' +
-      tenDaysAgo +
-      '). A mensagem deve ser acolhedora, natural e curta (max 200 chars).'
+      ' que teve consulta há ' +
+      patientFollowupDays +
+      ' dias. ' +
+      'A mensagem deve ser acolhedora, natural e curta (max 200 chars).'
 
     if (toneExamples) {
       agentMessage +=
@@ -150,7 +157,6 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
       contact.set('care_status', 'precisa_retorno')
       $app.saveNoValidate(contact)
 
-      // === CARE ALERT: followup generated ===
       try {
         var aId = contact.getString('account_id')
         if (aId) {
@@ -180,7 +186,9 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
               var aMsg =
                 'Dr. Caio, a paciente ' +
                 contactName +
-                ' completou 10 dias desde a consulta e esta precisando de retorno. 💛\n\nSugestao: ' +
+                ' completou ' +
+                patientFollowupDays +
+                ' dias desde a consulta e esta precisando de retorno. 💛\n\nSugestao: ' +
                 followupText.substring(0, 200)
               var aInst = contact.getString('instance_name')
               var aUrl = $secrets.get('EVOLUTION_API_URL')

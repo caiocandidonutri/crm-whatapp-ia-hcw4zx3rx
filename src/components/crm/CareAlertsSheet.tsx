@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { CareAlertSettings } from '@/components/crm/CareAlertSettings'
 import { CareAlertHistory } from '@/components/crm/CareAlertHistory'
+import { FollowupRulesManager } from '@/components/crm/FollowupRulesManager'
 
 interface CareAlertsSheetProps {
   accountId: string
@@ -26,6 +28,9 @@ export function CareAlertsSheet({ accountId }: CareAlertsSheetProps) {
         </SheetHeader>
         <div className="mt-4 space-y-6">
           <CareAlertSettings accountId={accountId} />
+          <Separator />
+          <FollowupRulesManager accountId={accountId} />
+          <Separator />
           <CareAlertHistory accountId={accountId} />
         </div>
       </SheetContent>

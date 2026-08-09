@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T20:23:32.784Z",
+  "generatedAt": "2026-08-09T20:43:06.342Z",
   "collections": [
     {
       "name": "users",
@@ -778,6 +778,13 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "followup_rule_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "care_followup_rules"
         }
       ],
       "indexes": [
@@ -1515,6 +1522,55 @@
         "CREATE INDEX idx_care_alerts_type ON care_alerts (type)",
         "CREATE INDEX idx_care_alerts_status ON care_alerts (status)",
         "CREATE INDEX idx_care_alerts_created ON care_alerts (created)"
+      ]
+    },
+    {
+      "name": "care_followup_rules",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "followup_days",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_care_followup_rules_account ON care_followup_rules (account_id)"
       ]
     }
   ]

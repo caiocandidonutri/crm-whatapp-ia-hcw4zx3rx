@@ -31,6 +31,8 @@ export interface PatientCard {
   converted_at: string
   last_message_from_me: boolean
   last_message_timestamp: number
+  followup_rule_id?: string
+  followup_days?: number
 }
 
 export interface PatientGroupsData {
