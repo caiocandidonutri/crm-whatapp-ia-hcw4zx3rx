@@ -42,7 +42,7 @@ export default function Layout() {
     : undefined
 
   return (
-    <main className="flex flex-col min-h-screen bg-background relative overflow-x-hidden">
+    <main className="flex flex-col h-screen bg-background relative overflow-x-hidden">
       {/* Background Noise */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.03] mix-blend-multiply bg-noise z-0" />
 
@@ -170,7 +170,7 @@ export default function Layout() {
       <DisconnectBanner />
 
       {/* Main Content Area */}
-      <div className="flex-1 pt-24 pb-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full z-10">
+      <div className="flex-1 min-h-0 pt-24 pb-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full z-10 overflow-y-auto">
         <Outlet />
       </div>
     </main>
