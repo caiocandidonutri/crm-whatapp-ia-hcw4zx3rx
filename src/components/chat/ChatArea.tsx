@@ -843,7 +843,9 @@ export function ChatArea({
             <form
               onSubmit={handleSend}
               className="flex-1 flex items-end gap-2 bg-background rounded-2xl border border-border px-1 focus-within:ring-2 focus-within:ring-primary/20 transition-all"
-            >              <textarea
+            >
+              {' '}
+              <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 disabled={isSending}
@@ -1114,16 +1116,13 @@ export function ChatArea({
               </div>
             )}
           </div>
-        </div>
+        </DialogContent>
       </Dialog>
-
       <Dialog open={isTemplateManageOpen} onOpenChange={setIsTemplateManageOpen}>
         <DialogContent className="sm:max-w-md max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Modelos de Mensagem</DialogTitle>
-            <DialogDescription>
-              Gerencie os modelos disponíveis no chat.
-            </DialogDescription>
+            <DialogDescription>Gerencie os modelos disponíveis no chat.</DialogDescription>
           </DialogHeader>
           {account?.id && <MessageTemplatesSection accountId={account.id} />}
         </DialogContent>
