@@ -13,7 +13,7 @@ export const getTasks = async (filter?: string) => {
   return pb.collection('tasks').getFullList<Task>({
     sort: '-created',
     filter,
-    expand: 'assigned_to',
+    expand: 'assigned_to,crm_contact_id,conversation_id',
     requestKey: null,
   })
 }

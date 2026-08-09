@@ -1,10 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useTasks } from '@/hooks/use-tasks'
-import { TASK_STATUSES, TASK_PRIORITIES, getPriorityMeta } from '@/lib/task-meta'
+import { TASK_STATUSES, TASK_PRIORITIES, CARE_CATEGORY_TABS } from '@/lib/task-meta'
 import { Task } from '@/types/models'
 import pb from '@/lib/pocketbase/client'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { updateTask, deleteTask } from '@/services/tasks'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -16,36 +14,25 @@ import {
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Search,
-  MessageCircle,
-  CalendarIcon,
-  Paperclip,
-  MoreVertical,
-  Trash2,
-  CheckCircle,
-} from 'lucide-react'
-import { format } from 'date-fns'
-import { useNavigate } from 'react-router-dom'
+import { Search, Heart } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TaskViewDialog } from '@/components/TaskViewDialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { CareTaskCard } from '@/components/CareTaskCard'
+import { CareSecretarySheet } from '@/components/CareSecretarySheet'
+import { updateTask, deleteTask } from '@/services/tasks'
 
 export default function Tarefas() {
   const { tasks, loading } = useTasks()
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('todas')
   const [filterMine, setFilterMine] = useState(false)
+  const [activeCategory, setActiveCategory] = useState('todos')
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
-
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [secretaryOpen, setSecretaryOpen] = useState(false)
+  const [secretaryContext, setSecretaryContext] = useState<Task | null>(null)
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
@@ -54,9 +41,11 @@ export default function Tarefas() {
         (t.description || '').toLowerCase().includes(search.toLowerCase())
       const matchPriority = priorityFilter === 'todas' || t.priority === priorityFilter
       const matchMine = !filterMine || t.assigned_to === pb.authStore.record?.id
-      return matchSearch && matchPriority && matchMine
+      const taskCareCategory = t.care_category || 'sem_categoria'
+      const matchCategory = activeCategory === 'todos' || taskCareCategory === activeCategory
+      return matchSearch && matchPriority && matchMine && matchCategory
     })
-  }, [tasks, search, priorityFilter, filterMine])
+  }, [tasks, search, priorityFilter, filterMine, activeCategory])
 
   const kpis = useMemo(() => {
     const total = tasks.length
@@ -106,6 +95,11 @@ export default function Tarefas() {
     }
   }
 
+  const openSecretary = (task: Task | null) => {
+    setSecretaryContext(task)
+    setSecretaryOpen(true)
+  }
+
   return (
     <div className="flex flex-col gap-6 h-full max-h-[calc(100vh-6rem)] overflow-hidden">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
@@ -113,9 +107,15 @@ export default function Tarefas() {
           <h1 className="font-serif text-3xl font-bold text-primary">Tarefas</h1>
           <p className="text-muted-foreground mt-1">Gerencie as demandas da equipe.</p>
         </div>
+        <Button
+          onClick={() => openSecretary(null)}
+          className="rounded-full bg-rose-600 hover:bg-rose-700 text-white"
+        >
+          <Heart className="w-4 h-4 mr-2" />
+          Secretária de Cuidado
+        </Button>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 shrink-0">
         <Card className="p-4 flex flex-col items-start justify-center bg-primary/5 border-primary/20">
           <span className="text-sm font-medium text-muted-foreground mb-1">Total</span>
@@ -132,7 +132,39 @@ export default function Tarefas() {
         ))}
       </div>
 
-      {/* Filters */}
+      <div className="flex gap-2 overflow-x-auto shrink-0 pb-1">
+        {CARE_CATEGORY_TABS.map((tab) => {
+          const isActive = activeCategory === tab.id
+          const count =
+            tab.id === 'todos'
+              ? tasks.length
+              : tasks.filter((t) => (t.care_category || 'sem_categoria') === tab.id).length
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveCategory(tab.id)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors border',
+                isActive
+                  ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                  : 'bg-background text-muted-foreground border-border hover:bg-muted',
+              )}
+            >
+              <span>{tab.emoji}</span>
+              <span>{tab.label}</span>
+              <span
+                className={cn(
+                  'text-[10px] px-1.5 py-0.5 rounded-full',
+                  isActive ? 'bg-primary-foreground/20' : 'bg-muted',
+                )}
+              >
+                {count}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
       <div className="flex flex-col sm:flex-row gap-4 shrink-0 items-center">
         <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-lg border">
           <Button
@@ -176,7 +208,6 @@ export default function Tarefas() {
         </Select>
       </div>
 
-      {/* Kanban Board */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4">
         <div className="flex gap-6 min-w-max h-full items-start">
           {TASK_STATUSES.map((status) => {
@@ -212,7 +243,7 @@ export default function Tarefas() {
                     </div>
                   ) : (
                     columnTasks.map((task) => (
-                      <TaskCard
+                      <CareTaskCard
                         key={task.id}
                         task={task}
                         isDragging={draggedTaskId === task.id}
@@ -230,6 +261,7 @@ export default function Tarefas() {
                             completed_at: new Date().toISOString(),
                           })
                         }}
+                        onOpenSecretary={() => openSecretary(task)}
                       />
                     ))
                   )}
@@ -241,160 +273,11 @@ export default function Tarefas() {
       </div>
 
       <TaskViewDialog open={dialogOpen} onOpenChange={setDialogOpen} task={selectedTask} />
+      <CareSecretarySheet
+        open={secretaryOpen}
+        onOpenChange={setSecretaryOpen}
+        contextTask={secretaryContext}
+      />
     </div>
-  )
-}
-
-function TaskCard({
-  task,
-  isDragging,
-  onDragStart,
-  onClick,
-  onDelete,
-  onComplete,
-}: {
-  task: Task
-  isDragging: boolean
-  onDragStart: (e: React.DragEvent, id: string) => void
-  onClick: () => void
-  onDelete: () => void
-  onComplete: () => void
-}) {
-  const priorityMeta = getPriorityMeta(task.priority)
-  const navigate = useNavigate()
-  const assignedUser = task.expand?.assigned_to
-
-  const linkedCount = task.linked_message_ids
-    ? Array.isArray(task.linked_message_ids)
-      ? task.linked_message_ids.length
-      : 1
-    : 0
-
-  return (
-    <Card
-      className={cn(
-        'p-3 cursor-pointer hover:shadow-md transition-all group bg-background border shadow-sm relative active:cursor-grabbing',
-        isDragging && 'opacity-50 scale-95 shadow-none',
-      )}
-      draggable
-      onDragStart={(e) => onDragStart(e, task.id)}
-      onClick={onClick}
-    >
-      <div className="flex justify-between items-start mb-2">
-        <Badge
-          variant="outline"
-          className={cn(
-            'text-[10px] font-medium px-1.5 py-0 border-transparent',
-            priorityMeta.color,
-          )}
-        >
-          {priorityMeta.label}
-        </Badge>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 -mr-1 opacity-0 group-hover:opacity-100 text-muted-foreground focus:opacity-100"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreVertical className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            {task.status !== 'concluida' && (
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onComplete()
-                }}
-              >
-                <CheckCircle className="w-4 h-4 mr-2 text-emerald-600" /> Concluir
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              className="text-destructive focus:bg-destructive focus:text-destructive-foreground"
-              onClick={(e) => {
-                e.stopPropagation()
-                onDelete()
-              }}
-            >
-              <Trash2 className="w-4 h-4 mr-2" /> Excluir
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <h4 className="text-sm font-semibold leading-tight mb-2">{task.title}</h4>
-
-      {task.description && (
-        <div
-          className="text-xs text-muted-foreground line-clamp-2 mb-3 [&>p]:m-0 [&>*]:m-0"
-          dangerouslySetInnerHTML={{ __html: task.description }}
-        />
-      )}
-
-      <div className="flex items-center justify-between text-xs text-muted-foreground mt-3 border-t pt-3">
-        <div className="flex items-center gap-3">
-          {assignedUser && (
-            <Avatar
-              className="w-5 h-5 border shadow-sm"
-              title={`Responsável: ${assignedUser.name || assignedUser.email}`}
-            >
-              <AvatarImage
-                src={
-                  assignedUser.avatar
-                    ? pb.files.getUrl(assignedUser, assignedUser.avatar, { thumb: '100x100' })
-                    : undefined
-                }
-              />
-              <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
-                {assignedUser.name?.charAt(0) || assignedUser.email?.charAt(0)}
-              </AvatarFallback>
-            </Avatar>
-          )}
-          {task.due_date && (
-            <div
-              className="flex items-center gap-1 bg-muted px-1.5 py-0.5 rounded-md"
-              title="Vencimento"
-            >
-              <CalendarIcon className="w-3 h-3" />
-              {format(new Date(task.due_date), 'dd/MM')}
-            </div>
-          )}
-          {linkedCount > 0 && (
-            <div
-              className="flex items-center gap-1 bg-muted px-1.5 py-0.5 rounded-md"
-              title={`${linkedCount} mensagem(ns) vinculada(s)`}
-            >
-              <Paperclip className="w-3 h-3" />
-              {linkedCount}
-            </div>
-          )}
-        </div>
-
-        {task.conversation_id && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity bg-primary/5 text-primary hover:bg-primary/10"
-            onClick={(e) => {
-              e.stopPropagation()
-              const msgParam =
-                task.linked_message_ids &&
-                Array.isArray(task.linked_message_ids) &&
-                task.linked_message_ids.length > 0
-                  ? `&msg=${task.linked_message_ids[0]}`
-                  : ''
-              navigate(`/conversas?chat=${task.conversation_id}${msgParam}`)
-            }}
-          >
-            <MessageCircle className="w-3 h-3 mr-1" />
-            Conversa
-          </Button>
-        )}
-      </div>
-    </Card>
   )
 }

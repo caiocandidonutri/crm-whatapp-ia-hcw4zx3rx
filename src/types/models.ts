@@ -223,8 +223,18 @@ export interface Task {
   linked_message_ids?: string[]
   completed_at?: string
   assigned_to?: string
+  care_category?:
+    | 'sem_categoria'
+    | 'nao_respondeu'
+    | 'precisa_retorno'
+    | 'precisa_consulta'
+    | 'precisa_atencao'
+    | 'followup_10_15'
+    | 'alta_demanda'
   expand?: {
     assigned_to?: User
+    crm_contact_id?: CrmContact
+    conversation_id?: Conversation
   }
   created: string
   updated: string

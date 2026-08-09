@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T20:57:48.086Z",
+  "generatedAt": "2026-08-09T21:10:29.624Z",
   "collections": [
     {
       "name": "users",
@@ -1053,11 +1053,28 @@
           "required": false,
           "system": false,
           "collectionRef": "users"
+        },
+        {
+          "name": "care_category",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "sem_categoria",
+            "nao_respondeu",
+            "precisa_retorno",
+            "precisa_consulta",
+            "precisa_atencao",
+            "followup_10_15",
+            "alta_demanda"
+          ]
         }
       ],
       "indexes": [
         "CREATE INDEX idx_tasks_user_status ON tasks (user_id, status)",
-        "CREATE INDEX idx_tasks_user_due ON tasks (user_id, due_date)"
+        "CREATE INDEX idx_tasks_user_due ON tasks (user_id, due_date)",
+        "CREATE INDEX `idx_tasks_care_category` ON `tasks` (care_category)",
+        "CREATE INDEX `idx_tasks_crm_contact_id` ON `tasks` (crm_contact_id)"
       ]
     },
     {
