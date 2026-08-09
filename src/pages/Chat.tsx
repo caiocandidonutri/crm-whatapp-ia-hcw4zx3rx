@@ -27,7 +27,8 @@ export default function Chat() {
       content:
         'Olá! Sou a Secretária de Cuidado do Dr. Caio Cândido 🙏\n\nAcompanho cada paciente com carinho — conheço sobre saúde metabólica e hormonal feminina (SOP, menopausa, intestino, inflamação, sobrepeso e mais), confirmo consultas e faço follow-ups personalizados no tom da nossa secretária.\n\nComo posso ajudar? 💛',
     },
-  ])  const [input, setInput] = useState('')
+  ])
+  const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -96,7 +97,9 @@ export default function Chat() {
         </Avatar>
         <div>
           <h1 className="font-serif text-xl font-bold text-primary">Secretária de Cuidado</h1>
-          <p className="text-xs text-muted-foreground">Saúde metabólica & hormonal · sempre ativa</p>
+          <p className="text-xs text-muted-foreground">
+            Saúde metabólica & hormonal · sempre ativa
+          </p>
         </div>
       </div>
 
