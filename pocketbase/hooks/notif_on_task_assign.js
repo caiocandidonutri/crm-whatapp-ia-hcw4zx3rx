@@ -1,0 +1,24 @@
+onRecordAfterUpdateSuccess((e) => {
+  var task = e.record
+  var assignedTo = task.getString('assigned_to')
+  var prevAssignedTo = task.original().getString('assigned_to')
+
+  if (!assignedTo || assignedTo === prevAssignedTo) return e.next()
+
+  var accountId = task.getString('account_id') || ''
+  var title = task.getString('title') || ''
+
+  var notifCol = $app.findCollectionByNameOrId('notifications')
+  try {
+    var notif = new Record(notifCol)
+    notif.set('user_id', assignedTo)
+    notif.set('account_id', accountId)
+    notif.set('type', 'task')
+    notif.set('title', 'Tarefa atribuída a você')
+    notif.set('body', title.substring(0, 200))
+    notif.set('task_id', task.id)
+    $app.saveNoValidate(notif)
+  } catch (_) {}
+
+  return e.next()
+}, 'tasks')
