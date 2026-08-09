@@ -15,8 +15,9 @@ interface ChatMessage {
 
 const SUGGESTED_PROMPTS = [
   'Quais pacientes precisam de retorno?',
-  'Gere uma mensagem de follow-up para um paciente pós-consulta',
+  'Gere uma mensagem de follow-up para uma paciente pós-consulta com SOP',
   'Como está o funil de atendimentos hoje?',
+  'Uma paciente perguntou sobre dor pélvica, como devo responder?',
 ]
 
 export default function Chat() {
@@ -24,10 +25,9 @@ export default function Chat() {
     {
       role: 'assistant',
       content:
-        'Olá! Sou o Agente de Cuidado do CRM 🙏\n\nPosso ajudá-lo a cuidar dos seus pacientes, sugerir follow-ups e analisar conversas. Como posso ajudar?',
+        'Olá! Sou a Secretária de Cuidado do Dr. Caio Cândido 🙏\n\nAcompanho cada paciente com carinho — conheço sobre saúde metabólica e hormonal feminina (SOP, menopausa, intestino, inflamação, sobrepeso e mais), confirmo consultas e faço follow-ups personalizados no tom da nossa secretária.\n\nComo posso ajudar? 💛',
     },
-  ])
-  const [input, setInput] = useState('')
+  ])  const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -95,8 +95,8 @@ export default function Chat() {
           </AvatarFallback>
         </Avatar>
         <div>
-          <h1 className="font-serif text-xl font-bold text-primary">Agente de Cuidado</h1>
-          <p className="text-xs text-muted-foreground">Assistente de CRM com IA · sempre ativo</p>
+          <h1 className="font-serif text-xl font-bold text-primary">Secretária de Cuidado</h1>
+          <p className="text-xs text-muted-foreground">Saúde metabólica & hormonal · sempre ativa</p>
         </div>
       </div>
 
