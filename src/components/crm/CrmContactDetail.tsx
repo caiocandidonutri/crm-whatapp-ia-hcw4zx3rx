@@ -53,6 +53,7 @@ import { formatPhoneBR } from '@/hooks/use-crm'
 import { getDisplayName, isInvalidContactName } from '@/lib/whatsapp-mappers'
 import { CrmContact, CrmCompany } from '@/types/models'
 import { CompanyAutocomplete } from './CompanyAutocomplete'
+import { PatientCareInfo } from './PatientCareInfo'
 import { linkContactToCompany } from '@/services/crm_companies_service'
 import { useTeamMembers } from '@/hooks/use-team-members'
 import { CategoryPicker } from '@/components/categories/CategoryPicker'
@@ -473,6 +474,8 @@ export function CrmContactDetail({
                 </div>
               </div>
             </div>
+
+            {contact && <PatientCareInfo contact={contact} />}
 
             <div className="space-y-4">
               <div className="flex items-center justify-between">

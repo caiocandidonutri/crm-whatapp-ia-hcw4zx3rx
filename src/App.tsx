@@ -12,6 +12,7 @@ import Home from './pages/Home'
 import Conversas from './pages/Conversas'
 import CRM from './pages/CRM'
 import Agentes from './pages/Agentes'
+import Chat from './pages/Chat'
 import Tarefas from './pages/Tarefas'
 import Equipe from './pages/Equipe'
 import NotFound from './pages/NotFound'
@@ -41,6 +42,7 @@ const App = () => (
                 <Route path="/conversas" element={<Conversas />} />
                 <Route path="/crm" element={<CRM />} />
                 <Route path="/agentes" element={<Agentes />} />
+                <Route path="/chat" element={<Chat />} />
                 <Route path="/tarefas" element={<Tarefas />} />
                 <Route path="/equipe" element={<Equipe />} />
               </Route>

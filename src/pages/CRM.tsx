@@ -72,6 +72,7 @@ import { CrmContactDetail } from '@/components/crm/CrmContactDetail'
 import { CrmCompaniesList } from '@/components/crm/CrmCompaniesList'
 import { CrmPipelineBoard } from '@/components/crm/CrmPipelineBoard'
 import { CrmDashboard } from '@/components/crm/CrmDashboard'
+import { SecretaryDashboard } from '@/components/crm/SecretaryDashboard'
 import { CrmImportProgress } from '@/components/crm/CrmImportProgress'
 import { CrmMonthlyReport } from '@/components/crm/CrmMonthlyReport'
 import { CrmAiReport } from '@/components/crm/CrmAiReport'
@@ -354,6 +355,11 @@ export default function CRM() {
           }}
           onRoleClick={(role) => setRoleFilter(role)}
         />
+      )}
+
+      {/* Secretary Dashboard */}
+      {!isCompanies && viewMode === 'lista' && (
+        <SecretaryDashboard accountId={accountId || undefined} />
       )}
 
       {/* Daily Summary Banner */}
@@ -888,6 +894,10 @@ export default function CRM() {
                     className={cn(
                       'bg-white border border-border/60 rounded-xl px-4 py-3 hover:border-primary/40 hover:shadow-sm transition-all group cursor-pointer flex flex-col sm:flex-row sm:items-center gap-4',
                       recentlyChangedIds.has(contact.id) && 'ring-2 ring-primary/40 bg-primary/5',
+                      contact.care_status &&
+                        contact.care_status !== 'em_dia' &&
+                        !recentlyChangedIds.has(contact.id) &&
+                        'ring-2 ring-amber-400/30 bg-amber-50/20',
                     )}
                     onClick={() => openContact(contact.id)}
                   >
@@ -921,6 +931,17 @@ export default function CRM() {
                               className="text-[10px] bg-slate-100 text-slate-600 border-0 shrink-0"
                             >
                               Não paciente
+                            </Badge>
+                          )}
+                          {contact.care_status && contact.care_status !== 'em_dia' && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] bg-amber-100 text-amber-700 border-0 shrink-0"
+                            >
+                              <AlertTriangle className="w-2.5 h-2.5 mr-0.5" />
+                              {contact.care_status === 'precisa_retorno'
+                                ? 'Precisa retorno'
+                                : 'Sem contato'}
                             </Badge>
                           )}
                           {contact.category_ids && contact.category_ids.length > 0 && (

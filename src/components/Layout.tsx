@@ -20,6 +20,7 @@ const NAV_LINKS = [
   { name: 'Início', path: '/home' },
   { name: 'Conversas', path: '/conversas' },
   { name: 'CRM', path: '/crm' },
+  { name: 'Chat', path: '/chat' },
   { name: 'Agentes', path: '/agentes' },
   { name: 'Tarefas', path: '/tarefas' },
   { name: 'Equipe', path: '/equipe' },
