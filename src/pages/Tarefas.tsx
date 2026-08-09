@@ -23,7 +23,7 @@ import {
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Search, Heart, Download, RefreshCw } from 'lucide-react'
+import { Search, Heart, Download, RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { resyncCareTasks } from '@/services/crm_care_service'
 import { cn } from '@/lib/utils'
@@ -45,6 +45,7 @@ export default function Tarefas() {
   const [secretaryOpen, setSecretaryOpen] = useState(false)
   const [secretaryContext, setSecretaryContext] = useState<Task | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [columnSearches, setColumnSearches] = useState<Record<string, string>>({})
 
   const handleResync = async () => {
     setSyncing(true)
@@ -292,7 +293,22 @@ export default function Tarefas() {
       <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4">
         <div className="flex gap-6 min-w-max h-full items-stretch">
           {TASK_STATUSES.map((status) => {
-            const columnTasks = filteredTasks.filter((t) => t.status === status.id)
+            const statusTasks = filteredTasks.filter((t) => t.status === status.id)
+            const colSearch = columnSearches[status.id] || ''
+            const columnTasks = colSearch
+              ? statusTasks.filter((t) => {
+                  const contact = t.expand?.crm_contact_id
+                  const name = (
+                    contact?.contact_name ||
+                    contact?.push_name ||
+                    t.title ||
+                    ''
+                  ).toLowerCase()
+                  const phone = (contact?.phone || contact?.jid?.split('@')[0] || '').toLowerCase()
+                  const q = colSearch.toLowerCase()
+                  return name.includes(q) || phone.includes(q)
+                })
+              : statusTasks
             const isDragOver = dragOverColumn === status.id
 
             return (
@@ -306,21 +322,49 @@ export default function Tarefas() {
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, status.id)}
               >
-                <div className="p-3 font-semibold flex items-center justify-between border-b bg-white/50 backdrop-blur-sm rounded-t-xl shrink-0">
-                  <div className="flex items-center gap-2">
-                    <span className={cn('w-2 h-2 rounded-full', status.dot)} />
-                    {status.label}
+                <div className="p-3 border-b bg-white/50 backdrop-blur-sm rounded-t-xl shrink-0 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-semibold text-sm">
+                      <span className={cn('w-2 h-2 rounded-full', status.dot)} />
+                      <span>
+                        {columnTasks.length}{' '}
+                        {columnTasks.length === 1 ? status.label.toLowerCase() : status.pluralLabel}
+                      </span>
+                    </div>
                   </div>
-                  <Badge variant="secondary" className="px-1.5 py-0.5 text-xs bg-background">
-                    {columnTasks.length}
-                  </Badge>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                    <Input
+                      placeholder="Buscar paciente..."
+                      value={colSearch}
+                      onChange={(e) =>
+                        setColumnSearches((prev) => ({
+                          ...prev,
+                          [status.id]: e.target.value,
+                        }))
+                      }
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-7 pl-7 pr-7 text-xs bg-background"
+                    />
+                    {colSearch && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setColumnSearches((prev) => ({ ...prev, [status.id]: '' }))
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1">
                   {columnTasks.length === 0 ? (
                     <div className="h-28 border-2 border-dashed rounded-xl flex items-center justify-center text-muted-foreground text-sm flex-col gap-2 opacity-50">
                       <status.icon className="w-5 h-5" />
-                      Nenhuma tarefa
+                      {colSearch ? 'Nenhum paciente encontrado' : 'Nenhuma tarefa'}
                     </div>
                   ) : (
                     columnTasks.map((task) => (

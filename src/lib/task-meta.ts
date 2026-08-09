@@ -4,6 +4,7 @@ export const TASK_STATUSES = [
   {
     id: 'pendente',
     label: 'Pendente',
+    pluralLabel: 'pendentes',
     color: 'bg-slate-100 text-slate-700 border-slate-200',
     icon: Clock,
     dot: 'bg-slate-500',
@@ -11,6 +12,7 @@ export const TASK_STATUSES = [
   {
     id: 'em_andamento',
     label: 'Em andamento',
+    pluralLabel: 'em andamento',
     color: 'bg-amber-100 text-amber-700 border-amber-200',
     icon: Loader2,
     dot: 'bg-amber-500',
@@ -18,6 +20,7 @@ export const TASK_STATUSES = [
   {
     id: 'concluida',
     label: 'Concluída',
+    pluralLabel: 'concluídas',
     color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
     icon: CheckCircle2,
     dot: 'bg-emerald-500',
@@ -25,6 +28,7 @@ export const TASK_STATUSES = [
   {
     id: 'cancelada',
     label: 'Cancelada',
+    pluralLabel: 'canceladas',
     color: 'bg-rose-100 text-rose-700 border-rose-200',
     icon: XCircle,
     dot: 'bg-rose-500',
