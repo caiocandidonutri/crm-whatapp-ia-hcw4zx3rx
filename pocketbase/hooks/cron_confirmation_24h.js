@@ -24,6 +24,50 @@ cronAdd('confirmation_24h', '0 * * * *', () => {
       var hoursBefore = settings.getInt('confirmation_hours_before') || 24
       var alertPhone = settings.getString('whatsapp_alert_phone') || ''
 
+      var isSilenced = false
+      try {
+        var silencePeriods = $app.findRecordsByFilter(
+          'care_silence_periods',
+          'account_id = {:aid} && enabled = true',
+          '-created',
+          50,
+          0,
+          { aid: accountId },
+        )
+        if (silencePeriods && silencePeriods.length > 0) {
+          var silNow = new Date()
+          var silHHMM =
+            ('0' + silNow.getHours()).slice(-2) + ':' + ('0' + silNow.getMinutes()).slice(-2)
+          var silDay = silNow.getDay()
+          for (var sp = 0; sp < silencePeriods.length; sp++) {
+            var spStart = silencePeriods[sp].getString('start_time')
+            var spEnd = silencePeriods[sp].getString('end_time')
+            if (!spStart || !spEnd) continue
+            var spWdRaw = silencePeriods[sp].get('weekdays')
+            var spWd = []
+            if (spWdRaw) {
+              try {
+                var spParsed = typeof spWdRaw === 'string' ? JSON.parse(spWdRaw) : spWdRaw
+                if (Array.isArray(spParsed)) spWd = spParsed
+              } catch (_) {}
+            }
+            if (spWd.length > 0 && spWd.indexOf(silDay) === -1) continue
+            if (spStart <= spEnd) {
+              if (silHHMM >= spStart && silHHMM < spEnd) {
+                isSilenced = true
+                break
+              }
+            } else {
+              if (silHHMM >= spStart || silHHMM < spEnd) {
+                isSilenced = true
+                break
+              }
+            }
+          }
+        }
+      } catch (_) {}
+      if (isSilenced) continue
+
       var targetTs = nowTs + hoursBefore * 3600
       var targetDate = new Date(targetTs * 1000).toISOString().split('T')[0]
 

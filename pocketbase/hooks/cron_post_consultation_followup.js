@@ -160,6 +160,49 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
       try {
         var aId = contact.getString('account_id')
         if (aId) {
+          var aIsSilenced = false
+          try {
+            var aSilencePeriods = $app.findRecordsByFilter(
+              'care_silence_periods',
+              'account_id = {:aid} && enabled = true',
+              '-created',
+              50,
+              0,
+              { aid: aId },
+            )
+            if (aSilencePeriods && aSilencePeriods.length > 0) {
+              var aSilNow = new Date()
+              var aSilHHMM =
+                ('0' + aSilNow.getHours()).slice(-2) + ':' + ('0' + aSilNow.getMinutes()).slice(-2)
+              var aSilDay = aSilNow.getDay()
+              for (var asp = 0; asp < aSilencePeriods.length; asp++) {
+                var aSpStart = aSilencePeriods[asp].getString('start_time')
+                var aSpEnd = aSilencePeriods[asp].getString('end_time')
+                if (!aSpStart || !aSpEnd) continue
+                var aSpWdRaw = aSilencePeriods[asp].get('weekdays')
+                var aSpWd = []
+                if (aSpWdRaw) {
+                  try {
+                    var aSpParsed = typeof aSpWdRaw === 'string' ? JSON.parse(aSpWdRaw) : aSpWdRaw
+                    if (Array.isArray(aSpParsed)) aSpWd = aSpParsed
+                  } catch (_) {}
+                }
+                if (aSpWd.length > 0 && aSpWd.indexOf(aSilDay) === -1) continue
+                if (aSpStart <= aSpEnd) {
+                  if (aSilHHMM >= aSpStart && aSilHHMM < aSpEnd) {
+                    aIsSilenced = true
+                    break
+                  }
+                } else {
+                  if (aSilHHMM >= aSpStart || aSilHHMM < aSpEnd) {
+                    aIsSilenced = true
+                    break
+                  }
+                }
+              }
+            }
+          } catch (_) {}
+          if (aIsSilenced) continue
           var aSettings = null
           try {
             aSettings = $app.findFirstRecordByFilter('care_alert_settings', 'account_id = {:aid}', {

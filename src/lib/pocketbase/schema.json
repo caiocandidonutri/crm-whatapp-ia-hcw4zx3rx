@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T21:10:29.624Z",
+  "generatedAt": "2026-08-09T21:38:17.174Z",
   "collections": [
     {
       "name": "users",
@@ -1594,6 +1594,131 @@
       ],
       "indexes": [
         "CREATE INDEX idx_care_followup_rules_account ON care_followup_rules (account_id)"
+      ]
+    },
+    {
+      "name": "message_templates",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "trigger_type",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["primeiro_contato", "reengajamento", "pos_consulta"]
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_message_templates_account ON message_templates (account_id)",
+        "CREATE INDEX idx_message_templates_trigger ON message_templates (trigger_type)"
+      ]
+    },
+    {
+      "name": "care_silence_periods",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "start_time",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "end_time",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "weekdays",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_care_silence_periods_account ON care_silence_periods (account_id)"
       ]
     }
   ]

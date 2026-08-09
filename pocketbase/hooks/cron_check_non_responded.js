@@ -68,6 +68,51 @@ cronAdd('check_non_responded', '0 * * * *', () => {
         try {
           var bId = contact.getString('account_id')
           if (bId) {
+            var bIsSilenced = false
+            try {
+              var bSilencePeriods = $app.findRecordsByFilter(
+                'care_silence_periods',
+                'account_id = {:aid} && enabled = true',
+                '-created',
+                50,
+                0,
+                { aid: bId },
+              )
+              if (bSilencePeriods && bSilencePeriods.length > 0) {
+                var bSilNow = new Date()
+                var bSilHHMM =
+                  ('0' + bSilNow.getHours()).slice(-2) +
+                  ':' +
+                  ('0' + bSilNow.getMinutes()).slice(-2)
+                var bSilDay = bSilNow.getDay()
+                for (var bsp = 0; bsp < bSilencePeriods.length; bsp++) {
+                  var bSpStart = bSilencePeriods[bsp].getString('start_time')
+                  var bSpEnd = bSilencePeriods[bsp].getString('end_time')
+                  if (!bSpStart || !bSpEnd) continue
+                  var bSpWdRaw = bSilencePeriods[bsp].get('weekdays')
+                  var bSpWd = []
+                  if (bSpWdRaw) {
+                    try {
+                      var bSpParsed = typeof bSpWdRaw === 'string' ? JSON.parse(bSpWdRaw) : bSpWdRaw
+                      if (Array.isArray(bSpParsed)) bSpWd = bSpParsed
+                    } catch (_) {}
+                  }
+                  if (bSpWd.length > 0 && bSpWd.indexOf(bSilDay) === -1) continue
+                  if (bSpStart <= bSpEnd) {
+                    if (bSilHHMM >= bSpStart && bSilHHMM < bSpEnd) {
+                      bIsSilenced = true
+                      break
+                    }
+                  } else {
+                    if (bSilHHMM >= bSpStart || bSilHHMM < bSpEnd) {
+                      bIsSilenced = true
+                      break
+                    }
+                  }
+                }
+              }
+            } catch (_) {}
+            if (bIsSilenced) continue
             var bSettings = null
             try {
               bSettings = $app.findFirstRecordByFilter(

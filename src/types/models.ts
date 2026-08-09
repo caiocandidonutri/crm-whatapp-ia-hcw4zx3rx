@@ -277,3 +277,25 @@ export interface CareAlert {
     crm_contact_id?: CrmContact
   }
 }
+
+export interface MessageTemplate {
+  id: string
+  account_id: string
+  name: string
+  trigger_type: 'primeiro_contato' | 'reengajamento' | 'pos_consulta'
+  content: string
+  created_by?: string
+  created: string
+  updated: string
+}
+
+export interface CareSilencePeriod {
+  id: string
+  account_id: string
+  start_time: string
+  end_time: string
+  weekdays?: number[]
+  enabled: boolean
+  created: string
+  updated: string
+}
