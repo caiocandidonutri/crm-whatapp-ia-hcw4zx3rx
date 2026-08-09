@@ -162,7 +162,7 @@ export default function Tarefas() {
   }
 
   return (
-    <div className="flex flex-col gap-6 h-full max-h-[calc(100vh-6rem)] overflow-hidden">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div>
           <h1 className="font-serif text-3xl font-bold text-primary">Tarefas</h1>
@@ -290,8 +290,8 @@ export default function Tarefas() {
         </Button>
       </div>
 
-      <div className="flex-1 overflow-x-auto overflow-y-hidden pb-4">
-        <div className="flex gap-6 min-w-max h-full items-stretch">
+      <div className="overflow-x-auto pb-4">
+        <div className="flex gap-6 min-w-max items-stretch">
           {TASK_STATUSES.map((status) => {
             const statusTasks = filteredTasks.filter((t) => t.status === status.id)
             const colSearch = columnSearches[status.id] || ''
@@ -315,7 +315,7 @@ export default function Tarefas() {
               <div
                 key={status.id}
                 className={cn(
-                  'w-80 shrink-0 flex flex-col rounded-xl bg-muted/30 border h-full transition-all duration-200',
+                  'w-80 shrink-0 flex flex-col rounded-xl bg-muted/30 border h-[calc(100vh-20rem)] min-h-[400px] transition-all duration-200',
                   isDragOver ? 'border-primary bg-primary/5 scale-[1.02]' : 'border-transparent',
                 )}
                 onDragOver={(e) => handleDragOver(e, status.id)}
