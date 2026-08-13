@@ -35,6 +35,7 @@ import { TaskActionBar } from '@/components/chat/TaskActionBar'
 import { TaskFormDialog } from '@/components/chat/TaskFormDialog'
 import { TaskViewDialog } from '@/components/chat/TaskViewDialog'
 import { MessageItem } from '@/components/chat/MessageItem'
+import { LazyMediaPreview } from '@/components/chat/MessageMedia'
 import pb from '@/lib/pocketbase/client'
 import { getTasks } from '@/services/tasks'
 import { Task } from '@/types/models'
@@ -1089,18 +1090,18 @@ export function ChatArea({
           <div className="relative w-full flex-1 flex flex-col min-h-0">
             <div className="flex-1 flex items-center justify-center p-4 min-h-0">
               {selectedMedia?.type === 'image' && (
-                <img
-                  src={selectedMedia.url}
-                  alt="Preview"
+                <LazyMediaPreview
+                  url={selectedMedia.url}
+                  type="image"
                   className="max-w-full max-h-full object-contain"
                 />
               )}
               {selectedMedia?.type === 'document' &&
                 selectedMedia.mimetype === 'application/pdf' && (
-                  <iframe
-                    src={selectedMedia.url}
+                  <LazyMediaPreview
+                    url={selectedMedia.url}
+                    type="pdf"
                     className="w-full h-full rounded-lg bg-white"
-                    title="PDF Preview"
                   />
                 )}
             </div>

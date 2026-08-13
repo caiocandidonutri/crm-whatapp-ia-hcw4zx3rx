@@ -14,7 +14,7 @@ import pb from '@/lib/pocketbase/client'
  * bruta para que re-renderizações e trocas de aba não baixem de novo.
  *
  * Como funciona:
- *  - `getMediaUrl(url)` devolve um Promise<string> (object URL) assim que
+ *  - `getMediaObjectUrl(url)` devolve um Promise<string> (object URL) assim que
  *    vaga na fila + throttle liberam.
  *  - Internamente faz `fetch(url)` com as credenciais do PocketBase
  *    (Bearer token via `pb.authStore.token`) — necessário porque os arquivos
@@ -23,10 +23,17 @@ import pb from '@/lib/pocketbase/client'
  *    API) o cookie não trafega, daí o 429/403. Agora vai via fetch com header.
  *  - O object URL retornado é revogado apenas quando não há mais referências
  *    (refs por contador). Por simplicidade, mantemos cache pela sessão.
+ *
+ * Retry: cada URL pode ser reencaminhado manualmente via `retryMedia(url)`.
+ * Internamente limitamos a `MAX_ATTEMPTS` tentativas por URL nesta sessão
+ * (1 inicial + 1 retry), para não martelar o backend em caso de mídia
+ * realmente indisponível (404/403 permanente).
  */
 
 const MAX_CONCURRENT = 3
 const MIN_INTERVAL_MS = 200
+/** Tentativas máximas por URL nesta sessão (1 inicial + 1 retry). */
+const MAX_ATTEMPTS = 2
 
 type Job = {
   url: string
@@ -44,6 +51,8 @@ const cache = new Map<string, string>()
 const inflight = new Map<string, Promise<string>>()
 /** Contador de referências por object URL, para saber quando revogar. */
 const refCount = new Map<string, number>()
+/** Tentativas já gastas por URL nesta sessão (para o retry manual). */
+const attempts = new Map<string, number>()
 
 function pump() {
   while (active < MAX_CONCURRENT && queue.length > 0) {
@@ -63,6 +72,9 @@ function pump() {
 
 async function runJob(job: Job) {
   try {
+    // Token fresco: lê do authStore no momento do fetch. O token pode ter
+    // sido renovado desde o enqueue (ex.: refresh automático do use-realtime),
+    // então sempre pegamos o valor atual — nunca um snapshot antigo.
     const headers: Record<string, string> = {}
     const token = pb.authStore.token
     if (token) headers['Authorization'] = `Bearer ${token}`
@@ -74,7 +86,9 @@ async function runJob(job: Job) {
     const blob = await res.blob()
     const objectUrl = URL.createObjectURL(blob)
     cache.set(job.url, objectUrl)
+    refCount.set(objectUrl, (refCount.get(objectUrl) || 0) + 1)
     inflight.delete(job.url)
+    attempts.delete(job.url)
     job.resolve(objectUrl)
   } catch (err) {
     inflight.delete(job.url)
@@ -109,6 +123,7 @@ export function getMediaObjectUrl(url: string): Promise<string> {
   const existing = inflight.get(url)
   if (existing) return existing
 
+  attempts.set(url, (attempts.get(url) || 0) + 1)
   const p = enqueue(url)
   inflight.set(url, p)
   return p
@@ -129,6 +144,37 @@ export function releaseMediaObjectUrl(url: string) {
   } else {
     refCount.set(objectUrl, c)
   }
+}
+
+/**
+ * Força uma nova tentativa de download de uma URL que falhou. Limpa o
+ * contador de tentativas (dá ao usuário +1 chance) e re-enfileira.
+ * Respeita o mesmo throttle/fila do `getMediaObjectUrl`.
+ *
+ * Retorna false se já esgotou o limite de tentativas e não há como retentar
+ * (neste caso a UI deve mostrar o placeholder final "Mídia indisponível").
+ */
+export function retryMedia(url: string): Promise<string> {
+  // Se já está em cache (ex.: outra aba baixou), retorna imediatamente.
+  const cached = cache.get(url)
+  if (cached) {
+    refCount.set(cached, (refCount.get(cached) || 0) + 1)
+    return Promise.resolve(cached)
+  }
+  const existing = inflight.get(url)
+  if (existing) return existing
+
+  // Reseta o contador de tentativas para permitir +1 ciclo.
+  attempts.set(url, 0)
+  attempts.set(url, (attempts.get(url) || 0) + 1)
+  const p = enqueue(url)
+  inflight.set(url, p)
+  return p
+}
+
+/** Retorna true se a URL ainda pode ser retentada nesta sessão. */
+export function canRetryMedia(url: string): boolean {
+  return (attempts.get(url) || 0) < MAX_ATTEMPTS
 }
 
 /**
