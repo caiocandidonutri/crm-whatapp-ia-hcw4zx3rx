@@ -73,7 +73,18 @@ export function conversationsToChats(conversations: Conversation[]) {
     else if (lastMsgText === '[audio]') lastMsgText = 'Áudio'
     else if (lastMsgText === '[document]') lastMsgText = 'Documento'
     else if (lastMsgText === '[sticker]') lastMsgText = 'Figurinha'
-    else if (lastMsgText === '[mensagem não suportada]') lastMsgText = 'Mensagem não suportada'
+    else if (lastMsgText === '[Enquete]') lastMsgText = '📊 Enquete'
+    else if (lastMsgText === '[Localização compartilhada]')
+      lastMsgText = '📍 Localização compartilhada'
+    else if (lastMsgText === '[Contato compartilhado]') lastMsgText = '👤 Contato compartilhado'
+    else if (lastMsgText === '[Reação]') lastMsgText = '👍 Reação'
+    else if (lastMsgText === '[Mensagem temporária]') lastMsgText = '💬 Mensagem temporária'
+    else if (lastMsgText === '[Mensagem do sistema]') lastMsgText = '🔒 Mensagem do sistema'
+    else if (
+      lastMsgText === '[mensagem não suportada]' ||
+      lastMsgText === '[Mensagem não suportada]'
+    )
+      lastMsgText = '📎 Mensagem não suportada'
 
     // Preferir o timestamp REAL da última mensagem (em segundos, vindo do
     // Baileys). Se não tiver, deixa undefined — o ChatList já trata vazio
@@ -161,6 +172,7 @@ export function whatsappMessagesToMessages(messages: WhatsappMessage[]) {
 
     return {
       id: m.id,
+      messageType: typeStr,
       senderId: m.from_me ? 'me' : m.participant_jid || m.remote_jid,
       pushName: m.participant_pushname || m.push_name,
       text: m.content || '',

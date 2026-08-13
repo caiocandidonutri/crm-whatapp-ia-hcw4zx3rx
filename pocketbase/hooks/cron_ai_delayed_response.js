@@ -90,10 +90,98 @@ cronAdd('ai_delayed_response', '* * * * *', () => {
     } catch (_) {}
     var isNewLead = incomingCount <= 2
 
+    // ---- Contexto do CRM do contato ----
+    // Buscamos o registro em crm_contacts pelo (instance_name, jid) para
+    // enriquecer o prompt com a fase do paciente no pipeline, seu status
+    // de cuidado, a data da ultima consulta e a acao sugerida pela IA.
+    // Tudo eh tolerante a ausencia: se nao houver contato no CRM, ou se
+    // algum campo estiver vazio, simplesmente omitimos aquela linha.
+    var crmContact = null
+    try {
+      crmContact = $app.findFirstRecordByFilter(
+        'crm_contacts',
+        'instance_name = {:inst} && jid = {:jid}',
+        { inst: instanceName, jid: remoteJid },
+      )
+    } catch (_) {}
+
+    var crmStage = crmContact ? crmContact.getString('stage') || '' : ''
+    var crmCareStatus = crmContact ? crmContact.getString('care_status') || '' : ''
+    var crmConvertedAt = crmContact ? crmContact.getString('converted_at') || '' : ''
+    var crmAiSuggestedAction = crmContact ? crmContact.getString('ai_suggested_action') || '' : ''
+    var crmAiPriority = crmContact ? crmContact.getInt('ai_priority') || 0 : 0
+
+    // ---- Tom/orientacao por fase ----
+    // Traduz a combinacao de stage + care_status numa orientacao de tom
+    // para a IA. Isso e o coracao da personalizacao: a resposta muda de
+    // acordo com a fase real do paciente no CRM.
+    var toneGuidance = ''
+    var phaseKey = ''
+
+    if (crmCareStatus === 'nao_respondeu' || crmStage === 'nao_respondido') {
+      phaseKey = 'reengajamento'
+      toneGuidance =
+        'REENGAJAMENTO: o contato nao respondeu ha algum tempo. Use um tom caloroso e breve, ' +
+        'convidando a pessoa a retomar a conversa sem pressao. Nao insista em agendamento agora.'
+    } else if (crmCareStatus === 'precisa_retorno') {
+      phaseKey = 'retorno_urgente'
+      toneGuidance =
+        'RETORNO URGENTE: o contato precisa de retorno. Lembre-o com urgencia adequada (sem alarmismo) ' +
+        'da importancia de retornar/agendar. Seja objetivo e ofereca horarios concretos.'
+    } else if (
+      crmStage === 'Em atendimento' ||
+      crmCareStatus === 'precisa_consulta' ||
+      crmCareStatus === 'precisa_atencao'
+    ) {
+      phaseKey = 'em_atendimento'
+      toneGuidance =
+        'EM ATENDIMENTO: o contato esta em atendimento ou precisa de consulta. Incentive o ' +
+        'agendamento, oferea informacoes sobre o servico e esclareca duvidas. Tom proativo e acolhedor.'
+    } else if (crmStage === 'Cliente' || crmAiSuggestedAction) {
+      phaseKey = 'pos_consulta'
+      // Para clientes, calculamos ha quantos dias foi a ultima consulta
+      // (converted_at) para o follow-up ser personalizado no tempo.
+      var daysSinceConverted = ''
+      if (crmConvertedAt) {
+        try {
+          var convDate = new Date(crmConvertedAt + 'T00:00:00Z')
+          var diffMs = Date.now() - convDate.getTime()
+          var diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+          if (diffDays >= 0) daysSinceConverted = String(diffDays)
+        } catch (_) {}
+      }
+      toneGuidance =
+        'POS-CONSULTA: o contato ja e cliente/paciente. Faca um follow-up personalizado' +
+        (daysSinceConverted ? ' (ultima consulta ha ' + daysSinceConverted + ' dias)' : '') +
+        '. Pergunte como esta, se ha duvidas ou dificuldades, e sugira retorno se for o caso.'
+    } else {
+      // Leads / primeiro contato — cai aqui quando nao ha stage definido
+      // ou quando o stage e "Leads".
+      phaseKey = isNewLead ? 'lead_novo' : 'lead_qualificacao'
+      toneGuidance = isNewLead
+        ? 'LEAD NOVO / PRIMEIRO CONTATO: aja como agente closer. Faca boas-vindas, apresente-se, ' +
+          'explique sobre o profissional/servicos/valores e conduza a qualificacao e ao agendamento.'
+        : 'LEAD / QUALIFICACAO: o contato ainda nao e paciente. Conduza a qualificacao com perguntas ' +
+          'objetivas e incentive o agendamento de uma primeira consulta.'
+    }
+
+    var crmContextBlock = '\n\n[CONTEXTO DO CONTATO NO CRM]'
+    crmContextBlock += '\nFase do pipeline: ' + (crmStage || 'nao definido')
+    crmContextBlock += '\nStatus de cuidado: ' + (crmCareStatus || 'nao definido')
+    crmContextBlock += '\nData da ultima consulta: ' + (crmConvertedAt || 'sem registro')
+    if (crmAiSuggestedAction) {
+      crmContextBlock += '\nAcao sugerida anteriormente: ' + crmAiSuggestedAction
+    }
+    if (crmAiPriority > 0) {
+      crmContextBlock += '\nPrioridade IA: ' + crmAiPriority + ' (1-10)'
+    }
+    crmContextBlock += '\nOrientacao de tom para esta fase (' + phaseKey + '): ' + toneGuidance
+    crmContextBlock += '\n[ FIM DO CONTEXTO DO CONTATO ]'
+
     var textContent = msg.getString('content') || 'Mensagem em formato de midia.'
-    var leadContext = isNewLead
-      ? '\n\n[CONTEXTO: Este e um LEAD NOVO. Aja como agente closer: apresente-se, explique sobre o profissional, servicos e valores, conduza ao agendamento.]'
-      : '\n\n[CONTEXTO: Contato antigo/paciente. Use o contexto da conversa para atendimento personalizado.]'
+    // O bloco de contexto do CRM substitui a heuristica antiga (isNewLead),
+    // mas mantemos isNewLead como sinal adicional dentro do bloco.
+    var leadContext = crmContextBlock
 
     var finalMessage =
       '<system_instruction>\nSiga estritamente esta Persona/Instrucao:\n' +

@@ -7,6 +7,10 @@ import { Task } from '@/types/models'
 import { extractUrls, renderTextWithLinks } from '@/lib/link-utils'
 import { LinkPreviewCard } from '@/components/chat/LinkPreviewCard'
 import { MessageMedia } from '@/components/chat/MessageMedia'
+import {
+  UnsupportedMessageCard,
+  isUnsupportedMessageType,
+} from '@/components/chat/UnsupportedMessageCard'
 
 type SelectedMedia = { url: string; type: string; mimetype?: string; name?: string }
 
@@ -60,6 +64,7 @@ function MessageItemComponent({
   const hasMedia = !!msg.media && !isSticker
   const hasTasks = !!tasksForMessage && tasksForMessage.length > 0
   const urls = msg.text ? extractUrls(msg.text) : []
+  const isUnsupported = isUnsupportedMessageType(msg.messageType) && !hasMedia
 
   const taskColor = (() => {
     if (!tasksForMessage) return ''
@@ -235,7 +240,7 @@ function MessageItemComponent({
               {!msg.linkPreview && urls.length === 1 && (
                 <LinkPreviewCard url={urls[0]} isMe={isMe} />
               )}
-              {msg.text && (
+              {msg.text && !isUnsupported && (
                 <div className={cn('flex-1 min-w-0', hasMedia ? 'px-2 pb-5' : '')}>
                   <p
                     className={cn(
@@ -246,6 +251,11 @@ function MessageItemComponent({
                   >
                     {renderTextWithLinks(msg.text, isMe, localHighlight === msg.id)}
                   </p>
+                </div>
+              )}
+              {isUnsupported && (
+                <div className={cn('flex-1 min-w-0', hasMedia ? 'px-2 pb-5' : '')}>
+                  <UnsupportedMessageCard type={msg.messageType} isMe={isMe} caption={msg.text} />
                 </div>
               )}
               <span

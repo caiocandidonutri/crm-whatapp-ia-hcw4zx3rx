@@ -282,11 +282,26 @@ routerAdd(
             content = caption // se vazio, fica vazio — o front cai no fallback
             isMediaPlaceholder = true
           } else if (['pollCreationMessage', 'pollUpdateMessage'].includes(typeKey)) {
-            msgType = typeKey
+            msgType = 'pollMessage'
             content = '[Enquete]'
+          } else if (typeKey === 'locationMessage') {
+            msgType = 'locationMessage'
+            content = '[Localização compartilhada]'
+          } else if (typeKey === 'contactMessage' || typeKey === 'contactsMessage') {
+            msgType = 'contactMessage'
+            content = '[Contato compartilhado]'
+          } else if (typeKey === 'reactionMessage') {
+            msgType = 'reactionMessage'
+            content = '[Reação]'
+          } else if (typeKey === 'ephemeralMessage') {
+            msgType = 'ephemeralMessage'
+            content = '[Mensagem temporária]'
+          } else if (typeKey === 'protocolMessage') {
+            msgType = 'protocolMessage'
+            content = '[Mensagem do sistema]'
           } else {
-            msgType = 'unknown'
-            content = '[mensagem não suportada]'
+            msgType = typeKey || 'unknown'
+            content = '[Mensagem não suportada]'
           }
 
           const msgTs = tsToUnixSecondsSync(msg.messageTimestamp)
