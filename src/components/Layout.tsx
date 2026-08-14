@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import pb from '@/lib/pocketbase/client'
 import { DisconnectBanner } from '@/components/DisconnectBanner'
+import { RealtimeStatusIndicator } from '@/components/RealtimeStatusIndicator'
 
 const NAV_LINKS = [
   { name: 'Início', path: '/home' },
@@ -84,6 +85,8 @@ export default function Layout() {
 
           {/* Right Actions */}
           <div className="flex items-center gap-2">
+            <RealtimeStatusIndicator />
+
             <Button
               variant="ghost"
               size="icon"

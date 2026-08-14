@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import pb from '@/lib/pocketbase/client'
 import { useRealtime } from '@/hooks/use-realtime'
+import pb from '@/lib/pocketbase/client'
 import { WhatsappInstance, Conversation, WhatsappMessage } from '@/types/models'
 import { useAuth } from '@/hooks/use-auth'
 import { useCurrentAccount } from '@/hooks/use-current-account'
@@ -326,19 +326,29 @@ export function useConversas(
     backfillTriedRef.current = false
   }, [user?.id, accountId, instanceName, showArchived])
 
-  // Realtime entrega o record completo no evento. Coalesce de 500ms:
+  // Realtime entrega o record completo no evento. Coalesce adaptativo:
   // bufferiza eventos e aplica em um único setState ao final da janela.
   //
-  // Por que 500ms: durante import histórico, o webhook processa um batch
-  // de até 500 mensagens em sequência e cada msg "newer" gera um save em
-  // conversations → 1 evento SSE → 1 setState + sort. Sem buffer, virava
-  // 300+ rerenders/seg, lista piscando, impossível clicar. Com buffer,
-  // o mesmo batch entrega ~2 setStates/seg.
-  //
-  // 500ms é ainda imperceptível para o caso normal (msg avulsa chegando)
-  // e drasticamente mais barato durante import.
+  // - Fluxo normal (msg avulsa): coalesce de 150ms — imperceptível.
+  // - Rajada (5+ eventos na mesma janela): coalesce sobe pra 300ms.
+  //   Durante import histórico, o webhook processa um batch de até 500
+  //   mensagens em sequência e cada msg "newer" gera um save em
+  //   conversations → 1 evento SSE → 1 setState + sort. Sem buffer, virava
+  //   300+ rerenders/seg, lista piscando, impossível clicar. Com o
+  //   coalesce de rajada, o mesmo batch entrega ~3 setStates/seg sem
+  //   travar a UI, e o caso normal continua snappy.
+  const NORMAL_COALESCE_MS = 150
+  const BURST_COALESCE_MS = 300
+  const BURST_THRESHOLD = 5 // 5+ eventos na janela = rajada
+
   const eventBufferRef = useRef<RecordSubscription<Conversation>[]>([])
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Timestamp do início da janela de coalesce atual (1º evento após o
+  // último flush). Usado pra calcular o fim da janela de rajada.
+  const windowStartRef = useRef<number>(0)
+  // True quando a janela atual já foi estendida pra BURST_COALESCE_MS —
+  // evita reschedules redundantes a cada evento adicional da rajada.
+  const burstExtendedRef = useRef<boolean>(false)
 
   // Garante flush e cancelamento do timer ao desmontar / trocar scope.
   useEffect(() => {
@@ -348,29 +358,74 @@ export function useConversas(
         flushTimerRef.current = null
       }
       eventBufferRef.current = []
+      burstExtendedRef.current = false
     }
   }, [accountId, instanceName])
+
+  const scheduleFlush = useCallback(() => {
+    const flush = () => {
+      flushTimerRef.current = null
+      burstExtendedRef.current = false
+      const events = eventBufferRef.current
+      eventBufferRef.current = []
+      if (events.length === 0) return
+      const scope = { accountId, instanceName, showArchived }
+      setConversations((prev) => {
+        let next = prev
+        for (const evt of events) {
+          next = applyConversationEvent(next, evt, scope)
+        }
+        return next
+      })
+    }
+
+    // Primeiro evento da janela: agenda flush normal e marca o início.
+    windowStartRef.current = Date.now()
+    burstExtendedRef.current = false
+    flushTimerRef.current = setTimeout(flush, NORMAL_COALESCE_MS)
+  }, [accountId, instanceName, showArchived])
 
   useRealtime<Conversation>(
     'conversations',
     (e) => {
       if (!accountId || !instanceName) return
       eventBufferRef.current.push(e)
-      if (flushTimerRef.current !== null) return
-      flushTimerRef.current = setTimeout(() => {
-        flushTimerRef.current = null
-        const events = eventBufferRef.current
-        eventBufferRef.current = []
-        if (events.length === 0) return
-        const scope = { accountId, instanceName, showArchived }
-        setConversations((prev) => {
-          let next = prev
-          for (const evt of events) {
-            next = applyConversationEvent(next, evt, scope)
-          }
-          return next
-        })
-      }, 150)
+
+      // Sem timer ativo: abre nova janela de coalesce (fluxo normal).
+      if (flushTimerRef.current === null) {
+        scheduleFlush()
+        return
+      }
+
+      // Já há janela ativa. Se cruzamos o limiar de rajada e ainda não
+      // estendemos, reagenda o flush pra BURST_COALESCE_MS a partir do
+      // início da janela — absorve o resto da rajada em um único setState.
+      if (!burstExtendedRef.current && eventBufferRef.current.length >= BURST_THRESHOLD) {
+        burstExtendedRef.current = true
+        const elapsed = Date.now() - windowStartRef.current
+        const remaining = BURST_COALESCE_MS - elapsed
+        if (remaining > 0) {
+          clearTimeout(flushTimerRef.current)
+          // Recria o mesmo flush (captura o scope atualizado).
+          const scope = { accountId, instanceName, showArchived }
+          flushTimerRef.current = setTimeout(() => {
+            flushTimerRef.current = null
+            burstExtendedRef.current = false
+            const events = eventBufferRef.current
+            eventBufferRef.current = []
+            if (events.length === 0) return
+            setConversations((prev) => {
+              let next = prev
+              for (const evt of events) {
+                next = applyConversationEvent(next, evt, scope)
+              }
+              return next
+            })
+          }, remaining)
+        }
+        // Se remaining <= 0, a janela de rajada já venceu — deixa o timer
+        // original (normal) disparar normalmente.
+      }
     },
     !!accountId && !!instanceName,
   )
