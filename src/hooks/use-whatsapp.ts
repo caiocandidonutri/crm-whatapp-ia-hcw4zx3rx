@@ -378,6 +378,13 @@ export function useConversas(
   return { conversations, loading, loadingMore, hasMore, loadMore, reload }
 }
 
+// Tamanho da página na carga inicial de mensagens. Antes usávamos
+// getFullList, que travava o navegador em conversas com 5k+ mensagens.
+// Agora carregamos só as MENSAGENS_PAGE_SIZE mais recentes e deixamos o
+// user expandir o histórico antigo sob demanda (botão "Carregar mais
+// antigas" no topo da conversa) ou via sync da Evolution.
+const MESSAGES_PAGE_SIZE = 50
+
 export function useMensagens(
   instanceName?: string,
   remoteJid?: string,
@@ -389,25 +396,48 @@ export function useMensagens(
   const { accountId } = useCurrentAccount()
   const [messages, setMessages] = useState<WhatsappMessage[]>([])
   const [loading, setLoading] = useState(true)
+  // Há mais mensagens antigas no banco ainda não carregadas? começa true
+  // pra o botão aparecer assim que a primeira página chegar (se houver).
+  const [hasMoreOlder, setHasMoreOlder] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  // Guarda o timestamp da mensagem mais antiga já carregada. Usado pra
+  // paginar pra trás (mensagens mais velhas) com filtro `timestamp < X`.
+  const oldestTsRef = useRef<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const load = useCallback(async () => {
     if (!user || !accountId || !instanceName || !remoteJid) {
       setMessages([])
       setLoading(false)
+      setHasMoreOlder(false)
+      oldestTsRef.current = null
       return
     }
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
     try {
-      const records = await pb.collection('whatsapp_messages').getFullList<WhatsappMessage>({
-        filter: `account_id = "${accountId}" && instance_name = "${instanceName}" && remote_jid = "${remoteJid}"`,
-        sort: 'timestamp',
-        signal: ctrl.signal,
-      })
+      // Página 1: as MESSAGES_PAGE_SIZE mais recentes, em ordem crescente
+      // de timestamp (igual ao sort anterior). getList com sort '-timestamp'
+      // traz as mais novas primeiro; invertemos depois pra manter a ordem
+      // crescente que o ChatArea espera.
+      const page = await pb
+        .collection('whatsapp_messages')
+        .getList<WhatsappMessage>(1, MESSAGES_PAGE_SIZE, {
+          filter: `account_id = "${accountId}" && instance_name = "${instanceName}" && remote_jid = "${remoteJid}"`,
+          sort: '-timestamp',
+          signal: ctrl.signal,
+        })
       if (ctrl.signal.aborted) return
-      setMessages(records)
+      const sorted = page.items.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+      setMessages(sorted)
+      setHasMoreOlder(page.totalPages > 1)
+      const oldest = sorted.reduce<number | null>((min, m) => {
+        const ts = m.timestamp || 0
+        if (ts <= 0) return min
+        return min === null || ts < min ? ts : min
+      }, null)
+      oldestTsRef.current = oldest
     } catch (e) {
       if (isAbort(e)) return
       console.error(e)
@@ -415,6 +445,58 @@ export function useMensagens(
       if (!ctrl.signal.aborted) setLoading(false)
     }
   }, [user, accountId, instanceName, remoteJid])
+
+  // Carrega as próximas MESSAGES_PAGE_SIZE mensagens mais antigas que as
+  // atualmente em tela e as PREPÕE ao estado. Não afeta o realtime (mensagens
+  // novas continuam chegando via applyMessageEvent no final da lista).
+  const loadOlderMessages = useCallback(async () => {
+    if (!user || !accountId || !instanceName || !remoteJid) return
+    if (loadingOlder || !hasMoreOlder) return
+    const beforeTs = oldestTsRef.current
+    if (beforeTs === null) return
+    setLoadingOlder(true)
+    try {
+      const page = await pb
+        .collection('whatsapp_messages')
+        .getList<WhatsappMessage>(1, MESSAGES_PAGE_SIZE, {
+          filter: `account_id = "${accountId}" && instance_name = "${instanceName}" && remote_jid = "${remoteJid}" && timestamp < ${beforeTs}`,
+          sort: '-timestamp',
+          requestKey: null,
+        })
+      const sorted = page.items.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+      if (sorted.length === 0) {
+        setHasMoreOlder(false)
+        return
+      }
+      setMessages((prev) => {
+        // merge dedupe por id (caso uma msg antiga tenha chegado via realtime
+        // entrementes) mantendo ordem crescente de timestamp.
+        const map = new Map<string, WhatsappMessage>()
+        for (const m of sorted) map.set(m.id, m)
+        for (const m of prev) {
+          if (!map.has(m.id)) map.set(m.id, m)
+        }
+        return Array.from(map.values()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+      })
+      // Atualiza o cursor de "mais antiga" para a primeira do novo batch.
+      const newOldest = sorted.reduce<number | null>((min, m) => {
+        const ts = m.timestamp || 0
+        if (ts <= 0) return min
+        return min === null || ts < min ? ts : min
+      }, null)
+      if (newOldest !== null) {
+        oldestTsRef.current = newOldest
+      }
+      // Se veio menos que uma página cheia, não há mais nada antes.
+      setHasMoreOlder(sorted.length >= MESSAGES_PAGE_SIZE)
+    } catch (e) {
+      if (!isAbort(e)) {
+        console.warn('[useMensagens] falha ao carregar mais antigas:', e)
+      }
+    } finally {
+      setLoadingOlder(false)
+    }
+  }, [user, accountId, instanceName, remoteJid, loadingOlder, hasMoreOlder])
 
   useEffect(() => {
     load()
@@ -433,5 +515,12 @@ export function useMensagens(
     !!accountId && !!instanceName && !!remoteJid,
   )
 
-  return { messages, loading, reload: load }
+  return {
+    messages,
+    loading,
+    reload: load,
+    hasMoreOlder,
+    loadingOlder,
+    loadOlderMessages,
+  }
 }

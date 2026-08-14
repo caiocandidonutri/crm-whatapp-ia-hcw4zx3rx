@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import { Task } from '@/types/models'
+import { Task, CrmContact } from '@/types/models'
 import { getCareCategoryMeta } from '@/lib/task-meta'
 import { streamCareAgentChat } from '@/services/crm_care_service'
 import { streamAgentChat } from '@/lib/skipAi'
@@ -15,13 +15,44 @@ interface ChatMessage {
   content: string
 }
 
+/**
+ * Contexto de contato (paciente) injetado pela conversa do WhatsApp ao
+ * abrir a Secretária a partir do ChatArea. Quem abre via Tarefas continua
+ * usando `contextTask`; quem abre via chat usa `contactContext`. Ambos
+ * são mutuamente exclusivos na prática, mas o componente tolera os dois.
+ */
+export interface CareContactContext {
+  /** id do crm_contacts (quando o contato já está no CRM) */
+  contactId?: string
+  /** nome de exibição do paciente */
+  name: string
+  /** telefone formatado ou JID do WhatsApp */
+  phone?: string
+  jid?: string
+  /** estágio do pipeline (stage do crm_contacts) */
+  stage?: string
+  /** status de cuidado (care_status) */
+  careStatus?: string
+  /** data da última consulta (converted_at do crm_contacts) */
+  lastConsultationAt?: string
+  /** ação sugerida pela IA, quando disponível */
+  aiSuggestedAction?: string
+}
+
 interface CareSecretarySheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   contextTask: Task | null
+  /** Contexto injetado pelo ChatArea (conversa do WhatsApp). */
+  contactContext?: CareContactContext | null
 }
 
-export function CareSecretarySheet({ open, onOpenChange, contextTask }: CareSecretarySheetProps) {
+export function CareSecretarySheet({
+  open,
+  onOpenChange,
+  contextTask,
+  contactContext,
+}: CareSecretarySheetProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -60,6 +91,38 @@ export function CareSecretarySheet({ open, onOpenChange, contextTask }: CareSecr
       sendMessage(contextMsg)
     }
   }, [open, contextTask])
+
+  // Contexto vindo do ChatArea (conversa do WhatsApp). Envia UMA mensagem
+  // de contexto automaticamente ao abrir, descrevendo o paciente ativo:
+  // nome, telefone/JID, estágio, status de cuidado, última consulta e id
+  // do CRM. A IA usa isso pra responder com conhecimento do caso.
+  useEffect(() => {
+    if (open && contactContext && !contextSentRef.current) {
+      contextSentRef.current = true
+      const ctx = contactContext
+      const parts: string[] = [`Paciente: ${ctx.name}`]
+      if (ctx.phone) parts.push(`Telefone: ${ctx.phone}`)
+      else if (ctx.jid) parts.push(`JID: ${ctx.jid}`)
+      if (ctx.stage) parts.push(`Estágio do pipeline: ${ctx.stage}`)
+      if (ctx.careStatus) parts.push(`Status de cuidado: ${ctx.careStatus}`)
+      if (ctx.lastConsultationAt) {
+        try {
+          parts.push(
+            `Última consulta: ${new Date(ctx.lastConsultationAt).toLocaleDateString('pt-BR')}`,
+          )
+        } catch {
+          parts.push(`Última consulta: ${ctx.lastConsultationAt}`)
+        }
+      }
+      if (ctx.contactId) parts.push(`ID no CRM: ${ctx.contactId}`)
+      if (ctx.aiSuggestedAction) parts.push(`Ação sugerida pela IA: ${ctx.aiSuggestedAction}`)
+
+      const contextMsg =
+        `Abri a conversa do WhatsApp deste paciente no CRM:\n${parts.join('\n')}\n\n` +
+        'Pode me ajudar com o cuidado dele(a)?'
+      sendMessage(contextMsg)
+    }
+  }, [open, contactContext])
 
   useEffect(() => {
     if (scrollRef.current) {

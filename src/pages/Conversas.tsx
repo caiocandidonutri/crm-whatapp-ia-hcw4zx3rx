@@ -243,7 +243,12 @@ export default function Conversas() {
 
   useHistorySync(activeConversation)
 
-  const { messages: rawMessages = [] } = useMensagens(
+  const {
+    messages: rawMessages = [],
+    hasMoreOlder: hasMoreOlderMessages,
+    loadingOlder: loadingOlderMessages,
+    loadOlderMessages: loadOlderMessagesFn,
+  } = useMensagens(
     instance?.status === 'connected' ? instance.instance_name : undefined,
     activeConversation?.remote_jid,
     isImportingHistory,
@@ -520,6 +525,9 @@ export default function Conversas() {
                 onSendMessage={handleSendMessage}
                 onSendMedia={handleSendMedia}
                 onLoadOlder={handleLoadOlder}
+                hasMoreOlderDb={hasMoreOlderMessages}
+                loadingOlderDb={loadingOlderMessages}
+                onLoadOlderDb={loadOlderMessagesFn}
                 onArchive={(archived) => handleArchive(activeChatWithMessages.id, archived)}
                 isArchived={activeConversation?.archived === true}
                 isMobile={isMobile}

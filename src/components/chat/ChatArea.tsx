@@ -14,6 +14,7 @@ import {
   Pencil,
   AlertCircle,
   X,
+  HeartPulse,
 } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
@@ -36,9 +37,11 @@ import { TaskFormDialog } from '@/components/chat/TaskFormDialog'
 import { TaskViewDialog } from '@/components/chat/TaskViewDialog'
 import { MessageItem } from '@/components/chat/MessageItem'
 import { LazyMediaPreview } from '@/components/chat/MessageMedia'
+import { CareSecretarySheet, type CareContactContext } from '@/components/CareSecretarySheet'
 import pb from '@/lib/pocketbase/client'
 import { getTasks } from '@/services/tasks'
-import { Task } from '@/types/models'
+import { getCrmContactByJid } from '@/services/crm_service'
+import { Task, CrmContact } from '@/types/models'
 import { useRealtime } from '@/hooks/use-realtime'
 import { CategoryPicker } from '@/components/categories/CategoryPicker'
 import { TemplatePicker } from '@/components/chat/TemplatePicker'
@@ -67,6 +70,12 @@ type ChatAreaProps = {
   onLoadOlder?: () => Promise<{ inserted: number; hasMore: boolean }>
   isMobile: boolean
   highlightMsgId?: string | null
+  /** Há mensagens mais antigas no banco ainda não carregadas na memória
+   *  (paginação DB do useMensagens). Quando true, mostra um botão extra
+   *  "Carregar mais antigas" no topo da conversa que dispara onLoadOlderDb. */
+  hasMoreOlderDb?: boolean
+  loadingOlderDb?: boolean
+  onLoadOlderDb?: () => void
 }
 
 export function ChatArea({
@@ -77,6 +86,9 @@ export function ChatArea({
   onLoadOlder,
   isMobile,
   highlightMsgId,
+  hasMoreOlderDb,
+  loadingOlderDb,
+  onLoadOlderDb,
 }: ChatAreaProps) {
   const [inputText, setInputText] = useState('')
   const [isSending, setIsSending] = useState(false)
@@ -134,6 +146,47 @@ export function ChatArea({
   // Estado do "Carregar mais antigas"
   const [isLoadingOlder, setIsLoadingOlder] = useState(false)
   const [hasMoreOlder, setHasMoreOlder] = useState(true)
+
+  // Secretária de Cuidado aberta a partir da conversa do WhatsApp.
+  // Buscamos o crm_contacts pelo jid pra preencher o contexto (stage,
+  // care_status, converted_at, id). Se não houver contato no CRM,
+  // abrimos mesmo assim com os dados básicos do chat.
+  const [careSheetOpen, setCareSheetOpen] = useState(false)
+  const [careContactContext, setCareContactContext] = useState<CareContactContext | null>(null)
+  const [crmContactForChat, setCrmContactForChat] = useState<CrmContact | null>(null)
+
+  useEffect(() => {
+    if (!chat?.remote_jid || !chat?.instance_name || chat?.type === 'group') {
+      setCrmContactForChat(null)
+      return
+    }
+    let cancelled = false
+    getCrmContactByJid(chat.instance_name, chat.remote_jid)
+      .then((c) => {
+        if (!cancelled) setCrmContactForChat(c)
+      })
+      .catch(() => {
+        if (!cancelled) setCrmContactForChat(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [chat?.remote_jid, chat?.instance_name, chat?.type])
+
+  const handleOpenCareSecretary = () => {
+    const ctx: CareContactContext = {
+      name: chat?.name || 'Contato',
+      phone: chat?.phone || undefined,
+      jid: chat?.remote_jid || undefined,
+      contactId: crmContactForChat?.id,
+      stage: crmContactForChat?.stage || undefined,
+      careStatus: crmContactForChat?.care_status || undefined,
+      lastConsultationAt: crmContactForChat?.converted_at || undefined,
+      aiSuggestedAction: crmContactForChat?.ai_suggested_action || undefined,
+    }
+    setCareContactContext(ctx)
+    setCareSheetOpen(true)
+  }
 
   const [localHighlight, setLocalHighlight] = useState<string | null>(null)
   const processedHighlightRef = useRef<string | null>(null)
@@ -597,6 +650,21 @@ export function ChatArea({
             <Button
               variant="outline"
               size="sm"
+              onClick={handleOpenCareSecretary}
+              title="Abrir Secretária de Cuidado deste paciente"
+              className={cn(
+                'rounded-full text-xs font-semibold border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-colors',
+                isMobile ? 'px-2' : 'px-3',
+              )}
+            >
+              <HeartPulse className="w-4 h-4 sm:mr-1.5" />
+              <span className="hidden sm:inline">Cuidado</span>
+            </Button>
+          )}
+          {chat?.type !== 'group' && (
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleOpenAddToCrm}
               disabled={isInCrm || isAddingCrm}
               className={cn(
@@ -656,8 +724,34 @@ export function ChatArea({
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto overflow-x-hidden p-4 z-10 flex flex-col gap-1"
       >
-        {/* Botão "Carregar mais antigas" — só aparece se há handler, tem pelo menos
-            1 msg, e ainda há histórico não puxado */}
+        {/* Botão "Carregar mais antigas" (paginação no banco) — aparece no
+            topo da conversa quando ainda há mensagens mais velhas no banco
+            que não caberam na primeira página de 50. Não depende da
+            Evolution: é só um getList com filtro timestamp < oldest. */}
+        {onLoadOlderDb && (chat.messages || []).length > 0 && hasMoreOlderDb && (
+          <div className="flex justify-center mb-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onLoadOlderDb}
+              disabled={loadingOlderDb}
+              className="rounded-full h-8 text-xs text-muted-foreground hover:text-primary hover:bg-primary/5 px-4"
+            >
+              {loadingOlderDb ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                  Carregando...
+                </>
+              ) : (
+                'Carregar mais antigas'
+              )}
+            </Button>
+          </div>
+        )}
+        {/* Botão "Carregar mensagens mais antigas" (sync Evolution) — só
+            aparece se há handler, tem pelo menos 1 msg, e ainda há histórico
+            não puxado do aparelho. Coexiste com o de paginação no banco:
+            este busca no celular mensagens que ainda nem estão no banco. */}
         {onLoadOlder && (chat.messages || []).length > 0 && hasMoreOlder && (
           <div className="flex justify-center mb-2">
             <Button
@@ -673,7 +767,7 @@ export function ChatArea({
                   Carregando...
                 </>
               ) : (
-                'Carregar mensagens mais antigas'
+                'Carregar mensagens mais antigas do aparelho'
               )}
             </Button>
           </div>
@@ -1128,6 +1222,17 @@ export function ChatArea({
           {account?.id && <MessageTemplatesSection accountId={account.id} />}
         </DialogContent>
       </Dialog>
+
+      {/* Secretária de Cuidado aberta a partir da conversa do WhatsApp.
+          Recebe o contexto do paciente ativo (nome, telefone/JID, estágio,
+          status de cuidado, última consulta e id no CRM) pra a IA responder
+          com conhecimento do caso. */}
+      <CareSecretarySheet
+        open={careSheetOpen}
+        onOpenChange={setCareSheetOpen}
+        contextTask={null}
+        contactContext={careContactContext}
+      />
     </div>
   )
 }
