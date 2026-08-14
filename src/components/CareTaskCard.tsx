@@ -18,6 +18,7 @@ import { updateTask, deleteTask } from '@/services/tasks'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -34,6 +35,9 @@ interface CareTaskCardProps {
   onDelete: () => void
   onComplete: () => void
   onOpenSecretary: () => void
+  selected?: boolean
+  onToggleSelect?: (id: string, selected: boolean) => void
+  selectionMode?: boolean
 }
 
 export function CareTaskCard({
@@ -44,7 +48,11 @@ export function CareTaskCard({
   onDelete,
   onComplete,
   onOpenSecretary,
+  selected = false,
+  onToggleSelect,
+  selectionMode = false,
 }: CareTaskCardProps) {
+  const selectable = !!onToggleSelect
   const priorityMeta = getPriorityMeta(task.priority)
   const navigate = useNavigate()
   const assignedUser = task.expand?.assigned_to
@@ -75,8 +83,27 @@ export function CareTaskCard({
       onDragStart={(e) => onDragStart(e, task.id)}
       onClick={onClick}
     >
+      {selectable && (
+        <div
+          className="absolute left-2 top-2 z-10"
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleSelect(task.id, !selected)
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Checkbox
+            checked={selected}
+            className={cn(
+              'transition-opacity',
+              selectionMode || selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+            )}
+          />
+        </div>
+      )}
       <div className="flex justify-between items-start mb-2">
-        <div className="flex flex-wrap items-center gap-1">
+        <div className={cn('flex flex-wrap items-center gap-1', selectable && 'ml-6')}>
           {isCareTask && (
             <Badge
               variant="outline"

@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTasks } from '@/hooks/use-tasks'
 import {
   TASK_STATUSES,
   TASK_PRIORITIES,
+  CARE_CATEGORIES,
   CARE_CATEGORY_TABS,
   getCareCategoryMeta,
   getPriorityMeta,
@@ -20,10 +21,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Search, Heart, Download, RefreshCw, X } from 'lucide-react'
+import {
+  Search,
+  Heart,
+  Download,
+  RefreshCw,
+  X,
+  ChevronDown,
+  ListChecks,
+  MoveRight,
+  Tag,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { resyncCareTasks } from '@/services/crm_care_service'
 import { cn } from '@/lib/utils'
@@ -31,8 +50,11 @@ import { TaskViewDialog } from '@/components/TaskViewDialog'
 import { CareTaskCard } from '@/components/CareTaskCard'
 import { CareSecretarySheet } from '@/components/CareSecretarySheet'
 import { updateTask, deleteTask } from '@/services/tasks'
+import { useRealtime } from '@/hooks/use-realtime'
+import { useAuth } from '@/hooks/use-auth'
 
 export default function Tarefas() {
+  const { user } = useAuth()
   const { tasks, loading, loadTasks } = useTasks()
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('todas')
@@ -46,6 +68,48 @@ export default function Tarefas() {
   const [secretaryContext, setSecretaryContext] = useState<Task | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [columnSearches, setColumnSearches] = useState<Record<string, string>>({})
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [batchBusy, setBatchBusy] = useState(false)
+
+  // --- Realtime: atualiza o Kanban automaticamente quando o backend
+  // altera care_status/stage/IA de um contato. O hook
+  // crm_care_reclassify_tasks recalcula as tarefas no backend; aqui só
+  // precisamos recarregar a lista de tasks quando um contato relevante
+  // muda. Debounced pra não disparar um fetch por evento durante uma
+  // rajada (ex.: cron diário reclassificando vários contatos).
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleReload = () => {
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current)
+    reloadTimerRef.current = setTimeout(() => {
+      loadTasks()
+    }, 600)
+  }
+  useEffect(() => {
+    return () => {
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current)
+    }
+  }, [])
+
+  useRealtime(
+    'crm_contacts',
+    () => {
+      scheduleReload()
+    },
+    !!user,
+  )
+
+  const selectionMode = selectedIds.size > 0
+
+  const toggleSelect = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
 
   const handleResync = async () => {
     setSyncing(true)
@@ -161,6 +225,81 @@ export default function Tarefas() {
     downloadCsv(filename, [headers, ...rows])
   }
 
+  // --- Ações em lote ---
+  const selectedTasks = useMemo(
+    () => tasks.filter((t) => selectedIds.has(t.id)),
+    [tasks, selectedIds],
+  )
+
+  const handleBatchMove = async (statusId: string) => {
+    if (selectedTasks.length === 0) return
+    setBatchBusy(true)
+    const updates: Partial<Task> = { status: statusId as any }
+    if (statusId === 'concluida') {
+      updates.completed_at = new Date().toISOString()
+    }
+    let ok = 0
+    let fail = 0
+    await Promise.all(
+      selectedTasks.map(async (t) => {
+        try {
+          await updateTask(t.id, updates)
+          ok++
+        } catch {
+          fail++
+        }
+      }),
+    )
+    setBatchBusy(false)
+    if (fail === 0) {
+      toast.success(`${ok} tarefa(s) movida(s) para ${getStatusMeta(statusId).label}.`)
+    } else if (ok === 0) {
+      toast.error('Não foi possível mover as tarefas.')
+    } else {
+      toast.warning(`${ok} movida(s), ${fail} falhou/falharam.`)
+    }
+    clearSelection()
+  }
+
+  const handleBatchCareStatus = async (careStatus: string) => {
+    // care_status vive em crm_contacts, não em tasks. Para alterar o
+    // status de cuidado dos selecionados, atualizamos o crm_contact_id
+    // vinculado a cada tarefa selecionada. O hook
+    // crm_care_reclassify_tasks então reclassifica as tarefas
+    // automaticamente.
+    if (selectedTasks.length === 0) return
+    setBatchBusy(true)
+    let ok = 0
+    let fail = 0
+    let skip = 0
+    await Promise.all(
+      selectedTasks.map(async (t) => {
+        const contactId = t.crm_contact_id
+        if (!contactId) {
+          skip++
+          return
+        }
+        try {
+          await pb.collection('crm_contacts').update(contactId, { care_status: careStatus })
+          ok++
+        } catch {
+          fail++
+        }
+      }),
+    )
+    setBatchBusy(false)
+    if (fail === 0) {
+      toast.success(
+        `${ok} contato(s) marcado(s) como ${careStatus.replace(/_/g, ' ')}${skip > 0 ? ` (${skip} sem contato vinculado)` : ''}.`,
+      )
+    } else if (ok === 0) {
+      toast.error('Não foi possível atualizar o status de cuidado.')
+    } else {
+      toast.warning(`${ok} atualizado(s), ${fail} falhou/falharam.`)
+    }
+    clearSelection()
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
@@ -236,6 +375,85 @@ export default function Tarefas() {
           )
         })}
       </div>
+
+      {/* Barra de ações em lote — só aparece quando há cards selecionados */}
+      {selectionMode && (
+        <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl border border-primary/30 bg-primary/5 shrink-0 animate-in fade-in slide-in-from-top-2">
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-primary mr-2">
+            <ListChecks className="w-4 h-4" />
+            {selectedIds.size} selecionado{selectedIds.size === 1 ? '' : 's'}
+          </span>
+
+          <div className="h-5 w-px bg-border/60" />
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={batchBusy} className="h-8">
+                <MoveRight className="w-3.5 h-3.5 mr-1.5" />
+                Mover para
+                <ChevronDown className="w-3 h-3 ml-1 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuLabel>Mover para</DropdownMenuLabel>
+              {TASK_STATUSES.map((s) => (
+                <DropdownMenuItem
+                  key={s.id}
+                  onClick={() => handleBatchMove(s.id)}
+                  className="cursor-pointer"
+                >
+                  <span className={cn('w-2 h-2 rounded-full mr-2', s.dot)} />
+                  {s.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={batchBusy} className="h-8">
+                <Tag className="w-3.5 h-3.5 mr-1.5" />
+                Marcar como
+                <ChevronDown className="w-3 h-3 ml-1 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>Status de cuidado</DropdownMenuLabel>
+              {CARE_CATEGORIES.filter((c) => c.id !== 'sem_categoria').map((c) => (
+                <DropdownMenuItem
+                  key={c.id}
+                  onClick={() => handleBatchCareStatus(c.id)}
+                  className="cursor-pointer"
+                >
+                  <span>{c.emoji}</span>
+                  <span className="ml-1">{c.label}</span>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => handleBatchCareStatus('em_dia')}
+                className="cursor-pointer"
+              >
+                <span>✅</span>
+                <span className="ml-1">Em dia</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearSelection}
+            disabled={batchBusy}
+            className="h-8 text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-3.5 h-3.5 mr-1.5" />
+            Limpar seleção
+          </Button>
+
+          {batchBusy && <span className="text-xs text-muted-foreground ml-1">Processando...</span>}
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-4 shrink-0 items-center">
         <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-lg border">
@@ -387,6 +605,9 @@ export default function Tarefas() {
                           })
                         }}
                         onOpenSecretary={() => openSecretary(task)}
+                        selected={selectedIds.has(task.id)}
+                        onToggleSelect={toggleSelect}
+                        selectionMode={selectionMode}
                       />
                     ))
                   )}
