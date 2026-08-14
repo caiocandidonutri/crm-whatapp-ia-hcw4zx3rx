@@ -18,6 +18,46 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
     }
   } catch (_) {}
 
+  // --- Limiares de follow-up por conta (care_followup_thresholds) ---
+  // Permite configurar após quantos dias sem resposta um paciente entra
+  // em cada categoria: "nao_respondeu", "precisa_atencao", "perdido".
+  // Defaults: nao_respondeu=3, precisa_atencao=7, perdido=15.
+  var DEFAULT_THRESHOLDS = {
+    nao_respondeu: 3,
+    precisa_atencao: 7,
+    perdido: 15,
+  }
+  var thresholdsByAccount = {}
+  try {
+    var allThresholds = $app.findRecordsByFilter(
+      'care_followup_thresholds',
+      'id != ""',
+      'created',
+      500,
+      0,
+    )
+    for (var th = 0; th < allThresholds.length; th++) {
+      var tRec = allThresholds[th]
+      var tAccId = tRec.getString('account_id')
+      if (!thresholdsByAccount[tAccId]) {
+        thresholdsByAccount[tAccId] = {
+          nao_respondeu: DEFAULT_THRESHOLDS.nao_respondeu,
+          precisa_atencao: DEFAULT_THRESHOLDS.precisa_atencao,
+          perdido: DEFAULT_THRESHOLDS.perdido,
+        }
+      }
+      var tCat = tRec.getString('category')
+      if (tRec.getBool('enabled') && thresholdsByAccount[tAccId][tCat] !== undefined) {
+        thresholdsByAccount[tAccId][tCat] = tRec.getInt('days') || DEFAULT_THRESHOLDS[tCat]
+      }
+    }
+  } catch (_) {}
+
+  var getThresholds = function (accId) {
+    if (accId && thresholdsByAccount[accId]) return thresholdsByAccount[accId]
+    return DEFAULT_THRESHOLDS
+  }
+
   var totalClassified = 0
   var totalProcessed = 0
 
@@ -155,11 +195,26 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
         }
       }
 
+      // Aplica os limiares de follow-up configurados (sem resposta por
+      // N dias → "nao_respondeu"; por M dias → "precisa_atencao"; por
+      // P dias → "perdido"). Baseia-se na última sincronização de
+      // atividade do contato (last_synced_at), que reflete o último
+      // contato registrado.
       var lastSynced = contact.getString('last_synced_at')
       if (lastSynced) {
         var lastTs = Math.floor(new Date(lastSynced.replace(' ', 'T')).getTime() / 1000)
-        if (!isNaN(lastTs) && nowTs - lastTs >= 30 * 86400) {
-          careStatus = 'sem_contato_' + Math.floor((nowTs - lastTs) / 86400) + '_dias'
+        if (!isNaN(lastTs)) {
+          var daysNoResponse = Math.floor((nowTs - lastTs) / 86400)
+          var thresholds = getThresholds(accountId)
+          if (daysNoResponse >= thresholds.perdido) {
+            careStatus = 'perdido'
+          } else if (daysNoResponse >= thresholds.precisa_atencao) {
+            careStatus = 'precisa_atencao'
+          } else if (daysNoResponse >= thresholds.nao_respondeu) {
+            careStatus = 'nao_respondeu'
+          } else if (daysNoResponse >= 30) {
+            careStatus = 'sem_contato_' + daysNoResponse + '_dias'
+          }
         }
       }
 

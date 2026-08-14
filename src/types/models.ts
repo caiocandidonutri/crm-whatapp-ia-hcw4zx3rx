@@ -300,6 +300,16 @@ export interface CareSilencePeriod {
   updated: string
 }
 
+export interface CareFollowupThreshold {
+  id: string
+  account_id: string
+  category: 'nao_respondeu' | 'precisa_atencao' | 'perdido'
+  days: number
+  enabled: boolean
+  created: string
+  updated: string
+}
+
 export interface Notification {
   id: string
   user_id: string

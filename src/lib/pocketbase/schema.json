@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T02:04:13.809Z",
+  "generatedAt": "2026-08-14T02:38:10.651Z",
   "collections": [
     {
       "name": "users",
@@ -1811,6 +1811,63 @@
         "CREATE INDEX idx_notifications_user ON notifications (user_id)",
         "CREATE INDEX idx_notifications_account ON notifications (account_id)",
         "CREATE INDEX idx_notifications_read ON notifications (read)"
+      ]
+    },
+    {
+      "name": "care_followup_thresholds",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "category",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["nao_respondeu", "precisa_atencao", "perdido"]
+        },
+        {
+          "name": "days",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_care_followup_thresholds_account ON care_followup_thresholds (account_id)",
+        "CREATE UNIQUE INDEX idx_care_followup_thresholds_acc_cat ON care_followup_thresholds (account_id, category)"
       ]
     }
   ]

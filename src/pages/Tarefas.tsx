@@ -70,6 +70,10 @@ export default function Tarefas() {
   const [columnSearches, setColumnSearches] = useState<Record<string, string>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [batchBusy, setBatchBusy] = useState(false)
+  // Filtro de prioridade independente por coluna do Kanban.
+  // Cada coluna (status) mantém seu próprio conjunto de prioridades
+  // selecionadas; quando vazio, exibe todas.
+  const [columnPriorities, setColumnPriorities] = useState<Record<string, Set<string>>>({})
 
   // --- Realtime: atualiza o Kanban automaticamente quando o backend
   // altera care_status/stage/IA de um contato. O hook
@@ -513,8 +517,13 @@ export default function Tarefas() {
           {TASK_STATUSES.map((status) => {
             const statusTasks = filteredTasks.filter((t) => t.status === status.id)
             const colSearch = columnSearches[status.id] || ''
+            const colPrioritySet = columnPriorities[status.id]
+            const afterPriority =
+              colPrioritySet && colPrioritySet.size > 0
+                ? statusTasks.filter((t) => colPrioritySet.has(t.priority))
+                : statusTasks
             const columnTasks = colSearch
-              ? statusTasks.filter((t) => {
+              ? afterPriority.filter((t) => {
                   const contact = t.expand?.crm_contact_id
                   const name = (
                     contact?.contact_name ||
@@ -526,8 +535,19 @@ export default function Tarefas() {
                   const q = colSearch.toLowerCase()
                   return name.includes(q) || phone.includes(q)
                 })
-              : statusTasks
+              : afterPriority
             const isDragOver = dragOverColumn === status.id
+
+            const toggleColPriority = (pid: string) => {
+              setColumnPriorities((prev) => {
+                const next = { ...prev }
+                const set = new Set(next[status.id] || [])
+                if (set.has(pid)) set.delete(pid)
+                else set.add(pid)
+                next[status.id] = set
+                return next
+              })
+            }
 
             return (
               <div
@@ -576,13 +596,57 @@ export default function Tarefas() {
                       </button>
                     )}
                   </div>
+                  {/* Filtro por prioridade — independente por coluna.
+                      Botões de toggle (multiseleção). Vazio = Todas. */}
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground/70 mr-0.5">Prioridade:</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setColumnPriorities((prev) => ({
+                          ...prev,
+                          [status.id]: new Set(),
+                        }))
+                      }
+                      className={cn(
+                        'px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors border',
+                        !colPrioritySet || colPrioritySet.size === 0
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background text-muted-foreground border-border hover:bg-muted',
+                      )}
+                    >
+                      Todas
+                    </button>
+                    {TASK_PRIORITIES.slice()
+                      .reverse()
+                      .map((p) => {
+                        const active = colPrioritySet?.has(p.id)
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => toggleColPriority(p.id)}
+                            className={cn(
+                              'px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors border',
+                              active
+                                ? p.color
+                                : 'bg-background text-muted-foreground border-border hover:bg-muted',
+                            )}
+                          >
+                            {p.label}
+                          </button>
+                        )
+                      })}
+                  </div>
                 </div>
 
                 <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1">
                   {columnTasks.length === 0 ? (
                     <div className="h-28 border-2 border-dashed rounded-xl flex items-center justify-center text-muted-foreground text-sm flex-col gap-2 opacity-50">
                       <status.icon className="w-5 h-5" />
-                      {colSearch ? 'Nenhum paciente encontrado' : 'Nenhuma tarefa'}
+                      {colSearch || (colPrioritySet && colPrioritySet.size > 0)
+                        ? 'Nenhum paciente encontrado'
+                        : 'Nenhuma tarefa'}
                     </div>
                   ) : (
                     columnTasks.map((task) => (

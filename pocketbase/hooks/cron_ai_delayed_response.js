@@ -23,6 +23,51 @@ cronAdd('ai_delayed_response', '* * * * *', () => {
 
   if (!pendingMsgs || pendingMsgs.length === 0) return
 
+  // Verifica se o horário atual está dentro de um período de silêncio
+  // configurado para a conta. Se sim, NÃO dispara mensagens automáticas
+  // da IA — o paciente continuará pendente e será reavaliado no próximo
+  // minuto quando o silêncio terminar.
+  var isAccountSilenced = function (accountId) {
+    if (!accountId) return false
+    var periods = []
+    try {
+      periods = $app.findRecordsByFilter(
+        'care_silence_periods',
+        'account_id = {:aid} && enabled = true',
+        '-created',
+        50,
+        0,
+        { aid: accountId },
+      )
+    } catch (_) {
+      return false
+    }
+    if (!periods || periods.length === 0) return false
+    var silNow = new Date()
+    var silHHMM = ('0' + silNow.getHours()).slice(-2) + ':' + ('0' + silNow.getMinutes()).slice(-2)
+    var silDay = silNow.getDay()
+    for (var sp = 0; sp < periods.length; sp++) {
+      var spStart = periods[sp].getString('start_time')
+      var spEnd = periods[sp].getString('end_time')
+      if (!spStart || !spEnd) continue
+      var spWdRaw = periods[sp].get('weekdays')
+      var spWd = []
+      if (spWdRaw) {
+        try {
+          var spParsed = typeof spWdRaw === 'string' ? JSON.parse(spWdRaw) : spWdRaw
+          if (Array.isArray(spParsed)) spWd = spParsed
+        } catch (_) {}
+      }
+      if (spWd.length > 0 && spWd.indexOf(silDay) === -1) continue
+      if (spStart <= spEnd) {
+        if (silHHMM >= spStart && silHHMM < spEnd) return true
+      } else {
+        if (silHHMM >= spStart || silHHMM < spEnd) return true
+      }
+    }
+    return false
+  }
+
   var processAiResponse = function (msg) {
     var remoteJid = msg.getString('remote_jid')
     var instanceName = msg.getString('instance_name')
@@ -454,10 +499,19 @@ cronAdd('ai_delayed_response', '* * * * *', () => {
     var remoteJid = msg.getString('remote_jid')
     var instanceName = msg.getString('instance_name')
     var msgTs = msg.getInt('timestamp') || 0
+    var msgAccountId = msg.getString('account_id')
 
     if (msg.getBool('from_me') || remoteJid.endsWith('@g.us')) {
       msg.set('pending_ai_response', false)
       $app.saveNoValidate(msg)
+      continue
+    }
+
+    // Respeita os períodos de silêncio configurados pela conta: se o
+    // horário atual está silenciado, NÃO dispara a IA nem a orientação
+    // automática. A mensagem permanece pendente para ser processada
+    // quando o silêncio terminar.
+    if (isAccountSilenced(msgAccountId)) {
       continue
     }
 

@@ -8,6 +8,7 @@ import { CareAlertHistory } from '@/components/crm/CareAlertHistory'
 import { FollowupRulesManager } from '@/components/crm/FollowupRulesManager'
 import { MessageTemplatesSection } from '@/components/crm/MessageTemplatesSection'
 import { SilencePeriodsSection } from '@/components/crm/SilencePeriodsSection'
+import { FollowupThresholdsSection } from '@/components/crm/FollowupThresholdsSection'
 
 interface CareAlertsSheetProps {
   accountId: string
@@ -32,6 +33,8 @@ export function CareAlertsSheet({ accountId }: CareAlertsSheetProps) {
           <CareAlertSettings accountId={accountId} />
           <Separator />
           <FollowupRulesManager accountId={accountId} />
+          <Separator />
+          <FollowupThresholdsSection accountId={accountId} />
           <Separator />
           <MessageTemplatesSection accountId={accountId} />
           <Separator />
