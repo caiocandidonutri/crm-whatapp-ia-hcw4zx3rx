@@ -80,6 +80,8 @@ export function conversationsToChats(conversations: Conversation[]) {
     else if (lastMsgText === '[Reação]') lastMsgText = '👍 Reação'
     else if (lastMsgText === '[Mensagem temporária]') lastMsgText = '💬 Mensagem temporária'
     else if (lastMsgText === '[Mensagem do sistema]') lastMsgText = '🔒 Mensagem do sistema'
+    else if (lastMsgText === '[Mensagem de template]') lastMsgText = '📝 Template'
+    else if (lastMsgText === '[Mensagem vinculada]') lastMsgText = '🔗 Mensagem vinculada'
     else if (
       lastMsgText === '[mensagem não suportada]' ||
       lastMsgText === '[Mensagem não suportada]'
@@ -183,6 +185,7 @@ export function whatsappMessagesToMessages(messages: WhatsappMessage[]) {
           ? new Date(m.created).toISOString()
           : new Date().toISOString(),
       isRead: m.status === 'read' || m.status === 'played',
+      isForwarded: m.is_forwarded === true,
       linkPreview,
       reactions: parsedReactions,
       ...(isMedia && mediaType && mediaUrl

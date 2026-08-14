@@ -204,6 +204,7 @@ export interface WhatsappMessage {
   link_title?: string
   link_description?: string
   link_thumbnail_b64?: string
+  is_forwarded?: boolean
   created: string
   updated: string
 }

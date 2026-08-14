@@ -7,6 +7,8 @@ import {
   Clock,
   ShieldAlert,
   Paperclip,
+  FileText,
+  Link2,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -54,6 +56,29 @@ const UNSUPPORTED_MESSAGE_TYPES: Record<
     label: 'Mensagem do sistema',
     hint: 'Notificação interna do WhatsApp',
     icon: ShieldAlert,
+  },
+  // template: mensagem gerada a partir de template do WhatsApp Business.
+  // O webhook mapeia `templateMessage` → message_type: 'template'.
+  template: {
+    label: 'Mensagem de template',
+    hint: 'Enviada a partir de um template',
+    icon: FileText,
+  },
+  // associated_child: mensagem vinculada a outra (ex.: resposta estruturada
+  // do WhatsApp). O webhook mapeia `associatedChildMessage` → 'associated_child'.
+  associated_child: {
+    label: 'Mensagem vinculada',
+    hint: 'Mensagem associada a outra',
+    icon: Link2,
+  },
+  // base64: fallback visual para mensagens antigas já salvas no banco com
+  // message_type: 'base64' (bug histórico do webhook antes da correção de
+  // filtrar o campo base64 injetado pela Evolution API). Novas mensagens
+  // passam a ser classificadas pelo tipo real; as antigas permanecem assim.
+  base64: {
+    label: 'Mensagem de mídia',
+    hint: 'Mensagem com mídia não exibida',
+    icon: Paperclip,
   },
 }
 

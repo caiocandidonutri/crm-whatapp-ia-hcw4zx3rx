@@ -1,5 +1,5 @@
 import React, { memo } from 'react'
-import { Check, ListTodo, AlertCircle } from 'lucide-react'
+import { Check, ListTodo, AlertCircle, Forward } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLongPress } from '@/hooks/use-long-press'
 import { jidToDisplayName } from '@/lib/whatsapp-mappers'
@@ -239,6 +239,17 @@ function MessageItemComponent({
               )}
               {!msg.linkPreview && urls.length === 1 && (
                 <LinkPreviewCard url={urls[0]} isMe={isMe} />
+              )}
+              {msg.isForwarded && (
+                <div
+                  className={cn(
+                    'flex items-center gap-1 mb-1 mx-1 mt-1 text-[10px] font-medium',
+                    isMe ? 'text-white/70' : 'text-muted-foreground',
+                  )}
+                >
+                  <Forward className="w-3 h-3" />
+                  Encaminhado
+                </div>
               )}
               {msg.text && !isUnsupported && (
                 <div className={cn('flex-1 min-w-0', hasMedia ? 'px-2 pb-5' : '')}>

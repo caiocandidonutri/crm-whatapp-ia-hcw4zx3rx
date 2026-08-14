@@ -248,7 +248,13 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
     const processMessage = (msg) => {
       if (!msg || !msg.key || !msg.message) return
 
-      const typeKey = Object.keys(msg.message).find((k) => k !== 'messageContextInfo')
+      // Evolution API injeta um campo `base64` dentro de msg.message quando a
+      // mídia já foi decodificada. Sem filtrar, o find() pega `base64` como
+      // typeKey em vez de imageMessage/videoMessage, e a mensagem caía no else
+      // final virando "[Mensagem não suportada]". Filtramos `base64` também.
+      const typeKey = Object.keys(msg.message).find(
+        (k) => k !== 'messageContextInfo' && k !== 'base64',
+      )
 
       if (!typeKey || ['protocolMessage', 'senderKeyDistributionMessage'].includes(typeKey)) {
         $app.logger().info('protocol_message_skipped', 'type', typeKey)
@@ -382,10 +388,30 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       } else if (typeKey === 'protocolMessage') {
         msgType = 'protocolMessage'
         content = '[Mensagem do sistema]'
+      } else if (typeKey === 'templateMessage') {
+        msgType = 'template'
+        content = '[Mensagem de template]'
+      } else if (typeKey === 'associatedChildMessage') {
+        msgType = 'associated_child'
+        content = '[Mensagem vinculada]'
       } else {
         msgType = typeKey || 'unknown'
         content = '[Mensagem não suportada]'
       }
+
+      // Extrai indicador de encaminhamento (contextInfo.isForwarded) e
+      // forwardingScore, quando presentes. O front exibe um badge
+      // "Encaminhado" quando is_forwarded = true.
+      try {
+        const ctxInfo =
+          (msg.message[typeKey] && msg.message[typeKey].contextInfo) || msg.message.contextInfo
+        if (ctxInfo && ctxInfo.isForwarded === true) {
+          msg.isForwarded = true
+          if (typeof ctxInfo.forwardingScore === 'number' && ctxInfo.forwardingScore > 0) {
+            msg.forwardingScore = ctxInfo.forwardingScore
+          }
+        }
+      } catch (_) {}
 
       try {
         $app.findFirstRecordByFilter(
@@ -436,6 +462,9 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       }
       if (msgCol.fields.getByName('participant_pushname')) {
         newMsg.set('participant_pushname', pushName)
+      }
+      if (msgCol.fields.getByName('is_forwarded')) {
+        newMsg.set('is_forwarded', msg.isForwarded === true)
       }
 
       if (msg.linkPreview) {
