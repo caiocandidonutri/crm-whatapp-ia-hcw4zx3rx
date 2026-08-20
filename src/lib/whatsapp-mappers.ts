@@ -77,11 +77,21 @@ export function conversationsToChats(conversations: Conversation[]) {
     else if (lastMsgText === '[Localização compartilhada]')
       lastMsgText = '📍 Localização compartilhada'
     else if (lastMsgText === '[Contato compartilhado]') lastMsgText = '👤 Contato compartilhado'
+    else if (lastMsgText === '[Contatos compartilhados]') lastMsgText = '👥 Contatos compartilhados'
     else if (lastMsgText === '[Reação]') lastMsgText = '👍 Reação'
     else if (lastMsgText === '[Mensagem temporária]') lastMsgText = '💬 Mensagem temporária'
     else if (lastMsgText === '[Mensagem do sistema]') lastMsgText = '🔒 Mensagem do sistema'
     else if (lastMsgText === '[Mensagem de template]') lastMsgText = '📝 Template'
     else if (lastMsgText === '[Mensagem vinculada]') lastMsgText = '🔗 Mensagem vinculada'
+    else if (lastMsgText === '[Álbum de mídia]' || lastMsgText === '[album]')
+      lastMsgText = '📸 Álbum'
+    else if (lastMsgText === '[Mensagem fixada]' || lastMsgText === '[pinInChat]')
+      lastMsgText = '📌 Fixada'
+    else if (
+      lastMsgText === '[Mensagem criptografada]' ||
+      lastMsgText === '[secretEncryptedMessage]'
+    )
+      lastMsgText = '🔒 Criptografada'
     else if (
       lastMsgText === '[mensagem não suportada]' ||
       lastMsgText === '[Mensagem não suportada]'

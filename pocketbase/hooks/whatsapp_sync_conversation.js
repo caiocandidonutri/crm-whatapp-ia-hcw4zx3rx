@@ -216,7 +216,12 @@ routerAdd(
           }
 
           if (
-            ['protocolMessage', 'senderKeyDistributionMessage', 'reactionMessage'].includes(typeKey)
+            [
+              'protocolMessage',
+              'senderKeyDistributionMessage',
+              'secretEncryptedMessage',
+              'reactionMessage',
+            ].includes(typeKey)
           ) {
             skipped++
             continue
@@ -287,9 +292,16 @@ routerAdd(
           } else if (typeKey === 'locationMessage') {
             msgType = 'locationMessage'
             content = '[Localização compartilhada]'
-          } else if (typeKey === 'contactMessage' || typeKey === 'contactsMessage') {
+          } else if (
+            typeKey === 'contactMessage' ||
+            typeKey === 'contactsMessage' ||
+            typeKey === 'contactsArrayMessage'
+          ) {
             msgType = 'contactMessage'
-            content = '[Contato compartilhado]'
+            content =
+              typeKey === 'contactsArrayMessage' || typeKey === 'contactsMessage'
+                ? '[Contatos compartilhados]'
+                : '[Contato compartilhado]'
           } else if (typeKey === 'reactionMessage') {
             msgType = 'reactionMessage'
             content = '[Reação]'
@@ -299,6 +311,12 @@ routerAdd(
           } else if (typeKey === 'protocolMessage') {
             msgType = 'protocolMessage'
             content = '[Mensagem do sistema]'
+          } else if (typeKey === 'albumMessage') {
+            msgType = 'album'
+            content = '[Álbum de mídia]'
+          } else if (typeKey === 'pinInChatMessage') {
+            msgType = 'pinInChat'
+            content = '[Mensagem fixada]'
           } else {
             msgType = typeKey || 'unknown'
             content = '[Mensagem não suportada]'

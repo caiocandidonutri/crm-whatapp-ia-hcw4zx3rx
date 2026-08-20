@@ -9,6 +9,9 @@ import {
   Paperclip,
   FileText,
   Link2,
+  Lock,
+  Images,
+  Pin,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -79,6 +82,38 @@ const UNSUPPORTED_MESSAGE_TYPES: Record<
     label: 'Mensagem de mídia',
     hint: 'Mensagem com mídia não exibida',
     icon: Paperclip,
+  },
+  // secretEncryptedMessage: caso alguma mensagem antiga já gravada venha a ser exibida
+  secretEncryptedMessage: {
+    label: 'Mensagem criptografada',
+    hint: 'Envelope de criptografia sem conteúdo visível',
+    icon: Lock,
+  },
+  // album: mapeado a partir de albumMessage
+  album: {
+    label: 'Álbum de mídia',
+    hint: 'Conjunto de mídias compartilhadas',
+    icon: Images,
+  },
+  albumMessage: {
+    label: 'Álbum de mídia',
+    hint: 'Conjunto de mídias compartilhadas',
+    icon: Images,
+  },
+  // pinInChat: mapeado a partir de pinInChatMessage
+  pinInChat: {
+    label: 'Mensagem fixada',
+    hint: 'Mensagem fixada na conversa',
+    icon: Pin,
+  },
+  pinInChatMessage: {
+    label: 'Mensagem fixada',
+    hint: 'Mensagem fixada na conversa',
+    icon: Pin,
+  },
+  contactsArrayMessage: {
+    label: 'Contatos compartilhados',
+    icon: User,
   },
 }
 

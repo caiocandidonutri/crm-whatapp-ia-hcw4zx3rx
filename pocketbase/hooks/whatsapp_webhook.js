@@ -256,7 +256,12 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         (k) => k !== 'messageContextInfo' && k !== 'base64',
       )
 
-      if (!typeKey || ['protocolMessage', 'senderKeyDistributionMessage'].includes(typeKey)) {
+      if (
+        !typeKey ||
+        ['protocolMessage', 'senderKeyDistributionMessage', 'secretEncryptedMessage'].includes(
+          typeKey,
+        )
+      ) {
         $app.logger().info('protocol_message_skipped', 'type', typeKey)
         return
       }
@@ -376,9 +381,16 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       } else if (typeKey === 'locationMessage') {
         msgType = 'locationMessage'
         content = '[Localização compartilhada]'
-      } else if (typeKey === 'contactMessage' || typeKey === 'contactsMessage') {
+      } else if (
+        typeKey === 'contactMessage' ||
+        typeKey === 'contactsMessage' ||
+        typeKey === 'contactsArrayMessage'
+      ) {
         msgType = 'contactMessage'
-        content = '[Contato compartilhado]'
+        content =
+          typeKey === 'contactsArrayMessage' || typeKey === 'contactsMessage'
+            ? '[Contatos compartilhados]'
+            : '[Contato compartilhado]'
       } else if (typeKey === 'reactionMessage') {
         msgType = 'reactionMessage'
         content = '[Reação]'
@@ -394,6 +406,12 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       } else if (typeKey === 'associatedChildMessage') {
         msgType = 'associated_child'
         content = '[Mensagem vinculada]'
+      } else if (typeKey === 'albumMessage') {
+        msgType = 'album'
+        content = '[Álbum de mídia]'
+      } else if (typeKey === 'pinInChatMessage') {
+        msgType = 'pinInChat'
+        content = '[Mensagem fixada]'
       } else {
         msgType = typeKey || 'unknown'
         content = '[Mensagem não suportada]'
