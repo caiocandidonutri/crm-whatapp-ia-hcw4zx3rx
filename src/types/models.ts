@@ -18,65 +18,50 @@ export type CategoryColor =
   | 'pink'
   | 'rose'
 
-export interface Category {
-  id: string
+import type { RecordModel } from 'pocketbase'
+
+export interface Category extends RecordModel {
   account_id: string
   name: string
   color: CategoryColor
   icon?: string
   created_by?: string
-  created: string
-  updated: string
 }
 
-export interface Account {
-  id: string
+export interface Account extends RecordModel {
   name: string
   owner_id: string
-  created: string
-  updated: string
 }
 
-export interface AccountMember {
-  id: string
+export interface AccountMember extends RecordModel {
   account_id: string
   user_id: string
   role: 'owner' | 'member'
   joined_at?: string
-  created: string
-  updated: string
 }
 
-export interface AccountInvite {
-  id: string
+export interface AccountInvite extends RecordModel {
   account_id: string
   email: string
   role: 'owner' | 'member'
   invited_by: string
-  created: string
-  updated: string
 }
 
-export interface AiAgent {
-  id: string
+export interface AiAgent extends RecordModel {
   account_id?: string
   user_id: string
   name: string
   system_prompt: string
   documents?: string
-  created: string
-  updated: string
 }
 
-export interface User {
-  id: string
+export interface User extends RecordModel {
   name: string
   email: string
   avatar: string
 }
 
-export interface WhatsappInstance {
-  id: string
+export interface WhatsappInstance extends RecordModel {
   account_id?: string
   user_id: string
   instance_name: string
@@ -98,12 +83,9 @@ export interface WhatsappInstance {
   last_webhook_reconfigured_at?: string
   last_instance_restart_at?: string
   health_check_failures?: number
-  created: string
-  updated: string
 }
 
-export interface Conversation {
-  id: string
+export interface Conversation extends RecordModel {
   account_id?: string
   user_id: string
   instance_name: string
@@ -125,12 +107,9 @@ export interface Conversation {
   ai_enabled?: boolean
   ai_conversation_id?: string
   category_ids?: string[]
-  created: string
-  updated: string
 }
 
-export interface CrmContact {
-  id: string
+export interface CrmContact extends RecordModel {
   account_id?: string
   user_id: string
   instance_name: string
@@ -160,12 +139,9 @@ export interface CrmContact {
     assigned_to?: User
     followup_rule_id?: CareFollowupRule
   }
-  created: string
-  updated: string
 }
 
-export interface CrmCompany {
-  id: string
+export interface CrmCompany extends RecordModel {
   account_id?: string
   user_id: string
   name: string
@@ -176,12 +152,9 @@ export interface CrmCompany {
   size?: string
   logo_url?: string
   notes?: string
-  created: string
-  updated: string
 }
 
-export interface WhatsappMessage {
-  id: string
+export interface WhatsappMessage extends RecordModel {
   account_id?: string
   user_id: string
   instance_name: string
@@ -205,12 +178,9 @@ export interface WhatsappMessage {
   link_description?: string
   link_thumbnail_b64?: string
   is_forwarded?: boolean
-  created: string
-  updated: string
 }
 
-export interface Task {
-  id: string
+export interface Task extends RecordModel {
   account_id?: string
   user_id: string
   title: string
@@ -237,34 +207,25 @@ export interface Task {
     crm_contact_id?: CrmContact
     conversation_id?: Conversation
   }
-  created: string
-  updated: string
 }
 
-export interface CareFollowupRule {
-  id: string
+export interface CareFollowupRule extends RecordModel {
   account_id: string
   name: string
   followup_days: number
   reminder_text?: string
-  created: string
-  updated: string
 }
 
-export interface CareAlertSettings {
-  id: string
+export interface CareAlertSettings extends RecordModel {
   account_id: string
   whatsapp_alert_phone: string
   followup_alert_enabled: boolean
   needs_care_alert_enabled: boolean
   confirmation_alert_enabled: boolean
   confirmation_hours_before: number
-  created: string
-  updated: string
 }
 
-export interface CareAlert {
-  id: string
+export interface CareAlert extends RecordModel {
   account_id: string
   type: 'followup' | 'needs_care' | 'confirmacao_24h'
   crm_contact_id?: string
@@ -272,47 +233,35 @@ export interface CareAlert {
   message: string
   status: 'pending' | 'sent' | 'failed'
   sent_at?: string
-  created: string
-  updated: string
   expand?: {
     crm_contact_id?: CrmContact
   }
 }
 
-export interface MessageTemplate {
-  id: string
+export interface MessageTemplate extends RecordModel {
   account_id: string
   name: string
   trigger_type: 'primeiro_contato' | 'reengajamento' | 'pos_consulta'
   content: string
   created_by?: string
-  created: string
-  updated: string
 }
 
-export interface CareSilencePeriod {
-  id: string
+export interface CareSilencePeriod extends RecordModel {
   account_id: string
   start_time: string
   end_time: string
   weekdays?: number[]
   enabled: boolean
-  created: string
-  updated: string
 }
 
-export interface CareFollowupThreshold {
-  id: string
+export interface CareFollowupThreshold extends RecordModel {
   account_id: string
   category: 'nao_respondeu' | 'precisa_atencao' | 'perdido'
   days: number
   enabled: boolean
-  created: string
-  updated: string
 }
 
-export interface Notification {
-  id: string
+export interface Notification extends RecordModel {
   user_id: string
   account_id?: string
   type: 'message' | 'care_alert' | 'task'
@@ -322,6 +271,4 @@ export interface Notification {
   crm_contact_id?: string
   task_id?: string
   read?: boolean
-  created: string
-  updated: string
 }

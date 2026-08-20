@@ -1,14 +1,13 @@
 import pb from '@/lib/pocketbase/client'
 
-export interface CrmStage {
-  id: string
+import type { RecordModel } from 'pocketbase'
+
+export interface CrmStage extends RecordModel {
   account_id: string
   key: string
   label: string
   color: string
   position: number
-  created: string
-  updated: string
 }
 
 // Etapas padrão criadas para uma conta que ainda não tem pipeline.

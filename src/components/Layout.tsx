@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import pb from '@/lib/pocketbase/client'
 import { DisconnectBanner } from '@/components/DisconnectBanner'
 import { RealtimeStatusIndicator } from '@/components/RealtimeStatusIndicator'
+import { NotificationCenter } from '@/components/NotificationCenter'
 
 const NAV_LINKS = [
   { name: 'Início', path: '/home' },
@@ -25,6 +26,7 @@ const NAV_LINKS = [
   { name: 'Agentes', path: '/agentes' },
   { name: 'Tarefas', path: '/tarefas' },
   { name: 'Equipe', path: '/equipe' },
+  { name: 'Integrações', path: '/integracoes' },
 ]
 
 export default function Layout() {
@@ -86,6 +88,7 @@ export default function Layout() {
           {/* Right Actions */}
           <div className="flex items-center gap-2">
             <RealtimeStatusIndicator />
+            <NotificationCenter />
 
             <Button
               variant="ghost"

@@ -22,6 +22,8 @@ export function useTeamMembers() {
         const res = await fetchTeam()
         const mappedMembers = res.members.map((m: any) => ({
           id: m.id,
+          collectionId: 'account_members',
+          collectionName: 'account_members',
           account_id: accountId,
           user_id: m.user_id,
           role: m.role,
@@ -31,9 +33,13 @@ export function useTeamMembers() {
           expand: {
             user_id: {
               id: m.user_id,
+              collectionId: 'users',
+              collectionName: 'users',
               name: m.name,
               email: m.email,
               avatar: m.avatar || '',
+              created: '',
+              updated: '',
             } as User,
           },
         })) as TeamMember[]

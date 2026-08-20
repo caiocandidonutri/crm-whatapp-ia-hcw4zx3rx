@@ -20,11 +20,13 @@ export type Chat = {
   id: string
   type: 'individual' | 'group'
   name: string
+  phone?: string
   unread: number
   messages: Message[]
   avatar: string
   instance_name?: string
   remote_jid?: string
+  category_ids?: string[]
   groupDetails?: { participants: number; colors: Record<string, string> }
   lastMessage?: { text: string; timestamp: string; fromMe?: boolean; type?: string }
 }

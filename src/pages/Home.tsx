@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils'
 import { TaskViewDialog } from '@/components/TaskViewDialog'
 import { consultarStatusInstancia } from '@/services/whatsapp_service'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { fetchHomeMetrics, HomeChartItem } from '@/services/home_metrics'
 
 export default function Home() {
   const { user } = useAuth()
@@ -43,7 +44,7 @@ export default function Home() {
   const { conversations } = useConversas(instance?.instance_name)
   const { tasks } = useTasks()
 
-  const [chartData, setChartData] = useState<any[]>([])
+  const [chartData, setChartData] = useState<HomeChartItem[]>([])
   const [loadingChart, setLoadingChart] = useState(true)
 
   const [crmCount, setCrmCount] = useState(0)
@@ -59,33 +60,6 @@ export default function Home() {
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [statusCheckFailed, setStatusCheckFailed] = useState(false)
   const [statusWarningDismissed, setStatusWarningDismissed] = useState(false)
-
-  useEffect(() => {
-    if (!instance?.instance_name) return
-    const fetchCrmStats = async () => {
-      try {
-        const total = await pb.collection('crm_contacts').getList(1, 1, {
-          filter: `instance_name = '${instance.instance_name}'`,
-          requestKey: null,
-        })
-
-        const sevenDaysAgo = new Date()
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-        const dateIso = sevenDaysAgo.toISOString().replace('T', ' ')
-
-        const recent = await pb.collection('crm_contacts').getList(1, 1, {
-          filter: `instance_name = '${instance.instance_name}' && created >= '${dateIso}'`,
-          requestKey: null,
-        })
-
-        setCrmCount(total.totalItems)
-        setCrmTrendCount(recent.totalItems)
-      } catch (err) {
-        console.error('Error fetching CRM stats')
-      }
-    }
-    fetchCrmStats()
-  }, [instance?.instance_name])
 
   const checkInstanceStatus = useCallback(async () => {
     if (!instance?.instance_name) return
@@ -105,55 +79,14 @@ export default function Home() {
 
   const fetchChartData = useCallback(
     async (silent = false) => {
-      if (!instance?.instance_name) {
-        if (!silent) setLoadingChart(false)
-        return
-      }
-
       if (!silent) setLoadingChart(true)
       try {
-        const days = Array.from({ length: 7 })
-          .map((_, i) => {
-            const d = new Date()
-            d.setDate(d.getDate() - i)
-            d.setHours(0, 0, 0, 0)
-            const startMs = d.getTime()
-            const endMs = startMs + 86400000
-
-            const startSec = Math.floor(startMs / 1000)
-            const endSec = Math.floor(endMs / 1000)
-
-            return { date: d, startSec, endSec }
-          })
-          .reverse()
-
-        const promises = days.flatMap((d) => [
-          pb.collection('whatsapp_messages').getList(1, 1, {
-            filter: `instance_name = '${instance.instance_name}' && timestamp >= ${d.startSec} && timestamp < ${d.endSec} && from_me = true`,
-            requestKey: null,
-          }),
-          pb.collection('whatsapp_messages').getList(1, 1, {
-            filter: `instance_name = '${instance.instance_name}' && timestamp >= ${d.startSec} && timestamp < ${d.endSec} && from_me = false`,
-            requestKey: null,
-          }),
-        ])
-
-        const results = await Promise.all(promises)
-
-        const newChartData = days.map((d, i) => {
-          const sent = results[i * 2].totalItems
-          const received = results[i * 2 + 1].totalItems
-          return {
-            label: d.date.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', ''),
-            sent,
-            received,
-            total: sent + received,
-          }
-        })
-
-        setChartData(newChartData)
+        const metrics = await fetchHomeMetrics()
+        setChartData(metrics.chart || [])
+        setCrmCount(metrics.crmContacts ?? 0)
+        setCrmTrendCount(metrics.crmRecent ?? 0)
       } catch (err) {
-        console.error(err)
+        console.error('Failed to load aggregated home metrics:', err)
         if (!silent) {
           toast({
             title: 'Erro ao carregar dados',
@@ -165,7 +98,7 @@ export default function Home() {
         if (!silent) setLoadingChart(false)
       }
     },
-    [instance?.instance_name, toast],
+    [toast],
   )
 
   useEffect(() => {

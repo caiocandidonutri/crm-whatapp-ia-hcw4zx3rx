@@ -76,6 +76,8 @@ type ChatAreaProps = {
   hasMoreOlderDb?: boolean
   loadingOlderDb?: boolean
   onLoadOlderDb?: () => void
+  onArchive?: (archived: boolean) => Promise<void> | void
+  isArchived?: boolean
 }
 
 export function ChatArea({
@@ -89,6 +91,8 @@ export function ChatArea({
   hasMoreOlderDb,
   loadingOlderDb,
   onLoadOlderDb,
+  onArchive,
+  isArchived,
 }: ChatAreaProps) {
   const [inputText, setInputText] = useState('')
   const [isSending, setIsSending] = useState(false)
@@ -354,7 +358,7 @@ export function ChatArea({
   const [recordingDuration, setRecordingDuration] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
-  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {

@@ -17,6 +17,7 @@ import Agentes from './pages/Agentes'
 import Chat from './pages/Chat'
 import Tarefas from './pages/Tarefas'
 import Equipe from './pages/Equipe'
+import Integracoes from './pages/Integracoes'
 import NotFound from './pages/NotFound'
 
 const ProtectedRoute = () => {
@@ -43,6 +44,7 @@ function AppRoutes() {
             <Route path="/chat" element={<Chat />} />
             <Route path="/tarefas" element={<Tarefas />} />
             <Route path="/equipe" element={<Equipe />} />
+            <Route path="/integracoes" element={<Integracoes />} />
           </Route>
         </Route>
         <Route path="*" element={<NotFound />} />
@@ -61,7 +63,7 @@ function AppRoutes() {
 const App = () => (
   <AuthProvider>
     <AppProvider>
-      <BrowserRouter future={{ v7_startTransition: false, v7_relativeSplatPath: false }}>
+      <BrowserRouter>
         <TooltipProvider>
           <Toaster />
           <Sonner />

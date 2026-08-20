@@ -161,7 +161,10 @@ export default function Index() {
         setStep(2)
       }
     } catch (err: any) {
-      const message = err instanceof z.ZodError ? err.errors[0].message : err.message
+      const message =
+        err instanceof z.ZodError
+          ? err.issues?.[0]?.message || (err as any).errors?.[0]?.message
+          : err.message
       toast({ title: 'Atenção', description: message, variant: 'destructive' })
     } finally {
       setIsLoading(false)
