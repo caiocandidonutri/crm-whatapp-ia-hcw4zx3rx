@@ -30,6 +30,7 @@ onRecordAfterUpdateSuccess((e) => {
     'ai_suggested_action',
     'ai_priority',
     'followup_rule_id',
+    'last_synced_at',
   ]
   var changed = false
   for (var i = 0; i < relevantFields.length; i++) {
@@ -60,18 +61,41 @@ onRecordAfterUpdateSuccess((e) => {
     } catch (_) {}
   }
 
-  // --- Última mensagem do contato (para "não respondeu") ---
-  var lastMsg = null
+  // --- Análise de mensagens para detecção correta de "não respondeu" ---
+  // Um contato só é considerado "não respondeu" se a ÚLTIMA mensagem do atendente
+  // (from_me = true) tem >= 8 horas E NÃO EXISTE nenhuma mensagem posterior do paciente (from_me = false).
+  // Se o paciente respondeu depois do atendente falar (ou se o atendente nunca mandou mensagem),
+  // ele NÃO está em "não respondeu".
+  var isNaoRespondeu = false
   try {
-    var lastMsgs = $app.findRecordsByFilter(
+    var latestMsgs = $app.findRecordsByFilter(
       'whatsapp_messages',
       'remote_jid = {:jid} && instance_name = {:inst}',
       '-timestamp',
-      1,
+      20,
       0,
       { jid: jid, inst: instanceName },
     )
-    if (lastMsgs && lastMsgs.length > 0) lastMsg = lastMsgs[0]
+    if (latestMsgs && latestMsgs.length > 0) {
+      var lastFromMeTs = 0
+      var lastPatientTs = 0
+      for (var lmIdx = 0; lmIdx < latestMsgs.length; lmIdx++) {
+        var mItem = latestMsgs[lmIdx]
+        var mTs = mItem.getInt('timestamp') || 0
+        if (mItem.getBool('from_me')) {
+          if (mTs > lastFromMeTs) lastFromMeTs = mTs
+        } else {
+          if (mTs > lastPatientTs) lastPatientTs = mTs
+        }
+      }
+
+      // Atendente enviou mensagem há >= 8h e o paciente NÃO enviou nenhuma mensagem depois dela
+      if (lastFromMeTs > 0 && lastPatientTs <= lastFromMeTs && nowTs - lastFromMeTs >= 8 * 3600) {
+        isNaoRespondeu = true
+      }
+    } else if (careStatus === 'nao_respondeu') {
+      isNaoRespondeu = true
+    }
   } catch (_) {}
 
   // --- Conta de mensagens nas últimas 24h (para "alta demanda") ---
@@ -115,14 +139,7 @@ onRecordAfterUpdateSuccess((e) => {
     currentCategories.push('precisa_retorno')
   }
 
-  if (
-    lastMsg &&
-    lastMsg.getBool('from_me') &&
-    (lastMsg.getInt('timestamp') || 0) > 0 &&
-    nowTs - (lastMsg.getInt('timestamp') || 0) >= 8 * 3600
-  ) {
-    currentCategories.push('nao_respondeu')
-  } else if (!lastMsg && careStatus !== 'em_dia') {
+  if (isNaoRespondeu) {
     currentCategories.push('nao_respondeu')
   }
 

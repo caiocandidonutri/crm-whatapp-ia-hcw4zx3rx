@@ -49,17 +49,24 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
         'whatsapp_messages',
         'account_id = {:accId}',
         '-timestamp',
-        500,
+        1000,
         0,
         { accId: accountId },
       )
       for (var r = 0; r < recentMsgs.length; r++) {
         var rj = recentMsgs[r].getString('remote_jid')
-        if (rj && !lastMsgByJid[rj]) {
+        if (!rj) continue
+        if (!lastMsgByJid[rj]) {
           lastMsgByJid[rj] = {
-            from_me: recentMsgs[r].getBool('from_me'),
-            timestamp: recentMsgs[r].getInt('timestamp') || 0,
+            last_from_me_ts: 0,
+            last_patient_ts: 0,
           }
+        }
+        var mTs = recentMsgs[r].getInt('timestamp') || 0
+        if (recentMsgs[r].getBool('from_me')) {
+          if (mTs > lastMsgByJid[rj].last_from_me_ts) lastMsgByJid[rj].last_from_me_ts = mTs
+        } else {
+          if (mTs > lastMsgByJid[rj].last_patient_ts) lastMsgByJid[rj].last_patient_ts = mTs
         }
       }
     } catch (_) {}
@@ -130,15 +137,20 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
         currentCategories.push('precisa_retorno')
       }
 
-      var lastMsg = lastMsgByJid[jid]
-      if (
-        lastMsg &&
-        lastMsg.from_me &&
-        lastMsg.timestamp > 0 &&
-        nowTs - lastMsg.timestamp >= 8 * 3600
-      ) {
-        currentCategories.push('nao_respondeu')
-      } else if (!lastMsg && careStatus !== 'em_dia') {
+      var isNR = false
+      var mInfo = lastMsgByJid[jid]
+      if (mInfo) {
+        if (
+          mInfo.last_from_me_ts > 0 &&
+          mInfo.last_patient_ts <= mInfo.last_from_me_ts &&
+          nowTs - mInfo.last_from_me_ts >= 8 * 3600
+        ) {
+          isNR = true
+        }
+      } else if (careStatus === 'nao_respondeu') {
+        isNR = true
+      }
+      if (isNR) {
         currentCategories.push('nao_respondeu')
       }
 

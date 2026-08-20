@@ -63,17 +63,24 @@ routerAdd(
         'whatsapp_messages',
         'account_id = {:accId}',
         '-timestamp',
-        500,
+        1000,
         0,
         { accId: accountId },
       )
       for (var r = 0; r < recentMsgs.length; r++) {
         var rj = recentMsgs[r].getString('remote_jid')
-        if (rj && !lastMsgByJid[rj]) {
+        if (!rj) continue
+        if (!lastMsgByJid[rj]) {
           lastMsgByJid[rj] = {
-            from_me: recentMsgs[r].getBool('from_me'),
-            timestamp: recentMsgs[r].getInt('timestamp') || 0,
+            last_from_me_ts: 0,
+            last_patient_ts: 0,
           }
+        }
+        var mTs = recentMsgs[r].getInt('timestamp') || 0
+        if (recentMsgs[r].getBool('from_me')) {
+          if (mTs > lastMsgByJid[rj].last_from_me_ts) lastMsgByJid[rj].last_from_me_ts = mTs
+        } else {
+          if (mTs > lastMsgByJid[rj].last_patient_ts) lastMsgByJid[rj].last_patient_ts = mTs
         }
       }
     } catch (_) {}
@@ -250,10 +257,20 @@ routerAdd(
 
       var cats = []
       if (cCare === 'precisa_retorno') cats.push('precisa_retorno')
-      var lm = lastMsgByJid[cJid]
-      if (lm && lm.from_me && lm.timestamp > 0 && nowTs - lm.timestamp >= 8 * 3600)
-        cats.push('nao_respondeu')
-      else if (!lm && cCare !== 'em_dia') cats.push('nao_respondeu')
+      var isNR = false
+      var mInfo = lastMsgByJid[cJid]
+      if (mInfo) {
+        if (
+          mInfo.last_from_me_ts > 0 &&
+          mInfo.last_patient_ts <= mInfo.last_from_me_ts &&
+          nowTs - mInfo.last_from_me_ts >= 8 * 3600
+        ) {
+          isNR = true
+        }
+      } else if (cCare === 'nao_respondeu') {
+        isNR = true
+      }
+      if (isNR) cats.push('nao_respondeu')
       if (cAction && cPri >= 5) cats.push('precisa_atencao')
       if (cStage === 'em_atendimento' && !cConvAt) cats.push('precisa_consulta')
       if (cPatient && cConvAt) {

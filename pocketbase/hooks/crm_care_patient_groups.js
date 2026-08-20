@@ -129,21 +129,27 @@ routerAdd(
           'whatsapp_messages',
           'account_id = {:accId}',
           '-timestamp',
-          500,
+          1000,
           0,
           { accId: accountId },
         )
         for (var r = 0; r < recentMsgs.length; r++) {
           var rj = recentMsgs[r].getString('remote_jid')
-          if (rj && !lastMsgByJid[rj]) {
+          if (!rj) continue
+          if (!lastMsgByJid[rj]) {
             lastMsgByJid[rj] = {
-              from_me: recentMsgs[r].getBool('from_me'),
-              timestamp: recentMsgs[r].getInt('timestamp') || 0,
+              last_from_me_ts: 0,
+              last_patient_ts: 0,
             }
+          }
+          var mTs = recentMsgs[r].getInt('timestamp') || 0
+          if (recentMsgs[r].getBool('from_me')) {
+            if (mTs > lastMsgByJid[rj].last_from_me_ts) lastMsgByJid[rj].last_from_me_ts = mTs
+          } else {
+            if (mTs > lastMsgByJid[rj].last_patient_ts) lastMsgByJid[rj].last_patient_ts = mTs
           }
         }
       } catch (_) {}
-
       var rulesById = {}
       try {
         var allRules = $app.findRecordsByFilter(
@@ -227,10 +233,20 @@ routerAdd(
           groups.precisa_retorno.push(card)
         }
 
-        var lm = lastMsgByJid[contact.getString('jid')]
-        if (lm && lm.from_me && lm.timestamp > 0 && nowTs - lm.timestamp >= 8 * 3600) {
-          groups.nao_responderam.push(card)
-        } else if (!lm && careStatus !== 'em_dia') {
+        var mInfo = lastMsgByJid[contact.getString('jid')]
+        var isNR = false
+        if (mInfo) {
+          if (
+            mInfo.last_from_me_ts > 0 &&
+            mInfo.last_patient_ts <= mInfo.last_from_me_ts &&
+            nowTs - mInfo.last_from_me_ts >= 8 * 3600
+          ) {
+            isNR = true
+          }
+        } else if (careStatus === 'nao_respondeu') {
+          isNR = true
+        }
+        if (isNR) {
           groups.nao_responderam.push(card)
         }
 
