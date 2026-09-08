@@ -6,8 +6,6 @@ import {
   ChevronRight,
   Camera,
   BarChart3,
-  ArrowUpRight,
-  ArrowDownRight,
   Video,
   FileText,
   AudioLines,
@@ -15,6 +13,15 @@ import {
   CheckCircle2,
   AlertTriangle,
   RefreshCw,
+  Clock,
+  HeartHandshake,
+  Mic,
+  ArrowRight,
+  Sparkles,
+  Users,
+  Calendar,
+  AlertCircle,
+  Activity,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
 import { useTeamMembers } from '@/hooks/use-team-members'
@@ -22,9 +29,10 @@ import { useInstanciaAtiva, useConversas } from '@/hooks/use-whatsapp'
 import { useRealtime } from '@/hooks/use-realtime'
 import { useToast } from '@/hooks/use-toast'
 import { useTasks } from '@/hooks/use-tasks'
-import { getPriorityMeta } from '@/lib/task-meta'
+import { getPriorityMeta, CARE_CATEGORIES } from '@/lib/task-meta'
+import { stageStyle } from '@/lib/stage-colors'
 import pb from '@/lib/pocketbase/client'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -34,7 +42,7 @@ import { cn } from '@/lib/utils'
 import { TaskViewDialog } from '@/components/TaskViewDialog'
 import { consultarStatusInstancia } from '@/services/whatsapp_service'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
-import { fetchHomeMetrics, HomeChartItem } from '@/services/home_metrics'
+import { fetchHomeMetrics, HomeMetricsData } from '@/services/home_metrics'
 
 export default function Home() {
   const { user } = useAuth()
@@ -44,11 +52,10 @@ export default function Home() {
   const { conversations } = useConversas(instance?.instance_name)
   const { tasks } = useTasks()
 
-  const [chartData, setChartData] = useState<HomeChartItem[]>([])
-  const [loadingChart, setLoadingChart] = useState(true)
-
-  const [crmCount, setCrmCount] = useState(0)
-  const [crmTrendCount, setCrmTrendCount] = useState(0)
+  const [metrics, setMetrics] = useState<HomeMetricsData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const { members: rawTeamMembers } = useTeamMembers()
   const teamMembers = useMemo(
@@ -77,59 +84,54 @@ export default function Home() {
     }
   }, [instance?.instance_name, instance?.status, checkInstanceStatus])
 
-  const fetchChartData = useCallback(
+  const loadMetrics = useCallback(
     async (silent = false) => {
-      if (!silent) setLoadingChart(true)
+      if (!silent) {
+        setLoading(true)
+      } else {
+        setIsRefreshing(true)
+      }
+      setError(null)
       try {
-        const metrics = await fetchHomeMetrics()
-        setChartData(metrics.chart || [])
-        setCrmCount(metrics.crmContacts ?? 0)
-        setCrmTrendCount(metrics.crmRecent ?? 0)
-      } catch (err) {
+        const data = await fetchHomeMetrics()
+        setMetrics(data)
+      } catch (err: any) {
         console.error('Failed to load aggregated home metrics:', err)
+        setError(err?.message || 'Não foi possível carregar os dados do painel.')
         if (!silent) {
           toast({
             title: 'Erro ao carregar dados',
-            description: 'Não foi possível carregar as métricas do gráfico.',
+            description: 'Não foi possível carregar os dados do painel de gestão.',
             variant: 'destructive',
           })
         }
       } finally {
-        if (!silent) setLoadingChart(false)
+        if (!silent) setLoading(false)
+        setIsRefreshing(false)
       }
     },
     [toast],
   )
 
   useEffect(() => {
-    fetchChartData()
-  }, [fetchChartData])
+    loadMetrics()
+  }, [loadMetrics])
 
+  // Atualização em tempo real das mensagens, conversas, contatos e tarefas
   useRealtime('whatsapp_messages', () => {
-    fetchChartData(true)
+    loadMetrics(true)
+  })
+  useRealtime('conversations', () => {
+    loadMetrics(true)
+  })
+  useRealtime('tasks', () => {
+    loadMetrics(true)
+  })
+  useRealtime('crm_contacts', () => {
+    loadMetrics(true)
   })
 
-  const { activeConversationsCount, activeTrendCount, unreadCount } = useMemo(() => {
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-
-    let unread = 0
-    let activeWeek = 0
-
-    conversations.forEach((c) => {
-      unread += c.unread_count || 0
-      if (new Date(c.created) > sevenDaysAgo) {
-        activeWeek++
-      }
-    })
-
-    return {
-      activeConversationsCount: conversations.length,
-      activeTrendCount: activeWeek,
-      unreadCount: unread,
-    }
-  }, [conversations])
-
+  // Tarefas urgentes do usuário logado
   const pendingTasks = useMemo(() => {
     return tasks.filter((t) => t.status !== 'concluida' && t.status !== 'cancelada')
   }, [tasks])
@@ -137,16 +139,6 @@ export default function Home() {
   const myPendingTasks = useMemo(() => {
     return pendingTasks.filter((t) => t.assigned_to === user?.id)
   }, [pendingTasks, user?.id])
-
-  const myOverdueTasks = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return myPendingTasks.filter((t) => {
-      if (!t.due_date) return false
-      const due = new Date(t.due_date)
-      return due < today
-    })
-  }, [myPendingTasks])
 
   const myUrgentTasks = useMemo(() => {
     const PRIORITY_WEIGHT: Record<string, number> = {
@@ -182,60 +174,6 @@ export default function Home() {
     })
   }, [myPendingTasks])
 
-  const todayData = chartData[chartData.length - 1] || { total: 0, sent: 0, received: 0 }
-  const yesterdayData = chartData[chartData.length - 2] || { total: 0, sent: 0, received: 0 }
-  const messagesToday = todayData.total
-  const yesterdayMessages = yesterdayData.total
-
-  let todayTrend = ''
-  let todayTrendUp = true
-  if (loadingChart) {
-    todayTrend = 'carregando...'
-  } else if (yesterdayMessages === 0 && messagesToday > 0) {
-    todayTrend = 'novo recorde'
-    todayTrendUp = true
-  } else if (messagesToday > yesterdayMessages) {
-    todayTrend = `+${messagesToday - yesterdayMessages} em relação a ontem`
-    todayTrendUp = true
-  } else if (messagesToday < yesterdayMessages) {
-    todayTrend = `${yesterdayMessages - messagesToday} a menos que ontem`
-    todayTrendUp = false
-  } else {
-    todayTrend = 'mesmo volume de ontem'
-    todayTrendUp = true
-  }
-
-  const statCards = [
-    {
-      title: 'Conversas ativas',
-      value: activeConversationsCount.toString(),
-      trend: activeTrendCount > 0 ? `+${activeTrendCount} esta semana` : 'Nenhuma esta semana',
-      trendUp: activeTrendCount > 0,
-      link: '/conversas',
-    },
-    {
-      title: 'Não lidas',
-      value: unreadCount.toString(),
-      trend: unreadCount > 0 ? 'responder em breve' : 'tudo em dia',
-      trendUp: unreadCount === 0,
-      link: '/conversas',
-    },
-    {
-      title: 'Mensagens hoje',
-      value: messagesToday.toString(),
-      trend: todayTrend,
-      trendUp: todayTrendUp,
-      link: '/conversas',
-    },
-    {
-      title: 'Contatos no CRM',
-      value: crmCount.toString(),
-      trend: crmTrendCount > 0 ? `+${crmTrendCount} esta semana` : 'Nenhum esta semana',
-      trendUp: crmTrendCount >= 0,
-      link: '/crm',
-    },
-  ]
-
   const myTaskCount = myPendingTasks.length
   const otherTeamTasksCount = pendingTasks.length - myPendingTasks.length
 
@@ -256,26 +194,27 @@ export default function Home() {
     headerTaskText += ' pendentes'
   }
 
+  // Atalhos rápidos
   const shortcuts = [
     {
       title: 'Abrir Conversas',
-      description: 'Acesse seu inbox',
+      description: 'Acesse seu inbox WhatsApp',
       icon: MessageSquare,
       color: 'text-emerald-600',
       bg: 'bg-emerald-100',
       link: '/conversas',
     },
     {
-      title: 'Adicionar Contato',
-      description: 'Cadastre um lead no CRM',
+      title: 'Pipeline CRM',
+      description: 'Funil e contatos de pacientes',
       icon: UserPlus,
       color: 'text-blue-600',
       bg: 'bg-blue-100',
       link: '/crm',
     },
     {
-      title: 'Tarefas',
-      description: 'Gerencie demandas da equipe',
+      title: 'Tarefas de Cuidado',
+      description: 'Gerencie follow-ups e pendências',
       icon: ListTodo,
       color: 'text-amber-600',
       bg: 'bg-amber-100',
@@ -283,6 +222,7 @@ export default function Home() {
     },
   ]
 
+  // Conversas recentes do WhatsApp
   const recentChats = useMemo(() => {
     return [...conversations]
       .sort((a, b) => {
@@ -330,7 +270,103 @@ export default function Home() {
         : 'Desconectado'
   const instanceLabel = instance?.instance_name || 'WhatsApp principal'
 
+  // Dados do gráfico de 7 dias
+  const chartData = metrics?.chart || []
   const maxTotal = Math.max(...chartData.map((d) => d.total), 1)
+
+  // Dados do funil com total para cálculo percentual
+  const funnelStages = metrics?.funnel || []
+  const funnelTotalPatients = useMemo(() => {
+    return funnelStages.reduce((acc, stage) => acc + (stage.count || 0), 0)
+  }, [funnelStages])
+
+  // Total de pendências de cuidado
+  const careCategoryCounts = metrics?.careTasksByCategory || {
+    precisa_consulta: 0,
+    precisa_atencao: 0,
+    nao_respondeu: 0,
+    precisa_retorno: 0,
+    alta_demanda: 0,
+    followup_10_15: 0,
+  }
+
+  const totalCarePending = useMemo(() => {
+    return Object.values(careCategoryCounts).reduce((acc, cur) => acc + (cur || 0), 0)
+  }, [careCategoryCounts])
+
+  // Mapeamento das pendências com metadados
+  const careCategoriesList = useMemo(() => {
+    const keys: Array<{
+      key: keyof typeof careCategoryCounts
+      fallbackLabel: string
+      fallbackEmoji: string
+      fallbackColor: string
+      accentClass: string
+      badgeClass: string
+    }> = [
+      {
+        key: 'precisa_consulta',
+        fallbackLabel: 'Precisa consulta',
+        fallbackEmoji: '📅',
+        fallbackColor: 'blue',
+        accentClass: 'hover:border-blue-400 bg-blue-50/40 text-blue-900',
+        badgeClass: 'bg-blue-100 text-blue-800 border-blue-200',
+      },
+      {
+        key: 'precisa_atencao',
+        fallbackLabel: 'Precisa atenção',
+        fallbackEmoji: '⚡',
+        fallbackColor: 'violet',
+        accentClass: 'hover:border-violet-400 bg-violet-50/40 text-violet-900',
+        badgeClass: 'bg-violet-100 text-violet-800 border-violet-200',
+      },
+      {
+        key: 'nao_respondeu',
+        fallbackLabel: 'Não respondeu',
+        fallbackEmoji: '⏰',
+        fallbackColor: 'rose',
+        accentClass: 'hover:border-rose-400 bg-rose-50/40 text-rose-900',
+        badgeClass: 'bg-rose-100 text-rose-800 border-rose-200',
+      },
+      {
+        key: 'precisa_retorno',
+        fallbackLabel: 'Precisa retorno',
+        fallbackEmoji: '🔄',
+        fallbackColor: 'amber',
+        accentClass: 'hover:border-amber-400 bg-amber-50/40 text-amber-900',
+        badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
+      },
+      {
+        key: 'alta_demanda',
+        fallbackLabel: 'Alta demanda',
+        fallbackEmoji: '🚨',
+        fallbackColor: 'orange',
+        accentClass: 'hover:border-orange-400 bg-orange-50/40 text-orange-900',
+        badgeClass: 'bg-orange-100 text-orange-800 border-orange-200',
+      },
+      {
+        key: 'followup_10_15',
+        fallbackLabel: 'Follow-up 10-15 dias',
+        fallbackEmoji: '⏳',
+        fallbackColor: 'teal',
+        accentClass: 'hover:border-teal-400 bg-teal-50/40 text-teal-900',
+        badgeClass: 'bg-teal-100 text-teal-800 border-teal-200',
+      },
+    ]
+
+    return keys.map((item) => {
+      const meta = CARE_CATEGORIES.find((c) => c.id === item.key)
+      const count = careCategoryCounts[item.key] || 0
+      return {
+        key: item.key,
+        label: meta?.label || item.fallbackLabel,
+        emoji: meta?.emoji || item.fallbackEmoji,
+        count,
+        accentClass: item.accentClass,
+        badgeClass: item.badgeClass,
+      }
+    })
+  }, [careCategoryCounts])
 
   const getMessageSnippet = (text: string) => {
     if (!text) return 'Nova conversa'
@@ -362,35 +398,50 @@ export default function Home() {
     return text
   }
 
+  // Cards de métricas no topo solicitados:
+  // 1. Follow-ups recuperados na semana
+  // 2. Taxa de resposta em até 8h (%)
+  // 3. Áudios transcritos (com pendentes)
+  // 4. Conversas ativas
+  const activeConversations =
+    metrics?.conversationsStats?.active ?? metrics?.conversations ?? conversations.length
+  const archivedConversations = metrics?.conversationsStats?.archived ?? 0
+  const responseRate = metrics?.responseRate8h?.ratePct ?? 100
+  const answeredCount = metrics?.responseRate8h?.answeredWithin8h ?? 0
+  const totalAttendantMsgs = metrics?.responseRate8h?.totalAttendantMsgs ?? 0
+  const audiosTranscribed = metrics?.audios?.transcribed ?? 0
+  const audiosPending = metrics?.audios?.pending ?? 0
+  const followupsRecovered = metrics?.followupsRecovered7d ?? 0
+
   return (
-    <div className="max-w-7xl mx-auto flex flex-col gap-8 animate-fade-in pb-12">
-      {/* Section 1: Hero & Instance Status */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="max-w-7xl mx-auto flex flex-col gap-6 md:gap-8 animate-fade-in pb-12 w-full overflow-x-hidden">
+      {/* Section 1: Hero, Instance Status & Manual Refresh */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6">
         <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
           <div className="flex items-center gap-4 md:gap-5">
-            <Avatar className="h-14 w-14 md:h-16 md:w-16 border-2 border-background shadow-sm">
+            <Avatar className="h-14 w-14 md:h-16 md:w-16 border-2 border-background shadow-sm shrink-0">
               <AvatarImage src={user?.avatar ? pb.files.getUrl(user, user.avatar) : ''} />
               <AvatarFallback className="bg-primary/5 text-primary font-serif font-bold text-xl md:text-2xl">
                 {user?.name?.charAt(0)?.toUpperCase() || 'U'}
               </AvatarFallback>
             </Avatar>
-            <div className="flex flex-col gap-0.5 md:gap-1">
+            <div className="flex flex-col gap-0.5 md:gap-1 min-w-0">
               <span className="text-muted-foreground font-sans font-semibold text-[10px] md:text-xs uppercase tracking-widest">
-                {getGreeting()}
+                {getGreeting()} · PAINEL DE GESTÃO DA CLÍNICA
               </span>
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-primary tracking-tight font-sans leading-none">
-                Olá, {user?.name?.split(' ')[0] || 'Usuário'}
+              <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold text-primary tracking-tight font-sans leading-tight md:leading-none truncate">
+                Olá, {user?.name?.split(' ')[0] || 'Doutor(a)'}
               </h1>
-              <p className="text-muted-foreground font-sans text-sm md:text-base mt-0.5">
+              <p className="text-muted-foreground font-sans text-xs md:text-sm mt-0.5">
                 {formattedDate}
               </p>
               {headerTaskText && (
                 <div
                   onClick={() => navigate('/tarefas')}
-                  className="group flex items-center gap-1.5 mt-1.5 text-xs font-medium text-amber-600 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-full px-2.5 py-1 w-fit cursor-pointer transition-colors"
+                  className="group flex items-center gap-1.5 mt-1.5 text-xs font-medium text-amber-700 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-full px-2.5 py-1 w-fit cursor-pointer transition-colors min-h-[32px]"
                 >
-                  <ListTodo className="w-3.5 h-3.5" />
-                  <span>{headerTaskText}</span>
+                  <ListTodo className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="truncate">{headerTaskText}</span>
                   <ChevronRight className="w-3 h-3 opacity-0 -ml-1 group-hover:opacity-100 group-hover:ml-0 transition-all duration-200" />
                 </div>
               )}
@@ -400,7 +451,7 @@ export default function Home() {
           {teamMembers.length > 0 && (
             <div
               onClick={() => navigate('/equipe')}
-              className="flex items-center gap-3 bg-white/50 border border-border/40 rounded-full py-1.5 px-2 md:px-4 cursor-pointer hover:bg-white hover:shadow-sm transition-all self-start md:self-auto"
+              className="flex items-center gap-3 bg-white/50 border border-border/40 rounded-full py-1.5 px-3 md:px-4 cursor-pointer hover:bg-white hover:shadow-sm transition-all self-start md:self-auto min-h-[44px]"
             >
               <div className="flex -space-x-2">
                 {teamMembers.slice(0, 4).map((member) => (
@@ -429,26 +480,75 @@ export default function Home() {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => navigate('/conversas')}
-          className="group flex items-center gap-2.5 px-4 py-2.5 bg-white/80 hover:bg-white border border-border/40 rounded-full transition-all shadow-sm hover:shadow-md text-xs md:text-sm shrink-0 self-start md:self-auto"
-        >
-          <div className="relative flex h-2 w-2 md:h-2.5 md:w-2.5">
-            {isConnected && (
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            )}
-            <span className={cn('relative inline-flex rounded-full h-full w-full', statusColor)} />
-          </div>
-          <span className="font-semibold text-foreground/80">{statusText}</span>
-          <span className="text-muted-foreground/40">•</span>
-          <span className="text-muted-foreground hidden sm:inline truncate max-w-[140px] font-medium">
-            {instanceLabel}
-          </span>
-          <ChevronRight className="w-4 h-4 text-muted-foreground/60 group-hover:translate-x-0.5 transition-transform" />
-        </button>
+        {/* Status WhatsApp + Botão Refresh Manual */}
+        <div className="flex items-center gap-2 flex-wrap self-stretch sm:self-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadMetrics()}
+            disabled={loading || isRefreshing}
+            className="rounded-full bg-white/80 border-border/40 hover:bg-white min-h-[44px] px-3.5 text-xs md:text-sm font-medium text-foreground/80 shadow-sm transition-all"
+            title="Atualizar métricas agora"
+          >
+            <RefreshCw
+              className={cn(
+                'w-4 h-4 mr-2',
+                (loading || isRefreshing) && 'animate-spin text-primary',
+              )}
+            />
+            {isRefreshing ? 'Atualizando...' : 'Atualizar painel'}
+          </Button>
+
+          <button
+            type="button"
+            onClick={() => navigate('/conversas')}
+            className="group flex items-center gap-2.5 px-4 py-2 bg-white/80 hover:bg-white border border-border/40 rounded-full transition-all shadow-sm hover:shadow-md text-xs md:text-sm shrink-0 min-h-[44px]"
+          >
+            <div className="relative flex h-2 w-2 md:h-2.5 md:w-2.5">
+              {isConnected && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              )}
+              <span
+                className={cn('relative inline-flex rounded-full h-full w-full', statusColor)}
+              />
+            </div>
+            <span className="font-semibold text-foreground/80">{statusText}</span>
+            <span className="text-muted-foreground/40">•</span>
+            <span className="text-muted-foreground hidden sm:inline truncate max-w-[140px] font-medium">
+              {instanceLabel}
+            </span>
+            <ChevronRight className="w-4 h-4 text-muted-foreground/60 group-hover:translate-x-0.5 transition-transform" />
+          </button>
+        </div>
       </div>
 
+      {/* Alerta de erro com botão Tentar novamente */}
+      {error && !loading && (
+        <Alert variant="destructive" className="border-rose-200 bg-rose-50 animate-fade-in">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <AlertTitle className="text-rose-900 text-sm font-semibold">
+                Erro ao carregar dados do painel de gestão
+              </AlertTitle>
+              <AlertDescription className="text-rose-700 text-xs mt-0.5">{error}</AlertDescription>
+              <div className="flex gap-2 mt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs border-rose-300 text-rose-800 hover:bg-rose-100 min-h-[44px] sm:min-h-[32px]"
+                  onClick={() => loadMetrics()}
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                  Tentar novamente
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Alert>
+      )}
+
+      {/* Alerta de verificação de status */}
       {statusCheckFailed && !statusWarningDismissed && (
         <Alert className="border-amber-200 bg-amber-50 animate-fade-in">
           <div className="flex items-start gap-3">
@@ -464,7 +564,7 @@ export default function Home() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100"
+                  className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100 min-h-[44px] sm:min-h-[28px]"
                   onClick={() => checkInstanceStatus()}
                 >
                   <RefreshCw className="w-3 h-3 mr-1.5" />
@@ -473,7 +573,7 @@ export default function Home() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 text-xs text-amber-700 hover:bg-amber-100"
+                  className="h-7 text-xs text-amber-700 hover:bg-amber-100 min-h-[44px] sm:min-h-[28px]"
                   onClick={() => setStatusWarningDismissed(true)}
                 >
                   Dispensar
@@ -484,66 +584,416 @@ export default function Home() {
         </Alert>
       )}
 
-      {/* Section 2: Metric Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
-        {statCards.map((stat, i) => (
-          <Card
-            key={i}
-            onClick={() => navigate(stat.link)}
-            className="border-border/40 bg-white/50 backdrop-blur-md shadow-none hover:shadow-md hover:bg-white/80 transition-all duration-200 cursor-pointer rounded-2xl overflow-hidden group"
-          >
-            <CardContent className="p-6 md:p-8 flex flex-col items-center text-center gap-3 min-h-[180px] md:min-h-[210px] justify-center">
-              <p className="text-[10px] md:text-[11px] font-semibold text-muted-foreground/80 font-sans uppercase tracking-[0.15em]">
-                {stat.title}
-              </p>
-
-              {loadingChart ? (
-                <Skeleton className="h-14 md:h-20 w-24 md:w-32 rounded-lg" />
-              ) : (
-                <p className="text-6xl md:text-7xl font-bold font-serif text-primary tracking-tight leading-none transition-transform group-hover:-translate-y-0.5">
-                  {stat.value}
-                </p>
-              )}
-
-              <div className="flex items-center gap-1 text-[11px] md:text-xs min-h-[16px]">
-                {loadingChart ? (
-                  <Skeleton className="h-3 w-24" />
-                ) : (
-                  <>
-                    {stat.trendUp ? (
-                      <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <ArrowDownRight className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                    )}
-                    <span
-                      className={cn(
-                        'font-medium font-sans',
-                        stat.trendUp ? 'text-emerald-700' : 'text-amber-700',
-                      )}
-                    >
-                      {stat.trend}
-                    </span>
-                  </>
-                )}
+      {/* ═══ SECTION 2: CARDS DE MÉTRICAS NO TOPO (4 CARDS OBRIGATÓRIOS) ═══ */}
+      {/* Responsivo: coluna única no mobile (grid-cols-1), 2 colunas em telas médias, 4 em desktop */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 md:gap-5">
+        {/* Card 1: Follow-ups recuperados na semana */}
+        <Card
+          onClick={() => navigate('/tarefas')}
+          className="border-border/40 bg-white/60 backdrop-blur-md shadow-sm hover:shadow-md hover:border-emerald-300/80 transition-all duration-200 cursor-pointer rounded-2xl overflow-hidden group min-h-[140px]"
+        >
+          <CardContent className="p-5 md:p-6 flex flex-col justify-between h-full gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-sans">
+                Follow-ups na semana
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <HeartHandshake className="w-4 h-4" />
               </div>
-            </CardContent>
-          </Card>
-        ))}
+            </div>
+
+            {loading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-20 rounded-md" />
+                <Skeleton className="h-4 w-32 rounded-md" />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl md:text-5xl font-bold font-serif text-primary tracking-tight leading-none">
+                    {followupsRecovered}
+                  </span>
+                  <span className="text-xs text-muted-foreground font-sans">pacientes</span>
+                </div>
+                <p className="text-xs text-emerald-700 font-medium flex items-center gap-1 mt-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Cuidado e follow-ups recuperados nos últimos 7 dias</span>
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Card 2: Taxa de resposta em até 8h */}
+        <Card
+          onClick={() => navigate('/conversas')}
+          className="border-border/40 bg-white/60 backdrop-blur-md shadow-sm hover:shadow-md hover:border-blue-300/80 transition-all duration-200 cursor-pointer rounded-2xl overflow-hidden group min-h-[140px]"
+        >
+          <CardContent className="p-5 md:p-6 flex flex-col justify-between h-full gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-sans">
+                Taxa de resposta em 8h
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-20 rounded-md" />
+                <Skeleton className="h-4 w-32 rounded-md" />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl md:text-5xl font-bold font-serif text-primary tracking-tight leading-none">
+                    {responseRate}%
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className={cn(
+                      'text-[10px] font-bold border-0',
+                      responseRate >= 80
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : responseRate >= 60
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-rose-100 text-rose-800',
+                    )}
+                  >
+                    {responseRate >= 80 ? 'Excelente' : responseRate >= 60 ? 'Atenção' : 'Crítico'}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground font-sans mt-1">
+                  {totalAttendantMsgs > 0
+                    ? `${answeredCount} de ${totalAttendantMsgs} contatos responderam em até 8h`
+                    : 'Aguardando fluxo de mensagens na semana'}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Card 3: Áudios transcritos (com pendentes) */}
+        <Card
+          onClick={() => navigate('/conversas')}
+          className="border-border/40 bg-white/60 backdrop-blur-md shadow-sm hover:shadow-md hover:border-violet-300/80 transition-all duration-200 cursor-pointer rounded-2xl overflow-hidden group min-h-[140px]"
+        >
+          <CardContent className="p-5 md:p-6 flex flex-col justify-between h-full gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-sans">
+                Áudios Transcritos
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0">
+                <Mic className="w-4 h-4" />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-20 rounded-md" />
+                <Skeleton className="h-4 w-32 rounded-md" />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl md:text-5xl font-bold font-serif text-primary tracking-tight leading-none">
+                    {audiosTranscribed}
+                  </span>
+                  <span className="text-xs text-muted-foreground font-sans">transcritos</span>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  {audiosPending > 0 ? (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] bg-amber-100 text-amber-800 font-semibold border-amber-200"
+                    >
+                      {audiosPending} pendente{audiosPending === 1 ? '' : 's'}
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold border-emerald-200"
+                    >
+                      Todos transcritos
+                    </Badge>
+                  )}
+                  <span className="text-[11px] text-muted-foreground font-sans">IA ativada</span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Card 4: Conversas ativas */}
+        <Card
+          onClick={() => navigate('/conversas')}
+          className="border-border/40 bg-white/60 backdrop-blur-md shadow-sm hover:shadow-md hover:border-emerald-300/80 transition-all duration-200 cursor-pointer rounded-2xl overflow-hidden group min-h-[140px]"
+        >
+          <CardContent className="p-5 md:p-6 flex flex-col justify-between h-full gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-sans">
+                Conversas Ativas
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <MessageSquare className="w-4 h-4" />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-20 rounded-md" />
+                <Skeleton className="h-4 w-32 rounded-md" />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl md:text-5xl font-bold font-serif text-primary tracking-tight leading-none">
+                    {activeConversations}
+                  </span>
+                  <span className="text-xs text-muted-foreground font-sans">em andamento</span>
+                </div>
+                <p className="text-xs text-muted-foreground font-sans mt-1">
+                  {archivedConversations > 0
+                    ? `${archivedConversations} conversas arquivadas`
+                    : 'Todas as conversas ativas no momento'}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Section 3: 7-Day Activity Chart */}
-        <Card className="lg:col-span-2 border-border/40 bg-white/50 backdrop-blur-md shadow-sm rounded-2xl overflow-hidden flex flex-col">
+      {/* ═══ SECTION 3: FUNIL DE PACIENTES + PENDÊNCIAS DE CUIDADO ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Funil de pacientes por estágio (Lead ao Cliente) - 7 colunas no desktop */}
+        <Card className="lg:col-span-7 border-border/40 bg-white/60 backdrop-blur-md shadow-sm rounded-2xl overflow-hidden flex flex-col">
+          <CardHeader className="pb-3 border-b border-border/30">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-primary/10 rounded-xl text-primary">
+                  <Activity className="w-4 h-4" />
+                </div>
+                <div>
+                  <CardTitle className="font-serif text-lg md:text-xl font-bold text-primary">
+                    Funil de Pacientes da Clínica
+                  </CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground font-sans">
+                    Acompanhamento de estágios: do primeiro contato até o cuidado contínuo
+                  </CardDescription>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/crm')}
+                className="text-xs text-primary font-semibold min-h-[44px] sm:min-h-[32px] self-start sm:self-auto"
+              >
+                Ver pipeline <ArrowRight className="w-3.5 h-3.5 ml-1" />
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-4 md:p-6 flex-1 flex flex-col justify-center">
+            {loading ? (
+              <div className="space-y-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="space-y-2">
+                    <div className="flex justify-between">
+                      <Skeleton className="h-4 w-28" />
+                      <Skeleton className="h-4 w-12" />
+                    </div>
+                    <Skeleton className="h-3 w-full rounded-full" />
+                  </div>
+                ))}
+              </div>
+            ) : funnelStages.length === 0 ? (
+              <div className="py-12 flex flex-col items-center justify-center text-center text-muted-foreground">
+                <Users className="w-10 h-10 mb-2 opacity-20" />
+                <p className="text-sm font-medium">Nenhum estágio de paciente cadastrado.</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/crm')}
+                  className="mt-3 min-h-[44px] rounded-full"
+                >
+                  Configurar etapas no CRM
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4 md:space-y-5">
+                {funnelStages.map((stage) => {
+                  const style = stageStyle(stage.color)
+                  const count = stage.count || 0
+                  const pct =
+                    funnelTotalPatients > 0 ? Math.round((count / funnelTotalPatients) * 100) : 0
+
+                  return (
+                    <div
+                      key={stage.key}
+                      onClick={() => navigate(`/crm?stage=${stage.key}`)}
+                      className="group cursor-pointer p-2.5 rounded-xl hover:bg-black/[0.02] transition-colors"
+                    >
+                      <div className="flex items-center justify-between text-xs md:text-sm font-medium mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className={cn('w-2.5 h-2.5 rounded-full', style.dot)} />
+                          <span className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                            {stage.label}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-serif font-bold text-base md:text-lg text-primary">
+                            {count}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">({pct}%)</span>
+                        </div>
+                      </div>
+
+                      {/* Barra de progresso horizontal customizada */}
+                      <div className="w-full bg-muted/60 h-2.5 md:h-3 rounded-full overflow-hidden p-0.5">
+                        <div
+                          className={cn(
+                            'h-full rounded-full transition-all duration-700',
+                            style.dot,
+                          )}
+                          style={{ width: `${Math.max(pct, count > 0 ? 5 : 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+
+                <div className="pt-3 border-t border-border/30 flex items-center justify-between text-xs text-muted-foreground font-sans">
+                  <span>Total de contatos no funil:</span>
+                  <span className="font-bold text-primary font-serif text-sm">
+                    {funnelTotalPatients} pacientes
+                  </span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Pendências de Cuidado por Categoria - 5 colunas no desktop */}
+        <Card className="lg:col-span-5 border-border/40 bg-white/60 backdrop-blur-md shadow-sm rounded-2xl overflow-hidden flex flex-col">
+          <CardHeader className="pb-3 border-b border-border/30">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div>
+                  <CardTitle className="font-serif text-lg md:text-xl font-bold text-primary">
+                    Pendências de Cuidado
+                  </CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground font-sans">
+                    Atenção nutricional prioritária por categoria
+                  </CardDescription>
+                </div>
+              </div>
+              <Badge
+                variant="secondary"
+                className="bg-primary/10 text-primary border-0 font-bold text-xs"
+              >
+                {totalCarePending} total
+              </Badge>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-4 md:p-6 flex-1 flex flex-col justify-center">
+            {loading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <Skeleton key={i} className="h-16 rounded-xl" />
+                ))}
+              </div>
+            ) : totalCarePending === 0 ? (
+              <div className="py-10 flex flex-col items-center justify-center text-center text-muted-foreground">
+                <CheckCircle2 className="w-10 h-10 mb-2 text-emerald-500 opacity-80" />
+                <p className="text-sm font-semibold text-foreground">
+                  Tudo em dia com os pacientes!
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Nenhuma pendência ativa de cuidado no momento.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/tarefas')}
+                  className="mt-3 min-h-[44px] rounded-full text-xs"
+                >
+                  Abrir Central de Tarefas
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {careCategoriesList.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => navigate('/tarefas')}
+                    className={cn(
+                      'flex items-center justify-between p-3 rounded-xl border border-border/40 text-left transition-all hover:shadow-sm min-h-[48px]',
+                      item.accentClass,
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                      <span className="text-lg leading-none shrink-0">{item.emoji}</span>
+                      <span className="text-xs font-semibold truncate leading-tight">
+                        {item.label}
+                      </span>
+                    </div>
+                    <span
+                      className={cn(
+                        'text-xs font-bold px-2 py-0.5 rounded-full border shrink-0',
+                        item.badgeClass,
+                      )}
+                    >
+                      {item.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-4 pt-3 border-t border-border/30 flex justify-between items-center">
+              <span className="text-xs text-muted-foreground font-sans">
+                Monitorado automaticamente pela IA
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/tarefas')}
+                className="text-xs text-primary font-semibold min-h-[44px] sm:min-h-[32px] p-0"
+              >
+                Gerenciar na tela de Tarefas →
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ═══ SECTION 4: GRÁFICO 7 DIAS + TAREFAS URGENTES + ATALHOS ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+        {/* Gráfico 7 dias */}
+        <Card className="lg:col-span-2 border-border/40 bg-white/60 backdrop-blur-md shadow-sm rounded-2xl overflow-hidden flex flex-col">
           <CardHeader className="pb-2">
-            <CardTitle className="font-serif text-xl font-bold text-primary">
-              Volume de Mensagens (7 dias)
-            </CardTitle>
-            <p className="text-sm text-muted-foreground font-sans">
-              Enviadas vs. Recebidas ao longo da semana.
-            </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="font-serif text-xl font-bold text-primary">
+                  Volume de Mensagens (7 dias)
+                </CardTitle>
+                <CardDescription className="text-xs md:text-sm text-muted-foreground font-sans">
+                  Enviadas pela equipe vs. Recebidas de pacientes ao longo da semana
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className="text-xs bg-white/80">
+                {metrics?.messagesToday || 0} hoje
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col justify-end pt-4">
-            {loadingChart ? (
+            {loading ? (
               <div className="flex items-end justify-around h-48 gap-2 mt-4">
                 {Array.from({ length: 7 }).map((_, i) => (
                   <Skeleton
@@ -559,7 +1009,7 @@ export default function Home() {
                     <div className="absolute inset-0 pb-6 flex flex-col items-center justify-center text-muted-foreground text-center pointer-events-none z-0">
                       <BarChart3 className="w-10 h-10 mb-3 opacity-20" />
                       <span className="text-sm font-medium">
-                        Assim que chegar uma nova mensagem, o gráfico começa a contar!
+                        Assim que novas mensagens chegarem, o fluxo diário é contabilizado aqui!
                       </span>
                     </div>
                   )}
@@ -630,13 +1080,13 @@ export default function Home() {
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
                     <span className="text-xs font-medium text-muted-foreground font-sans">
-                      Recebidas
+                      Recebidas (Pacientes)
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-emerald-300"></div>
                     <span className="text-xs font-medium text-muted-foreground font-sans">
-                      Enviadas
+                      Enviadas (Clínica)
                     </span>
                   </div>
                 </div>
@@ -645,27 +1095,32 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        {/* Section 4: Urgent Tasks & Shortcuts */}
-        <div className="flex flex-col gap-8">
-          <Card className="border-border/40 bg-white/50 backdrop-blur-md shadow-sm rounded-2xl flex flex-col">
+        {/* Tarefas Urgentes e Atalhos Rápidos */}
+        <div className="flex flex-col gap-6">
+          <Card className="border-border/40 bg-white/60 backdrop-blur-md shadow-sm rounded-2xl flex flex-col">
             <CardHeader className="pb-3 px-5 pt-5">
               <div className="flex items-center gap-2">
                 <div className="p-2 bg-primary/10 rounded-lg">
                   <ListTodo className="w-5 h-5 text-primary" />
                 </div>
-                <CardTitle className="font-serif text-lg font-bold text-primary">
-                  Minhas tarefas urgentes
-                </CardTitle>
+                <div>
+                  <CardTitle className="font-serif text-lg font-bold text-primary">
+                    Minhas tarefas urgentes
+                  </CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground font-sans">
+                    Demandas prioritárias atribuídas a você
+                  </CardDescription>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="px-5 pb-5 flex flex-col gap-3">
               {myUrgentTasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-6 text-center text-muted-foreground">
-                  <CheckCircle2 className="w-8 h-8 mb-2 opacity-20" />
+                  <CheckCircle2 className="w-8 h-8 mb-2 opacity-20 text-emerald-600" />
                   <span className="text-sm font-medium">Sem tarefas pendentes</span>
                 </div>
               ) : (
-                myUrgentTasks.slice(0, 5).map((task) => {
+                myUrgentTasks.slice(0, 4).map((task) => {
                   const meta = getPriorityMeta(task.priority)
                   const due = task.due_date ? new Date(task.due_date) : null
                   let isOverdue = false
@@ -678,7 +1133,7 @@ export default function Home() {
                   return (
                     <div
                       key={task.id}
-                      className="p-3 bg-white border border-border/40 rounded-xl cursor-pointer hover:shadow-sm transition-all group"
+                      className="p-3 bg-white border border-border/40 rounded-xl cursor-pointer hover:shadow-sm transition-all group min-h-[44px]"
                       onClick={() => {
                         setSelectedTask(task)
                         setTaskDialogOpen(true)
@@ -717,39 +1172,38 @@ export default function Home() {
                   )
                 })
               )}
-              {myUrgentTasks.length > 5 && (
+              {myUrgentTasks.length > 4 && (
                 <Button
                   variant="ghost"
-                  className="w-full text-sm text-primary mt-1"
+                  className="w-full text-sm text-primary mt-1 min-h-[44px]"
                   onClick={() => navigate('/tarefas')}
                 >
-                  Ver todas ({myUrgentTasks.length})
+                  Ver todas as tarefas ({myUrgentTasks.length})
                 </Button>
               )}
             </CardContent>
           </Card>
 
-          <div className="flex flex-col gap-4">
-            <h3 className="font-serif text-xl font-bold text-primary mb-1">Acesso Rápido</h3>
+          {/* Atalhos Rápidos */}
+          <div className="flex flex-col gap-3">
+            <h3 className="font-serif text-lg font-bold text-primary px-1">Acesso Rápido</h3>
             {shortcuts.map((s, i) => (
               <Card
                 key={i}
                 onClick={() => navigate(s.link)}
-                className="cursor-pointer group hover:bg-black/5 hover:scale-[1.01] transition-all duration-200 border-border/40 shadow-sm rounded-xl"
+                className="cursor-pointer group hover:bg-black/5 hover:scale-[1.01] transition-all duration-200 border-border/40 shadow-sm rounded-xl min-h-[48px]"
               >
-                <CardContent className="p-4 flex items-center justify-between min-h-[44px]">
-                  <div className="flex items-center gap-4">
-                    <div className={cn('p-2.5 rounded-xl', s.bg)}>
-                      <s.icon className={cn('w-5 h-5', s.color)} />
+                <CardContent className="p-3.5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={cn('p-2.5 rounded-xl shrink-0', s.bg)}>
+                      <s.icon className={cn('w-4 h-4', s.color)} />
                     </div>
                     <div>
-                      <h4 className="font-serif font-semibold text-primary">{s.title}</h4>
-                      <p className="text-xs text-muted-foreground font-sans mt-0.5">
-                        {s.description}
-                      </p>
+                      <h4 className="font-serif font-semibold text-primary text-sm">{s.title}</h4>
+                      <p className="text-xs text-muted-foreground font-sans">{s.description}</p>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:translate-x-1 transition-transform" />
+                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 transition-transform shrink-0" />
                 </CardContent>
               </Card>
             ))}
@@ -757,22 +1211,29 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Section 5: Recent Activity Feed */}
+      {/* ═══ SECTION 5: ATIVIDADE RECENTE (CONVERSAS WHATSAPP) ═══ */}
       <div className="mt-2">
         <div className="flex items-center justify-between mb-4 px-1">
-          <h2 className="font-serif text-2xl font-bold text-primary">Atividade Recente</h2>
+          <div>
+            <h2 className="font-serif text-xl md:text-2xl font-bold text-primary">
+              Atividade Recente no WhatsApp
+            </h2>
+            <p className="text-xs text-muted-foreground font-sans">
+              Últimas interações de pacientes recebidas pela clínica
+            </p>
+          </div>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => navigate('/conversas')}
-            className="text-primary font-semibold min-h-[44px]"
+            className="text-primary font-semibold min-h-[44px] text-xs md:text-sm"
           >
-            Ver todas as conversas
+            Ver todas <ArrowRight className="w-3.5 h-3.5 ml-1" />
           </Button>
         </div>
 
-        <Card className="border-border/40 shadow-sm rounded-2xl overflow-hidden bg-white/50 backdrop-blur-md">
-          {loadingChart ? (
+        <Card className="border-border/40 shadow-sm rounded-2xl overflow-hidden bg-white/60 backdrop-blur-md">
+          {loading ? (
             <div className="divide-y divide-border/30">
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="p-4 md:p-5 flex items-center gap-4 min-h-[44px]">
@@ -788,18 +1249,18 @@ export default function Home() {
               ))}
             </div>
           ) : recentChats.length === 0 ? (
-            <div className="p-12 flex flex-col items-center justify-center text-center">
+            <div className="p-10 flex flex-col items-center justify-center text-center">
               <div className="p-4 rounded-full bg-emerald-50 mb-4">
                 <MessageSquare className="w-10 h-10 text-emerald-500/40" />
               </div>
               <h3 className="font-serif text-xl font-bold text-primary mb-2">
-                Sua caixa de entrada está vazia
+                Sua caixa de entrada está em dia
               </h3>
               <p className="text-sm text-muted-foreground font-sans mb-6 max-w-sm">
-                Quando chegarem novas mensagens ou quando você iniciar uma nova conversa, elas
-                aparecerão aqui.
+                Assim que seus pacientes enviarem mensagens ou áudios, eles aparecerão aqui com a
+                transcrição e ações recomendadas.
               </p>
-              <Button onClick={() => navigate('/conversas')} className="min-h-[44px]">
+              <Button onClick={() => navigate('/conversas')} className="min-h-[44px] rounded-full">
                 <MessageSquare className="w-4 h-4 mr-2" />
                 Abrir Conversas
               </Button>
@@ -819,7 +1280,7 @@ export default function Home() {
                 return (
                   <div
                     key={chat.id}
-                    className="p-4 md:p-5 flex items-center gap-4 hover:bg-black/5 transition-colors cursor-pointer group min-h-[44px]"
+                    className="p-4 md:p-5 flex items-center gap-4 hover:bg-black/5 transition-colors cursor-pointer group min-h-[48px]"
                     onClick={() => navigate(`/conversas?chat=${chat.id}`)}
                   >
                     <Avatar className="h-10 w-10 border border-border/50 shadow-sm shrink-0">
@@ -830,7 +1291,7 @@ export default function Home() {
                     </Avatar>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5">
+                      <div className="flex items-center gap-2 mb-1">
                         <p className="font-serif font-bold text-primary truncate text-base">
                           {title}
                         </p>
@@ -843,13 +1304,15 @@ export default function Home() {
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground truncate pr-4 font-sans flex items-center">
+                      <p className="text-xs md:text-sm text-muted-foreground truncate pr-4 font-sans flex items-center">
                         {getMessageSnippet(chat.last_message)}
                       </p>
                     </div>
 
-                    <div className="flex flex-col items-end gap-2 shrink-0">
-                      <span className="text-xs text-muted-foreground font-semibold">{time}</span>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <span className="text-[11px] text-muted-foreground font-semibold">
+                        {time}
+                      </span>
                       {chat.unread_count > 0 ? (
                         <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shadow-sm">
                           {chat.unread_count}
