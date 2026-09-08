@@ -196,6 +196,24 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
       else if (aiPriority >= 7) taskPriority = 'alta'
       else if (aiPriority >= 4) taskPriority = 'media'
 
+      // Deduplicação estrita: seleciona apenas a categoria mais grave
+      var primaryCategory = null
+      var severityOrder = [
+        'alta_demanda',
+        'precisa_consulta',
+        'precisa_atencao',
+        'precisa_retorno',
+        'nao_respondeu',
+        'followup_10_15',
+      ]
+      for (var sIdx = 0; sIdx < severityOrder.length; sIdx++) {
+        if (currentCategories.indexOf(severityOrder[sIdx]) >= 0) {
+          primaryCategory = severityOrder[sIdx]
+          break
+        }
+      }
+      var targetCategories = primaryCategory ? [primaryCategory] : []
+
       var existingTasks = []
       try {
         existingTasks = $app.findRecordsByFilter(
@@ -208,10 +226,11 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
         )
       } catch (_) {}
 
+      // Conclui qualquer tarefa pendente que não seja a categoria primária selecionada
       for (var t = 0; t < existingTasks.length; t++) {
         var existingTask = existingTasks[t]
         var taskCategory = existingTask.getString('care_category')
-        if (currentCategories.indexOf(taskCategory) < 0) {
+        if (targetCategories.indexOf(taskCategory) < 0) {
           existingTask.set('status', 'concluida')
           existingTask.set('completed_at', new Date().toISOString())
           $app.saveNoValidate(existingTask)
@@ -219,8 +238,8 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
         }
       }
 
-      for (var c = 0; c < currentCategories.length; c++) {
-        var category = currentCategories[c]
+      for (var c = 0; c < targetCategories.length; c++) {
+        var category = targetCategories[c]
         var label = categoryLabels[category] || category
         var title = label + ': ' + contactName
         var contactAssignedTo = contact.getString('assigned_to') || ''
@@ -266,16 +285,16 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
 
           if (hasRecentCompleted) continue
 
-          // Idempotência: verifica se já existe tarefa ativa por contato e categoria
+          // Idempotência preventiva: verifica se já existe QUALQUER tarefa ativa para este contato
           var alreadyExists = false
           try {
             var checkActive = $app.findRecordsByFilter(
               'tasks',
-              "crm_contact_id = {:cid} && care_category = {:cat} && (status = 'pendente' || status = 'em_andamento')",
+              "crm_contact_id = {:cid} && (status = 'pendente' || status = 'em_andamento')",
               '-created',
               1,
               0,
-              { cid: contact.id, cat: category },
+              { cid: contact.id },
             )
             if (checkActive && checkActive.length > 0) {
               alreadyExists = true

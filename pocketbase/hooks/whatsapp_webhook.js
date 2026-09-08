@@ -163,6 +163,7 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
               if (!currentName || isInvalidOrClinicPushName(currentName)) {
                 convRecord.set('contact_name', m.pushName)
                 changed = true
+                propagatePatientName(remoteJid, instanceName, m.pushName)
               }
             }
           }
@@ -219,6 +220,65 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       }
 
       return false
+    }
+
+    // Propaga nome do paciente de forma consistente para conversations, crm_contacts e tasks
+    const propagatePatientName = (remoteJid, instName, newName) => {
+      if (!newName || isInvalidOrClinicPushName(newName) || !remoteJid) return
+      try {
+        const crmRec = $app.findFirstRecordByFilter(
+          'crm_contacts',
+          'instance_name = {:inst} && (jid = {:jid} || phone ~ {:phone})',
+          { inst: instName, jid: remoteJid, phone: remoteJid.split('@')[0] },
+        )
+        if (crmRec) {
+          const cName = crmRec.getString('contact_name') || ''
+          const pName = crmRec.getString('push_name') || ''
+          let crmDirty = false
+          if (!cName || isInvalidOrClinicPushName(cName)) {
+            crmRec.set('contact_name', newName)
+            crmDirty = true
+          }
+          if (!pName || isInvalidOrClinicPushName(pName)) {
+            crmRec.set('push_name', newName)
+            crmDirty = true
+          }
+          if (crmDirty) {
+            $app.save(crmRec)
+          }
+
+          // Atualiza títulos de tarefas pendentes do contato se estiverem genéricos ou sem nome
+          try {
+            const tasks = $app.findRecordsByFilter(
+              'tasks',
+              "crm_contact_id = {:cid} && status != 'concluida' && status != 'cancelada'",
+              '+created',
+              20,
+              0,
+              { cid: crmRec.id },
+            )
+            for (let ti = 0; ti < tasks.length; ti++) {
+              const task = tasks[ti]
+              const oldTitle = task.getString('title') || ''
+              if (
+                isInvalidOrClinicPushName(oldTitle) ||
+                oldTitle.indexOf('+') !== -1 ||
+                oldTitle.indexOf('@') !== -1 ||
+                oldTitle.startsWith('Atendimento:') ||
+                oldTitle.startsWith('Falar com') ||
+                oldTitle.startsWith('Atender')
+              ) {
+                let prefix = 'Atendimento: '
+                if (oldTitle.indexOf(':') !== -1) {
+                  prefix = oldTitle.split(':')[0] + ': '
+                }
+                task.set('title', prefix + newName)
+                $app.saveNoValidate(task)
+              }
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
     }
 
     // Helper functions inside the handler

@@ -95,14 +95,30 @@ onRecordAfterCreateSuccess((e) => {
 
     var isInvalidPushName = isOwnInstance || isInvalidOrClinicName(pushName)
 
+    // Se a conversa já possuir um contact_name válido, usa como prioridade
+    var convContactName = ''
+    try {
+      var convRec = $app.findFirstRecordByFilter(
+        'conversations',
+        'instance_name = {:inst} && remote_jid = {:jid}',
+        { inst: instanceName, jid: remoteJid },
+      )
+      if (convRec) {
+        var cNameCandidate = convRec.getString('contact_name') || ''
+        if (!isInvalidOrClinicName(cNameCandidate)) {
+          convContactName = cNameCandidate
+        }
+      }
+    } catch (_) {}
+
+    var candidateName = convContactName || (!isInvalidPushName ? pushName : '')
+
     if (contact) {
       contact.set('last_synced_at', nowIso)
       if (!contact.getString('account_id') && accountId) {
         contact.set('account_id', accountId)
       }
-      // Item 3: Quando a mensagem for do paciente (!from_me):
-      // se contact.stage === 'nao_respondido' -> setar 'em_atendimento'
-      // se contact.care_status === 'nao_respondeu' -> setar 'em_dia'
+      // Quando a mensagem for do paciente (!from_me):
       if (!fromMe) {
         if (contact.getString('stage') === 'nao_respondido') {
           contact.set('stage', 'em_atendimento')
@@ -111,12 +127,17 @@ onRecordAfterCreateSuccess((e) => {
           contact.set('care_status', 'em_dia')
         }
       }
-      // Se push_name for válido e o contato estiver sem contact_name válido, atualiza
-      if (!isInvalidPushName) {
+      // Se tivermos um nome válido e o contato estiver sem contact_name válido, atualiza
+      if (candidateName && !isInvalidOrClinicName(candidateName)) {
         var currentContactName = contact.getString('contact_name') || ''
         if (isInvalidOrClinicName(currentContactName)) {
-          contact.set('contact_name', pushName)
-          contact.set('push_name', pushName)
+          contact.set('contact_name', candidateName)
+          if (
+            !contact.getString('push_name') ||
+            isInvalidOrClinicName(contact.getString('push_name'))
+          ) {
+            contact.set('push_name', candidateName)
+          }
         }
       }
       try {
@@ -133,10 +154,10 @@ onRecordAfterCreateSuccess((e) => {
         newContact.set('instance_name', instanceName)
         newContact.set('jid', remoteJid)
         newContact.set('phone', remoteJid.split('@')[0])
-        var safePushName = isInvalidPushName ? '' : pushName
-        newContact.set('push_name', safePushName)
-        newContact.set('contact_name', safePushName)
-        // Se a mensagem for do paciente (!from_me), estágio é 'em_atendimento'; caso contrário 'lead'
+        var safeInitialName =
+          candidateName && !isInvalidOrClinicName(candidateName) ? candidateName : ''
+        newContact.set('push_name', safeInitialName)
+        newContact.set('contact_name', safeInitialName)
         newContact.set('stage', !fromMe ? 'em_atendimento' : 'lead')
         newContact.set('care_status', 'em_dia')
         newContact.set('last_synced_at', nowIso)

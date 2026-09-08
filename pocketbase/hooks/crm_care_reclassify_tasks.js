@@ -228,11 +228,29 @@ onRecordAfterUpdateSuccess((e) => {
     )
   } catch (_) {}
 
-  // --- Conclui tarefas cuja categoria não se aplica mais ---
+  // --- Deduplicação estrita: seleciona apenas a categoria mais grave ---
+  var primaryCategory = null
+  var severityOrder = [
+    'alta_demanda',
+    'precisa_consulta',
+    'precisa_atencao',
+    'precisa_retorno',
+    'nao_respondeu',
+    'followup_10_15',
+  ]
+  for (var sIdx = 0; sIdx < severityOrder.length; sIdx++) {
+    if (currentCategories.indexOf(severityOrder[sIdx]) >= 0) {
+      primaryCategory = severityOrder[sIdx]
+      break
+    }
+  }
+  var targetCategories = primaryCategory ? [primaryCategory] : []
+
+  // --- Conclui tarefas que não são a categoria primária selecionada ---
   for (var t = 0; t < existingTasks.length; t++) {
     var exTask = existingTasks[t]
     var exCat = exTask.getString('care_category')
-    if (currentCategories.indexOf(exCat) < 0) {
+    if (targetCategories.indexOf(exCat) < 0) {
       exTask.set('status', 'concluida')
       exTask.set('completed_at', new Date().toISOString())
       try {
@@ -241,9 +259,9 @@ onRecordAfterUpdateSuccess((e) => {
     }
   }
 
-  // --- Cria/atualiza tarefas para cada categoria atual ---
-  for (var c = 0; c < currentCategories.length; c++) {
-    var category = currentCategories[c]
+  // --- Cria/atualiza tarefa apenas para a categoria primária ---
+  for (var c = 0; c < targetCategories.length; c++) {
+    var category = targetCategories[c]
     var label = categoryLabels[category] || category
     var title = label + ': ' + contactName
 
@@ -308,16 +326,16 @@ onRecordAfterUpdateSuccess((e) => {
 
       if (hasRecentCompleted) continue
 
-      // Verificação defensiva extra no banco antes de criar: garantir que não existe outra tarefa ativa
+      // Verificação defensiva extra no banco antes de criar: garantir que não existe nenhuma tarefa ativa para este contato
       var alreadyExists = false
       try {
         var checkActive = $app.findRecordsByFilter(
           'tasks',
-          "crm_contact_id = {:cid} && care_category = {:cat} && (status = 'pendente' || status = 'em_andamento')",
+          "crm_contact_id = {:cid} && (status = 'pendente' || status = 'em_andamento')",
           '-created',
           1,
           0,
-          { cid: contactId, cat: category },
+          { cid: contactId },
         )
         if (checkActive && checkActive.length > 0) {
           alreadyExists = true

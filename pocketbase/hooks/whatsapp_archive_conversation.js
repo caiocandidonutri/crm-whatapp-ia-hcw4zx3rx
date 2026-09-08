@@ -23,6 +23,10 @@ routerAdd(
     }
 
     record.set('archived', archived)
+    // Se estiver arquivando ou marcando como lida, zera o contador de não lidas localmente
+    if (archived || body.markRead) {
+      record.set('unread_count', 0)
+    }
     $app.save(record)
 
     return e.json(200, { success: true, archived: archived })

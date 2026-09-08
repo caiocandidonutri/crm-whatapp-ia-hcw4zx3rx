@@ -302,6 +302,24 @@ routerAdd(
       else if (cPri >= 7) tp = 'alta'
       else if (cPri >= 4) tp = 'media'
 
+      // Deduplicação estrita: seleciona apenas a categoria mais grave
+      var primaryCat = null
+      var severityOrder = [
+        'alta_demanda',
+        'precisa_consulta',
+        'precisa_atencao',
+        'precisa_retorno',
+        'nao_respondeu',
+        'followup_10_15',
+      ]
+      for (var sIdx = 0; sIdx < severityOrder.length; sIdx++) {
+        if (cats.indexOf(severityOrder[sIdx]) >= 0) {
+          primaryCat = severityOrder[sIdx]
+          break
+        }
+      }
+      var targetCats = primaryCat ? [primaryCat] : []
+
       var exTasks = []
       try {
         exTasks = $app.findRecordsByFilter(
@@ -314,8 +332,9 @@ routerAdd(
         )
       } catch (_) {}
 
+      // Conclui tarefas que não são a categoria primária
       for (var t = 0; t < exTasks.length; t++) {
-        if (cats.indexOf(exTasks[t].getString('care_category')) < 0) {
+        if (targetCats.indexOf(exTasks[t].getString('care_category')) < 0) {
           exTasks[t].set('status', 'concluida')
           exTasks[t].set('completed_at', new Date().toISOString())
           $app.saveNoValidate(exTasks[t])
@@ -327,8 +346,8 @@ routerAdd(
       var nextDayDate = new Date(Date.now() + 86400000).toISOString()
       var cutoff36hIso = new Date(Date.now() - 36 * 3600 * 1000).toISOString()
 
-      for (var cc = 0; cc < cats.length; cc++) {
-        var cat = cats[cc],
+      for (var cc = 0; cc < targetCats.length; cc++) {
+        var cat = targetCats[cc],
           title = (categoryLabels[cat] || cat) + ': ' + cName
         var found = null
         for (var t2 = 0; t2 < exTasks.length; t2++) {
@@ -371,11 +390,11 @@ routerAdd(
           try {
             var checkActive = $app.findRecordsByFilter(
               'tasks',
-              "crm_contact_id = {:cid} && care_category = {:cat} && (status = 'pendente' || status = 'em_andamento')",
+              "crm_contact_id = {:cid} && (status = 'pendente' || status = 'em_andamento')",
               '-created',
               1,
               0,
-              { cid: c.id, cat: cat },
+              { cid: c.id },
             )
             if (checkActive && checkActive.length > 0) {
               alreadyExists = true

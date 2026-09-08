@@ -197,18 +197,40 @@ export const atualizarNomeContato = async (
   )
 }
 
-export const alternarArquivamentoConversa = async (conversationId: string, archived: boolean) => {
+export const alternarArquivamentoConversa = async (
+  conversationId: string,
+  archived: boolean,
+  markRead?: boolean,
+) => {
   return pb.send<{ success: boolean; archived: boolean }>(
     '/backend/v1/whatsapp/archive-conversation',
     {
       method: 'POST',
-      body: JSON.stringify({ conversationId, archived }),
+      body: JSON.stringify({ conversationId, archived, markRead: !!markRead }),
       headers: { 'Content-Type': 'application/json' },
     },
   )
 }
 
 export const arquivarConversa = alternarArquivamentoConversa
+
+export const marcarConversaComoLida = async (conversationId: string) => {
+  return pb.collection('conversations').update(conversationId, { unread_count: 0 })
+}
+
+export const finalizarConversa = async (conversationId: string) => {
+  return alternarArquivamentoConversa(conversationId, true, true)
+}
+
+export const zerarNaoLidasEmLote = async (conversationIds: string[]) => {
+  const promises = conversationIds.map((id) =>
+    pb
+      .collection('conversations')
+      .update(id, { unread_count: 0 })
+      .catch(() => null),
+  )
+  await Promise.all(promises)
+}
 
 export const atualizarConversaAi = async (
   conversationId: string,

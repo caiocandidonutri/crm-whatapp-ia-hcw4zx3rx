@@ -16,7 +16,17 @@ import {
   Wrench,
   LogOut,
   Trash2,
+  CheckCheck,
+  CheckCircle2,
+  Users,
+  User,
 } from 'lucide-react'
+import {
+  marcarConversaComoLida,
+  finalizarConversa,
+  zerarNaoLidasEmLote,
+} from '@/services/whatsapp_service'
+import { useToast } from '@/hooks/use-toast'
 import { Chat } from '@/lib/mock-data'
 import { cn } from '@/lib/utils'
 import { formatChatListTimestamp } from '@/lib/format-time'
@@ -81,6 +91,8 @@ type ChatRowProps = {
   isActive: boolean
   onSelectChat: (id: string) => void
   messagePreview?: string
+  onMarkAsRead?: (chatId: string) => void
+  onFinalizeChat?: (chatId: string) => void
 }
 
 const ChatRow = React.memo(function ChatRow({
@@ -88,6 +100,8 @@ const ChatRow = React.memo(function ChatRow({
   isActive,
   onSelectChat,
   messagePreview,
+  onMarkAsRead,
+  onFinalizeChat,
 }: ChatRowProps) {
   if (!chat) return null
   const lastMsg = chat.messages?.[(chat.messages?.length || 0) - 1] ?? null
@@ -95,10 +109,17 @@ const ChatRow = React.memo(function ChatRow({
   const hasAvatar = !!chat.avatar
 
   return (
-    <button
+    <div
       onClick={() => onSelectChat(chat.id)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          onSelectChat(chat.id)
+        }
+      }}
       className={cn(
-        'w-full p-4 flex items-center gap-3 transition-colors text-left relative overflow-hidden',
+        'group w-full p-4 flex items-center gap-3 transition-colors text-left relative overflow-hidden cursor-pointer select-none',
         isActive ? 'bg-primary/5' : 'hover:bg-black/5',
       )}
     >
@@ -137,7 +158,7 @@ const ChatRow = React.memo(function ChatRow({
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div
             className={cn(
-              'text-sm truncate flex items-center gap-1 min-w-0',
+              'text-sm truncate flex items-center gap-1 min-w-0 flex-1',
               unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground',
             )}
           >
@@ -184,14 +205,49 @@ const ChatRow = React.memo(function ChatRow({
               </>
             )}
           </div>
-          {unreadCount > 0 && (
-            <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shrink-0">
-              {unreadCount}
+
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Botões de Ação Direta no Card */}
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              {unreadCount > 0 && onMarkAsRead && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 rounded-full"
+                  title="Marcar como lida"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onMarkAsRead(chat.id)
+                  }}
+                >
+                  <CheckCheck className="w-4 h-4" />
+                </Button>
+              )}
+              {onFinalizeChat && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full"
+                  title="Finalizar conversa (lida + arquivar)"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onFinalizeChat(chat.id)
+                  }}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                </Button>
+              )}
             </div>
-          )}
+
+            {unreadCount > 0 && (
+              <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shrink-0">
+                {unreadCount}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </button>
+    </div>
   )
 })
 
@@ -219,12 +275,29 @@ export function ChatList({
   const safeChats = chats || []
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [chatTypeFilter, setChatTypeFilter] = useState<'all' | 'direct' | 'group'>('all')
+  const [isClearingGroupUnreads, setIsClearingGroupUnreads] = useState(false)
 
   const { account } = useCurrentAccount()
   const { categories } = useCategories(account?.id)
+  const { toast } = useToast()
+
+  const groupChats = useMemo(() => {
+    return safeChats.filter((c) => c && c.type === 'group')
+  }, [safeChats])
+
+  const unreadGroupCount = useMemo(() => {
+    return groupChats.reduce((acc, c) => acc + (c.unread || 0), 0)
+  }, [groupChats])
 
   const filteredChats = useMemo(() => {
     let filtered = safeChats.filter((c) => !!c)
+
+    if (chatTypeFilter === 'direct') {
+      filtered = filtered.filter((c) => c.type !== 'group')
+    } else if (chatTypeFilter === 'group') {
+      filtered = filtered.filter((c) => c.type === 'group')
+    }
 
     if (selectedCategory) {
       filtered = filtered.filter((c) => c.category_ids?.includes(selectedCategory))
@@ -239,7 +312,59 @@ export function ChatList({
     }
 
     return filtered
-  }, [safeChats, searchTerm, selectedCategory])
+  }, [safeChats, chatTypeFilter, searchTerm, selectedCategory, messageMatchJids])
+
+  const handleMarkAsRead = async (chatId: string) => {
+    try {
+      await marcarConversaComoLida(chatId)
+      toast({
+        title: 'Conversa marcada como lida',
+        duration: 2000,
+      })
+    } catch {
+      toast({
+        title: 'Erro ao marcar conversa como lida',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleFinalizeChat = async (chatId: string) => {
+    try {
+      await finalizarConversa(chatId)
+      toast({
+        title: 'Conversa finalizada',
+        description: 'Marcada como lida e movida para arquivadas.',
+        duration: 2500,
+      })
+    } catch {
+      toast({
+        title: 'Erro ao finalizar conversa',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleClearAllGroupUnreads = async () => {
+    const unreadGroups = groupChats.filter((c) => (c.unread || 0) > 0)
+    if (unreadGroups.length === 0) return
+
+    setIsClearingGroupUnreads(true)
+    try {
+      await zerarNaoLidasEmLote(unreadGroups.map((g) => g.id))
+      toast({
+        title: 'Não lidas de grupos zeradas',
+        description: `${unreadGroups.length} grupo(s) atualizados com sucesso.`,
+      })
+    } catch {
+      toast({
+        title: 'Erro ao zerar não lidas dos grupos',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsClearingGroupUnreads(false)
+    }
+  }
 
   const [globalHasMore, setGlobalHasMore] = useState(false)
   const [globalLoadingMore, setGlobalLoadingMore] = useState(false)
@@ -266,7 +391,7 @@ export function ChatList({
 
   return (
     <div className={cn('flex flex-col h-full bg-white border-r border-border', className)}>
-      <div className="p-4 border-b border-border flex flex-col gap-4 bg-background/50 backdrop-blur-sm sticky top-0 z-10">
+      <div className="p-4 border-b border-border flex flex-col gap-3 bg-background/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -286,7 +411,20 @@ export function ChatList({
                 <MoreVertical className="w-4 h-4 text-muted-foreground" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className="w-56">
+              {unreadGroupCount > 0 && (
+                <>
+                  <DropdownMenuItem
+                    onClick={handleClearAllGroupUnreads}
+                    disabled={isClearingGroupUnreads}
+                    className="text-emerald-700 font-medium"
+                  >
+                    <CheckCheck className="mr-2 w-4 h-4" />
+                    Zerar não lidas de grupos ({unreadGroupCount})
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               {onToggleArchived && (
                 <DropdownMenuItem onClick={onToggleArchived}>
                   {showArchived ? (
@@ -343,6 +481,69 @@ export function ChatList({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+        </div>
+
+        {/* Abas de filtro: Todas, Pacientes (diretas), Grupos */}
+        <div className="flex items-center justify-between gap-1 border-b border-border/40 pb-2">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setChatTypeFilter('all')}
+              className={cn(
+                'px-2.5 py-1 text-xs rounded-lg font-medium transition-colors',
+                chatTypeFilter === 'all'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-black/5',
+              )}
+            >
+              Todas
+            </button>
+            <button
+              onClick={() => setChatTypeFilter('direct')}
+              className={cn(
+                'flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg font-medium transition-colors',
+                chatTypeFilter === 'direct'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-black/5',
+              )}
+            >
+              <User className="w-3.5 h-3.5" />
+              Pacientes
+            </button>
+            <button
+              onClick={() => setChatTypeFilter('group')}
+              className={cn(
+                'flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg font-medium transition-colors',
+                chatTypeFilter === 'group'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-black/5',
+              )}
+            >
+              <Users className="w-3.5 h-3.5" />
+              Grupos
+              {unreadGroupCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 text-[10px] rounded-full bg-emerald-500 text-white font-bold">
+                  {unreadGroupCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {chatTypeFilter === 'group' && unreadGroupCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearAllGroupUnreads}
+              disabled={isClearingGroupUnreads}
+              className="h-6 px-2 text-[10px] font-medium text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200"
+            >
+              {isClearingGroupUnreads ? (
+                <Loader2 className="w-3 h-3 animate-spin mr-1" />
+              ) : (
+                <CheckCheck className="w-3 h-3 mr-1" />
+              )}
+              Zerar não lidas
+            </Button>
+          )}
         </div>
 
         {categories.length > 0 && (
@@ -407,6 +608,8 @@ export function ChatList({
                 chat={chat}
                 isActive={activeChatId === chat.id}
                 onSelectChat={onSelectChat}
+                onMarkAsRead={handleMarkAsRead}
+                onFinalizeChat={handleFinalizeChat}
                 messagePreview={messageMatchPreviews?.get(chat.remote_jid || '')}
               />
             ))}

@@ -159,6 +159,141 @@ cronAdd('enrich_conversations', '* * * * *', () => {
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().replace('T', ' ')
   const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString().replace('T', ' ')
 
+  // Extração de nome do paciente por texto de mensagens recebidas (!from_me)
+  function extractNameFromMessages(convRemoteJid, instName) {
+    if (!convRemoteJid || convRemoteJid.endsWith('@g.us') || convRemoteJid.indexOf('@lid') !== -1) {
+      return ''
+    }
+    try {
+      var msgs = $app.findRecordsByFilter(
+        'whatsapp_messages',
+        'remote_jid = {:jid} && instance_name = {:inst} && from_me = false',
+        '+timestamp',
+        30,
+        0,
+        { jid: convRemoteJid, inst: instName },
+      )
+      if (!msgs || msgs.length === 0) return ''
+
+      // Regex para identificar apresentações de nome
+      var patterns = [
+        /(?:meu\s+nome\s+é|meu\s+nome\s+e)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,4})/i,
+        /(?:aqui\s+é\s+(?:o|a)?|aqui\s+e\s+(?:o|a)?)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,4})/i,
+        /(?:sou\s+(?:o|a))\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,4})/i,
+        /(?:eu\s+sou\s+(?:o|a)?)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,4})/i,
+        /(?:pode\s+me\s+chamar\s+de)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,3})/i,
+        /(?:me\s+chamo)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,4})/i,
+        /(?:ass(?:inado)?[:\s\-]+)([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,4})/i,
+        /(?:atenciosamente|att\.?|abraço|abraco|obrigado|obrigada)[,\s\n]+([A-Za-zÀ-ÖØ-öø-ÿ]{2,}(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]{2,}){0,3})/i,
+      ]
+
+      var blacklistWords = [
+        'doutor',
+        'dr',
+        'dra',
+        'nutri',
+        'nutricionista',
+        'paciente',
+        'consulta',
+        'obrigado',
+        'obrigada',
+        'bom',
+        'boa',
+        'dia',
+        'tarde',
+        'noite',
+        'ola',
+        'olá',
+        'tudo',
+        'bem',
+        'favor',
+        'por',
+        'sim',
+        'nao',
+        'não',
+        'aqui',
+        'uma',
+        'um',
+      ]
+
+      for (var mi = 0; mi < msgs.length; mi++) {
+        var text = msgs[mi].getString('content') || ''
+        if (!text || text.length < 3) continue
+
+        for (var pi = 0; pi < patterns.length; pi++) {
+          var match = text.match(patterns[pi])
+          if (match && match[1]) {
+            var rawFound = match[1].trim()
+            // Remove pontuação final
+            rawFound = rawFound.replace(/[.,;!?\n\r]+.*$/, '').trim()
+            var parts = rawFound.split(/\s+/).filter(Boolean)
+            if (parts.length >= 1 && parts.length <= 5) {
+              var firstPartLower = parts[0].toLowerCase()
+              if (blacklistWords.indexOf(firstPartLower) === -1 && !isInvalidName(rawFound)) {
+                // Capitaliza cada palavra
+                var capitalized = parts
+                  .map(function (p) {
+                    return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()
+                  })
+                  .join(' ')
+                if (!isInvalidName(capitalized)) {
+                  return capitalized
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Se não encontrou por regex, tenta IA rápida para os casos com histórico mas sem nome
+      if (msgs.length >= 2) {
+        var sampleText = msgs
+          .slice(0, 5)
+          .map(function (m) {
+            return m.getString('content')
+          })
+          .filter(Boolean)
+          .join('\n')
+        if (sampleText.length > 20) {
+          try {
+            var aiRes = $ai.chat({
+              model: 'fast',
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'Você é um assistente de extração. O usuário enviará mensagens de um paciente no WhatsApp. ' +
+                    'Se o paciente informar ou assinar o próprio nome, responda APENAS com o nome do paciente (ex: "Maria Silva"). ' +
+                    'Se o nome não for mencionado com clareza ou for a clínica/Dr. Caio, responda APENAS: NONE.',
+                },
+                {
+                  role: 'user',
+                  content: sampleText,
+                },
+              ],
+            })
+            var replyStr =
+              (aiRes.choices &&
+                aiRes.choices[0] &&
+                aiRes.choices[0].message &&
+                aiRes.choices[0].message.content) ||
+              ''
+            replyStr = replyStr.trim().replace(/^["']|["']$/g, '')
+            if (
+              replyStr &&
+              replyStr.toUpperCase() !== 'NONE' &&
+              replyStr.length <= 50 &&
+              !isInvalidName(replyStr)
+            ) {
+              return replyStr
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return ''
+  }
+
   // 1. Tentar primeiro conversas sem nome válido que ainda não foram tentadas recentemente
   // Prioriza as que nunca tiveram picture_fetched_at, depois as com tentativa há > 4h
   let records = []
@@ -373,6 +508,17 @@ cronAdd('enrich_conversations', '* * * * *', () => {
             }
           } catch (profErr) {
             debug.fetchProfile_error = String(profErr)
+          }
+        }
+
+        // Tentar extração de nome por análise de texto das mensagens
+        if (!discoveredName && isInvalidName(record.getString('contact_name'))) {
+          const extractedName = extractNameFromMessages(remoteJid, instanceName)
+          if (extractedName && !isInvalidName(extractedName)) {
+            discoveredName = extractedName
+            record.set('contact_name', extractedName)
+            debug.contact_name_from_messages = true
+            updated = true
           }
         }
 

@@ -62,6 +62,30 @@ routerAdd(
         crm.set('contact_name', safeName)
         $app.save(crm)
         updatedCrm = true
+
+        // Se tiver novo nome válido, atualiza tarefas pendentes vinculadas
+        if (safeName) {
+          try {
+            const tasks = $app.findRecordsByFilter(
+              'tasks',
+              "crm_contact_id = {:cid} && status != 'concluida' && status != 'cancelada'",
+              '+created',
+              20,
+              0,
+              { cid: crm.id },
+            )
+            for (let ti = 0; ti < tasks.length; ti++) {
+              const t = tasks[ti]
+              const oldT = t.getString('title') || ''
+              let prefix = 'Atendimento: '
+              if (oldT.indexOf(':') !== -1) {
+                prefix = oldT.split(':')[0] + ': '
+              }
+              t.set('title', prefix + safeName)
+              $app.saveNoValidate(t)
+            }
+          } catch (_) {}
+        }
       } catch (_) {
         // Sem crm contact, OK — nem todo contato está no CRM.
       }
