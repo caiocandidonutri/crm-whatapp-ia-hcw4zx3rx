@@ -41,8 +41,42 @@ onRecordAfterCreateSuccess((e) => {
         contact.set('instance_name', instanceName)
         contact.set('jid', remoteJid)
         contact.set('phone', remoteJid.split('@')[0])
-        contact.set('push_name', msg.getString('push_name') || '')
-        contact.set('contact_name', msg.getString('push_name') || '')
+        var rawPush = msg.getString('push_name') || ''
+        var safePush = ''
+        if (
+          rawPush &&
+          rawPush.trim() !== '.' &&
+          !/^[.\-_*#@!?,:;~^`'"]+$/.test(rawPush.trim()) &&
+          /[a-zA-Z\u00C0-\u017F]/.test(rawPush.trim())
+        ) {
+          var lp = rawPush.toLowerCase().trim()
+          var isClinicOrBlocked =
+            [
+              'você',
+              'voce',
+              'eu',
+              'you',
+              'me',
+              'i',
+              'contato whatsapp',
+              'sem nome',
+              'null',
+              'undefined',
+              'desconhecido',
+            ].indexOf(lp) !== -1 ||
+            (lp.indexOf('fabiana') !== -1 && lp.indexOf('assistente') !== -1) ||
+            (lp.indexOf('assistente') !== -1 &&
+              (lp.indexOf('dr.') !== -1 ||
+                lp.indexOf('dr ') !== -1 ||
+                lp.indexOf('caio') !== -1 ||
+                lp.indexOf('nutri') !== -1)) ||
+            (lp.indexOf('dr. caio') !== -1 && lp.indexOf('nutri') !== -1)
+          if (!isClinicOrBlocked) {
+            safePush = rawPush.trim()
+          }
+        }
+        contact.set('push_name', safePush)
+        contact.set('contact_name', safePush)
         contact.set('stage', 'lead')
         contact.set('care_status', 'em_dia')
         $app.save(contact)
@@ -77,9 +111,15 @@ onRecordAfterCreateSuccess((e) => {
       })
       .join('\n')
 
-    var contactName =
-      contact.getString('contact_name') || contact.getString('push_name') || remoteJid
-
+    var rawContactName = contact.getString('contact_name') || contact.getString('push_name') || ''
+    var isBadName =
+      !rawContactName ||
+      rawContactName.trim() === '.' ||
+      /^[.\-_*#@!?,:;~^`'"]+$/.test(rawContactName.trim()) ||
+      !/[a-zA-Z\u00C0-\u017F]/.test(rawContactName.trim()) ||
+      (rawContactName.toLowerCase().indexOf('fabiana') !== -1 &&
+        rawContactName.toLowerCase().indexOf('assistente') !== -1)
+    var contactName = isBadName ? remoteJid.split('@')[0] : rawContactName
     var aiResult = null
     try {
       var reply = $ai.chat({

@@ -2,6 +2,47 @@ routerAdd(
   'POST',
   '/backend/v1/whatsapp/sync-conversation',
   (e) => {
+    function isInvalidOrClinicNameSync(val) {
+      if (!val) return true
+      var trimmed = String(val).trim()
+      if (!trimmed) return true
+      if (trimmed.indexOf('@') !== -1) return true
+      if (/^[.\-_*#@!?,:;~^`'"]+$/.test(trimmed)) return true
+      if (/^\d{10,}$/.test(trimmed)) return true
+      if (!/[a-zA-Z\u00C0-\u017F]/.test(trimmed)) return true
+
+      var lower = trimmed.toLowerCase()
+      var blocked = [
+        'você',
+        'voce',
+        'eu',
+        'you',
+        'me',
+        'i',
+        'contato whatsapp',
+        'sem nome',
+        'null',
+        'undefined',
+        'desconhecido',
+      ]
+      if (blocked.indexOf(lower) !== -1) return true
+
+      if (
+        (lower.indexOf('fabiana') !== -1 && lower.indexOf('assistente') !== -1) ||
+        (lower.indexOf('assistente') !== -1 &&
+          (lower.indexOf('dr.') !== -1 ||
+            lower.indexOf('dr ') !== -1 ||
+            lower.indexOf('caio') !== -1 ||
+            lower.indexOf('nutri') !== -1)) ||
+        (lower.indexOf('dr. caio') !== -1 && lower.indexOf('nutri') !== -1) ||
+        lower === 'fabiana assistente dr. caio nutricionista' ||
+        lower === 'fabiana assistente dr. caio cândido nutri'
+      ) {
+        return true
+      }
+      return false
+    }
+
     // Normaliza messageTimestamp do Evolution/Baileys (number, string, Long
     // protobuf {low, high, unsigned} ou null/undefined) para Unix segundos.
     // Retorna 0 quando não dá pra interpretar.
@@ -231,6 +272,12 @@ routerAdd(
           const participantJid = msg.key.participant || ''
           const pushName = msg.pushName || ''
 
+          const instPhone = (instanceRecord.getString('phone_number') || '').replace(/\D/g, '')
+          const senderPhone = (participantJid || remoteJid).split('@')[0].replace(/\D/g, '')
+          const isOwnSender = fromMe || (instPhone && senderPhone === instPhone)
+          const validPatientPushName =
+            isOwnSender || isInvalidOrClinicNameSync(pushName) ? '' : pushName
+
           // Dedup
           try {
             $app.findFirstRecordByFilter(
@@ -337,7 +384,7 @@ routerAdd(
           newMsg.set('remote_jid', remoteJid)
           newMsg.set('from_me', fromMe)
           newMsg.set('message_id', messageId)
-          newMsg.set('push_name', pushName)
+          newMsg.set('push_name', validPatientPushName || (fromMe ? pushName : ''))
           newMsg.set('content', content)
           newMsg.set('message_type', msgType)
           // Status especial pra mídias de histórico: marca que o arquivo
@@ -384,6 +431,22 @@ routerAdd(
           const currentLastTs = convRecord.getInt('last_message_timestamp') || 0
           if (newestTimestamp > currentLastTs) {
             convRecord.set('last_message_timestamp', newestTimestamp)
+          }
+        }
+        // Se conversation não tem contact_name válido, busca na lista de mensagens syncadas
+        const existingConvName = convRecord.getString('contact_name') || ''
+        if (!convRecord.getBool('is_group') && isInvalidOrClinicNameSync(existingConvName)) {
+          for (const cm of top50) {
+            if (
+              cm &&
+              cm.key &&
+              !cm.key.fromMe &&
+              cm.pushName &&
+              !isInvalidOrClinicNameSync(cm.pushName)
+            ) {
+              convRecord.set('contact_name', cm.pushName)
+              break
+            }
           }
         }
         if (oldestTimestamp > 0) {

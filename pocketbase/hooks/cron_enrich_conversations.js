@@ -51,6 +51,22 @@ cronAdd('enrich_conversations', '* * * * *', () => {
       ].indexOf(lower) !== -1
     )
       return true
+
+    // Rejeita variações do nome da clínica / assistente
+    if (
+      (lower.indexOf('fabiana') !== -1 && lower.indexOf('assistente') !== -1) ||
+      (lower.indexOf('assistente') !== -1 &&
+        (lower.indexOf('dr.') !== -1 ||
+          lower.indexOf('dr ') !== -1 ||
+          lower.indexOf('caio') !== -1 ||
+          lower.indexOf('nutri') !== -1)) ||
+      (lower.indexOf('dr. caio') !== -1 && lower.indexOf('nutri') !== -1) ||
+      lower === 'fabiana assistente dr. caio nutricionista' ||
+      lower === 'fabiana assistente dr. caio cândido nutri'
+    ) {
+      return true
+    }
+
     return false
   }
 
@@ -92,8 +108,22 @@ cronAdd('enrich_conversations', '* * * * *', () => {
       if (contacts && contacts.length > 0) {
         const contact = contacts[0]
         crmContactId = contact.id
+        let cDirty = false
         if (isInvalidName(contact.getString('contact_name'))) {
           contact.set('contact_name', finalName)
+          cDirty = true
+        }
+        if (isInvalidName(contact.getString('push_name'))) {
+          contact.set('push_name', finalName)
+          cDirty = true
+        }
+        const currentAvatar = contact.getString('avatar_url') || ''
+        const convAvatar = conversationRecord.getString('avatar_url') || ''
+        if (!currentAvatar && convAvatar) {
+          contact.set('avatar_url', convAvatar)
+          cDirty = true
+        }
+        if (cDirty) {
           $app.save(contact)
         }
       }
@@ -127,24 +157,47 @@ cronAdd('enrich_conversations', '* * * * *', () => {
   }
 
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().replace('T', ' ')
+  const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString().replace('T', ' ')
 
-  // Prioriza conversas que estão sem contact_name ou com contact_name inválido ("." etc)
-  const filter =
-    "(contact_name = '' || contact_name = '.' || avatar_url = '') && (picture_fetched_at = '' || picture_fetched_at < {:yesterday})"
-
+  // 1. Tentar primeiro conversas sem nome válido que ainda não foram tentadas recentemente
+  // Prioriza as que nunca tiveram picture_fetched_at, depois as com tentativa há > 4h
   let records = []
   try {
-    records = $app.findRecordsByFilter('conversations', filter, '+created', 30, 0, { yesterday })
+    // Busca conversas com contact_name vazio ou inválido
+    records = $app.findRecordsByFilter(
+      'conversations',
+      "(contact_name = '' || contact_name = '.' || contact_name ~ 'Fabiana Assistente') && (picture_fetched_at = '' || picture_fetched_at < {:fourHoursAgo})",
+      '+created',
+      50,
+      0,
+      { fourHoursAgo },
+    )
   } catch (err) {
-    $app.logger().error('cron_enrich_conversations fetch error', 'error', String(err))
-    return
+    $app.logger().warn('cron_enrich_conversations fetch primary error', 'error', String(err))
+  }
+
+  // Se não encontrou conversas urgentes sem nome, busca pelo critério padrão de avatar ou re-enrichment em 24h
+  if (!records || records.length === 0) {
+    try {
+      records = $app.findRecordsByFilter(
+        'conversations',
+        "(contact_name = '' || contact_name = '.' || avatar_url = '') && (picture_fetched_at = '' || picture_fetched_at < {:yesterday})",
+        '+created',
+        30,
+        0,
+        { yesterday },
+      )
+    } catch (err2) {
+      $app.logger().error('cron_enrich_conversations fetch fallback error', 'error', String(err2))
+      return
+    }
   }
 
   if (!records || records.length === 0) return
 
   const instancesToFetchContacts = new Set()
   for (const r of records) {
-    if (!r.getBool('is_group') && !r.getString('contact_name')) {
+    if (!r.getBool('is_group') && isInvalidName(r.getString('contact_name'))) {
       instancesToFetchContacts.add(r.getString('instance_name'))
     }
   }
@@ -360,6 +413,25 @@ cronAdd('enrich_conversations', '* * * * *', () => {
         } catch (e) {
           debug.fileFromURL_error = String(e)
         }
+
+        try {
+          const crmList = $app.findRecordsByFilter(
+            'crm_contacts',
+            'instance_name = {:inst} && (jid = {:jid} || phone ~ {:phone})',
+            '+created',
+            1,
+            0,
+            { inst: instanceName, jid: remoteJid, phone: remoteJid.split('@')[0] },
+          )
+          if (crmList && crmList.length > 0) {
+            const cc = crmList[0]
+            if (!cc.getString('avatar_url') || cc.getString('avatar_url') !== picUrl) {
+              cc.set('avatar_url', picUrl)
+              $app.save(cc)
+            }
+          }
+        } catch (_) {}
+
         updated = true
       }
 

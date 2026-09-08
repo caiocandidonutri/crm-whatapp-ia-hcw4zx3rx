@@ -157,10 +157,13 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
               }
               changed = true
             }
-            // contact_name: primeiro pushName não vazio em conv individual
-            if (!agg.isGroup && m.pushName && !m.fromMe && !convRecord.getString('contact_name')) {
-              convRecord.set('contact_name', m.pushName)
-              changed = true
+            // contact_name: primeiro pushName não vazio em conv individual (apenas se NÃO for fromMe e NÃO for nome inválido/da clínica)
+            if (!agg.isGroup && m.pushName && !m.fromMe && !isInvalidOrClinicPushName(m.pushName)) {
+              const currentName = convRecord.getString('contact_name') || ''
+              if (!currentName || isInvalidOrClinicPushName(currentName)) {
+                convRecord.set('contact_name', m.pushName)
+                changed = true
+              }
             }
           }
 
@@ -172,6 +175,50 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         }
       }
       convUpdates.clear()
+    }
+
+    // Helper para detectar nomes inválidos, genéricos ou pertencentes à própria clínica
+    const isInvalidOrClinicPushName = (name) => {
+      if (!name) return true
+      const trimmed = String(name).trim()
+      if (!trimmed) return true
+      if (trimmed.indexOf('@') !== -1) return true
+      if (/^[.\-_*#@!?,:;~^`'"]+$/.test(trimmed)) return true
+      if (/^\d{10,}$/.test(trimmed)) return true
+      if (!/[a-zA-Z\u00C0-\u017F]/.test(trimmed)) return true
+
+      const lower = trimmed.toLowerCase()
+      const blocked = [
+        'você',
+        'voce',
+        'eu',
+        'you',
+        'me',
+        'i',
+        'contato whatsapp',
+        'sem nome',
+        'null',
+        'undefined',
+        'desconhecido',
+      ]
+      if (blocked.indexOf(lower) !== -1) return true
+
+      // Rejeita variações do nome da clínica / assistente
+      if (
+        (lower.indexOf('fabiana') !== -1 && lower.indexOf('assistente') !== -1) ||
+        (lower.indexOf('assistente') !== -1 &&
+          (lower.indexOf('dr.') !== -1 ||
+            lower.indexOf('dr ') !== -1 ||
+            lower.indexOf('caio') !== -1 ||
+            lower.indexOf('nutri') !== -1)) ||
+        (lower.indexOf('dr. caio') !== -1 && lower.indexOf('nutri') !== -1) ||
+        lower === 'fabiana assistente dr. caio nutricionista' ||
+        lower === 'fabiana assistente dr. caio cândido nutri'
+      ) {
+        return true
+      }
+
+      return false
     }
 
     // Helper functions inside the handler
@@ -272,8 +319,15 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       const isGroup = remoteJid.endsWith('@g.us')
       const messageId = msg.key.id
       const fromMe = msg.key.fromMe === true
+      const instPhone = (instanceRecord.getString('phone_number') || '').replace(/\D/g, '')
+      const senderPhone = (msg.key.participant || remoteJid).split('@')[0].replace(/\D/g, '')
+      const isOwnSender = fromMe || (instPhone && senderPhone === instPhone)
+
       const participantJid = msg.key.participant || ''
       const pushName = msg.pushName || ''
+      // Mensagens da própria clínica (from_me ou número da própria instância) NUNCA fornecem contact_name pro paciente
+      const validPatientPushName =
+        isOwnSender || isInvalidOrClinicPushName(pushName) ? '' : pushName
 
       if (typeKey === 'reactionMessage') {
         const reaction = msg.message.reactionMessage
@@ -594,7 +648,7 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         ts: normalizedTs,
         fromMe,
         fallbackText,
-        pushName,
+        pushName: validPatientPushName,
       })
     }
 

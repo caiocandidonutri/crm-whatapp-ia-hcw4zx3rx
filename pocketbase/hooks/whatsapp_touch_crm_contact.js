@@ -47,14 +47,53 @@ onRecordAfterCreateSuccess((e) => {
 
     var nowIso = new Date().toISOString().replace('T', ' ')
     var pushName = msg.getString('push_name') || ''
-    var isInvalidPushName =
-      !pushName ||
-      pushName.trim() === '.' ||
-      /^[.\-_*#@!?,:;~^`'"]+$/.test(pushName.trim()) ||
-      !/[a-zA-Z\u00C0-\u017F]/.test(pushName.trim()) ||
-      ['você', 'voce', 'eu', 'you', 'me', 'i', 'contato whatsapp', 'sem nome'].indexOf(
-        pushName.trim().toLowerCase(),
-      ) !== -1
+
+    var instPhone = (instRec.getString('phone_number') || '').replace(/\D/g, '')
+    var senderDigits = remoteJid.split('@')[0].replace(/\D/g, '')
+    var isOwnInstance = fromMe || (instPhone && senderDigits === instPhone)
+
+    function isInvalidOrClinicName(val) {
+      if (!val) return true
+      var trimmed = String(val).trim()
+      if (!trimmed) return true
+      if (trimmed.indexOf('@') !== -1) return true
+      if (/^[.\-_*#@!?,:;~^`'"]+$/.test(trimmed)) return true
+      if (/^\d{10,}$/.test(trimmed)) return true
+      if (!/[a-zA-Z\u00C0-\u017F]/.test(trimmed)) return true
+
+      var lower = trimmed.toLowerCase()
+      var blocked = [
+        'você',
+        'voce',
+        'eu',
+        'you',
+        'me',
+        'i',
+        'contato whatsapp',
+        'sem nome',
+        'null',
+        'undefined',
+        'desconhecido',
+      ]
+      if (blocked.indexOf(lower) !== -1) return true
+
+      if (
+        (lower.indexOf('fabiana') !== -1 && lower.indexOf('assistente') !== -1) ||
+        (lower.indexOf('assistente') !== -1 &&
+          (lower.indexOf('dr.') !== -1 ||
+            lower.indexOf('dr ') !== -1 ||
+            lower.indexOf('caio') !== -1 ||
+            lower.indexOf('nutri') !== -1)) ||
+        (lower.indexOf('dr. caio') !== -1 && lower.indexOf('nutri') !== -1) ||
+        lower === 'fabiana assistente dr. caio nutricionista' ||
+        lower === 'fabiana assistente dr. caio cândido nutri'
+      ) {
+        return true
+      }
+      return false
+    }
+
+    var isInvalidPushName = isOwnInstance || isInvalidOrClinicName(pushName)
 
     if (contact) {
       contact.set('last_synced_at', nowIso)
@@ -75,12 +114,7 @@ onRecordAfterCreateSuccess((e) => {
       // Se push_name for válido e o contato estiver sem contact_name válido, atualiza
       if (!isInvalidPushName) {
         var currentContactName = contact.getString('contact_name') || ''
-        if (
-          !currentContactName ||
-          currentContactName === '.' ||
-          /^[.\-_*#@!?,:;~^`'"]+$/.test(currentContactName.trim()) ||
-          !/[a-zA-Z\u00C0-\u017F]/.test(currentContactName.trim())
-        ) {
+        if (isInvalidOrClinicName(currentContactName)) {
           contact.set('contact_name', pushName)
           contact.set('push_name', pushName)
         }

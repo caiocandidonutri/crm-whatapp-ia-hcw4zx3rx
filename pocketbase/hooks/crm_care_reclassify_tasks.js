@@ -48,12 +48,20 @@ onRecordAfterUpdateSuccess((e) => {
   var instanceName = contact.getString('instance_name') || ''
   var assignedTo = contact.getString('assigned_to') || ''
   var rawName = contact.getString('contact_name') || contact.getString('push_name') || ''
-  // Valida nome para não propagar "." ou lixo
+  var lowerRaw = rawName.toLowerCase().trim()
+  var isClinicRaw =
+    (lowerRaw.indexOf('fabiana') !== -1 && lowerRaw.indexOf('assistente') !== -1) ||
+    (lowerRaw.indexOf('assistente') !== -1 &&
+      (lowerRaw.indexOf('dr.') !== -1 ||
+        lowerRaw.indexOf('caio') !== -1 ||
+        lowerRaw.indexOf('nutri') !== -1))
+  // Valida nome para não propagar ".", lixo ou nome da assistente/clínica
   if (
     !rawName ||
     rawName.trim() === '.' ||
     /^[.\-_*#@!?,:;~^`'"]+$/.test(rawName.trim()) ||
-    !/[a-zA-Z\u00C0-\u017F]/.test(rawName.trim())
+    !/[a-zA-Z\u00C0-\u017F]/.test(rawName.trim()) ||
+    isClinicRaw
   ) {
     // Se for JID ou número, tenta formatar limpo
     var numOnly = jid ? jid.split('@')[0] : ''

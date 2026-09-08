@@ -101,6 +101,19 @@ export function isInvalidContactName(name?: string | null): boolean {
   ) {
     return true
   }
+
+  // Rejeita nome da própria clínica / assistente colado no paciente
+  if (
+    (lower.includes('fabiana') && lower.includes('assistente')) ||
+    (lower.includes('assistente') &&
+      (lower.includes('dr.') || lower.includes('caio') || lower.includes('nutri'))) ||
+    (lower.includes('dr. caio') && lower.includes('nutri')) ||
+    lower === 'fabiana assistente dr. caio nutricionista' ||
+    lower === 'fabiana assistente dr. caio cândido nutri'
+  ) {
+    return true
+  }
+
   return false
 }
 
