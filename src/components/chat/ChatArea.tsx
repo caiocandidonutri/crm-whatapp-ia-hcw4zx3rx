@@ -611,7 +611,12 @@ export function ChatArea({
         if (m) m.transcription = res.transcription
       }
     } catch (err: any) {
-      toast.error(err?.message || 'Erro ao transcrever áudio')
+      const errMsg =
+        err?.data?.error ||
+        err?.response?.error ||
+        err?.message ||
+        'Transcrição real indisponível no momento.'
+      toast.error(errMsg)
     } finally {
       setTranscribingId(null)
     }

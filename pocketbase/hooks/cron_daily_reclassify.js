@@ -115,12 +115,26 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
         } catch (_) {}
 
         if (messages && messages.length > 0) {
+          function formatMessageContent(m) {
+            var content = m.getString('content')
+            if (content && content.trim()) return content.trim()
+            var transcription = m.getString('transcription')
+            if (transcription && transcription.trim()) {
+              return '[áudio transcrito: ' + transcription.trim() + ']'
+            }
+            var msgType = m.getString('message_type') || ''
+            if (msgType === 'audioMessage' || msgType === 'audio' || msgType === 'ptt') {
+              return '[áudio de voz]'
+            }
+            return '[mídia]'
+          }
+
           var transcript = messages
             .slice()
             .reverse()
             .map(function (m) {
               var from = m.getBool('from_me') ? 'Atendente' : m.getString('push_name') || 'Cliente'
-              return from + ': ' + (m.getString('content') || '[mídia]')
+              return from + ': ' + formatMessageContent(m)
             })
             .join('\n')
 

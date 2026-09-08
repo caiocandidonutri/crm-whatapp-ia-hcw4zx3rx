@@ -128,12 +128,26 @@ routerAdd(
         } catch (_) {}
 
         if (messages.length > 0) {
+          function formatMessageContent(m) {
+            var content = m.getString('content')
+            if (content && content.trim()) return content.trim()
+            var transcription = m.getString('transcription')
+            if (transcription && transcription.trim()) {
+              return '[áudio transcrito: ' + transcription.trim() + ']'
+            }
+            var msgType = m.getString('message_type') || ''
+            if (msgType === 'audioMessage' || msgType === 'audio' || msgType === 'ptt') {
+              return '[áudio de voz]'
+            }
+            return '[mídia]'
+          }
+
           var transcript = messages
             .slice()
             .reverse()
             .map(function (m) {
               var from = m.getBool('from_me') ? 'Atendente' : m.getString('push_name') || 'Cliente'
-              return from + ': ' + (m.getString('content') || '[mídia]')
+              return from + ': ' + formatMessageContent(m)
             })
             .join('\n')
 
@@ -141,18 +155,32 @@ routerAdd(
             contact.getString('contact_name') || contact.getString('push_name') || jid
 
           try {
+            var pStage = contact.getString('stage') || 'lead'
+            var pCare = contact.getString('care_status') || 'em_dia'
+            var sysPrompt =
+              'Você é o assistente de CRM da clínica de nutrição do Dr. Caio Cândido.\n' +
+              'Papéis: "Dr. Caio" é o nutricionista; "Fabiana" é a secretária/assistente; eles NUNCA são pacientes.\n' +
+              'Regras de Follow-up cadastradas: Consulta inicial (7d), Retorno de SOP (15d), Procedimento hormonal (5d).\n' +
+              'Vocabulário: SOP, plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica.\n' +
+              'Responda APENAS em JSON válido com os campos: stage (lead, em_atendimento, cliente, nao_respondido), role (paciente, nao_paciente), is_patient (boolean), conversion_detected (boolean), suggested_action (max 120 chars), priority (número 1-10).'
+
+            var userContent =
+              'Paciente/Contato: ' +
+              contactName +
+              '\n' +
+              'Estágio: ' +
+              pStage +
+              ' | Cuidado: ' +
+              pCare +
+              '\n\n' +
+              'Transcrição:\n' +
+              transcript
+
             var reply = $ai.chat({
               model: 'fast',
               messages: [
-                {
-                  role: 'system',
-                  content:
-                    'Você é um assistente de CRM. Analise a conversa do WhatsApp e classifique o contato. Responda APENAS em JSON válido com os campos: stage (um de: lead, em_atendimento, cliente, nao_respondido), role (um de: paciente, nao_paciente), is_patient (boolean: true se o contato é paciente/cliente que fechou consulta), conversion_detected (boolean: true se detectou agendamento/confirmação/fechamento de consulta), suggested_action (breve próxima ação recomendada, max 120 chars), priority (número 1-10, onde 10 é urgente).',
-                },
-                {
-                  role: 'user',
-                  content: 'Contato: ' + contactName + '\n\nTranscrição:\n' + transcript,
-                },
+                { role: 'system', content: sysPrompt },
+                { role: 'user', content: userContent },
               ],
             })
 

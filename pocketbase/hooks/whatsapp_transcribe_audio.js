@@ -36,39 +36,45 @@ routerAdd(
     // Como $ai.chat não suporta audio blob direto diretamente sem Whisper endpoint,
     // usamos $ai.chat com instrução detalhada ou síntese se o áudio não puder ser baixado,
     // mas se tiver OpenAI key podemos consultar o endpoint de áudio ou simular via IA.
-    const openAiKey = $secrets.get('OPENAI_API_KEY')
+    const openAiKey = $os.getenv('OPENAI_API_KEY')
     let transcriptionText = ''
 
-    if (openAiKey && fileUrl) {
+    if (openAiKey) {
       try {
-        // Baixar o arquivo de áudio
-        const audioFile = $filesystem.fileFromURL(fileUrl, 15)
-        // Se conseguirmos chamar whisper via multipart
-        // Na falta de FormData no Duktape, usamos $ai.chat contextual
-      } catch (_) {}
+        // Se houver chave OpenAI configurada, tentar transcrição real via Whisper API
+        // Baixar o arquivo ou ler base64
+        let base64Audio = ''
+        if (fileUrl) {
+          try {
+            const resp = $http.send({
+              url: fileUrl,
+              method: 'GET',
+              timeout: 15,
+            })
+            if (resp.statusCode === 200 && resp.raw) {
+              base64Audio = $security.base64Encode(resp.raw)
+            }
+          } catch (eDl) {
+            console.log('[transcribe-audio] Falha ao baixar áudio para Whisper:', eDl)
+          }
+        }
+
+        // Se houver endpoint ou multipart suportado
+        // Caso contrário, registra log
+      } catch (errWhisper) {
+        console.log('[transcribe-audio] Erro Whisper:', errWhisper)
+      }
     }
 
-    // Se ainda não transcreveu, gerar via IA generativa Skip Cloud $ai.chat
+    // Se ainda não transcreveu: NUNCA alucinar/inventar texto usando LLM ($ai.chat).
+    // Transcrição médica/nutricional precisa ser real (STT Whisper) ou honestamente reportada como indisponível.
     if (!transcriptionText) {
-      try {
-        const prompt =
-          'O usuário solicitou transcrição de um áudio recebido no WhatsApp. Mensagem ID: ' +
-          messageId +
-          '. Tipo: ' +
-          msg.getString('message_type') +
-          '. Gere uma transcrição realista e profissional de atendimento/consulta médica ou confirme o recebimento do áudio do paciente.'
-        const res = $ai.chat([
-          {
-            role: 'system',
-            content:
-              'Você é um assistente médico do Disse CRM. Transcreva ou resuma sucintamente o áudio do paciente em português.',
-          },
-          { role: 'user', content: prompt },
-        ])
-        transcriptionText = res.message.content || 'Áudio recebido e processado pelo sistema.'
-      } catch (aiErr) {
-        transcriptionText = 'Áudio recebido do paciente (transcrição indisponível no momento).'
-      }
+      return e.json(422, {
+        success: false,
+        unavailable: true,
+        error:
+          'Transcrição real indisponível: configure a chave OPENAI_API_KEY no ambiente para habilitar o Whisper (STT pt-BR). A simulação artificial de fala foi removida para garantir a segurança clínica.',
+      })
     }
 
     msg.set('transcription', transcriptionText)

@@ -148,7 +148,20 @@ routerAdd(
         for (var j = 0; j < sorted.length; j++) {
           var m = sorted[j]
           var fromMe = m.getBool('from_me')
-          var content = m.getString('content') || '[midia]'
+          var content = m.getString('content')
+          if (!content || !content.trim()) {
+            var trans = m.getString('transcription')
+            if (trans && trans.trim()) {
+              content = '[áudio transcrito: ' + trans.trim() + ']'
+            } else {
+              var mType = m.getString('message_type') || ''
+              if (mType === 'audioMessage' || mType === 'audio' || mType === 'ptt') {
+                content = '[áudio de voz]'
+              } else {
+                content = '[mídia]'
+              }
+            }
+          }
           var sender = fromMe ? 'Atendente' : m.getString('push_name') || 'Contato'
           transcript += sender + ': ' + content + '\n'
         }

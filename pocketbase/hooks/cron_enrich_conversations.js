@@ -217,7 +217,7 @@ cronAdd('enrich_conversations', '* * * * *', () => {
       ]
 
       for (var mi = 0; mi < msgs.length; mi++) {
-        var text = msgs[mi].getString('content') || ''
+        var text = msgs[mi].getString('content') || msgs[mi].getString('transcription') || ''
         if (!text || text.length < 3) continue
 
         for (var pi = 0; pi < patterns.length; pi++) {
@@ -250,7 +250,7 @@ cronAdd('enrich_conversations', '* * * * *', () => {
         var sampleText = msgs
           .slice(0, 5)
           .map(function (m) {
-            return m.getString('content')
+            return m.getString('content') || m.getString('transcription')
           })
           .filter(Boolean)
           .join('\n')

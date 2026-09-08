@@ -45,12 +45,26 @@ onRecordAfterCreateSuccess((e) => {
 
   if (messages.length === 0) return e.next()
 
+  function formatMessageContent(m) {
+    const content = m.getString('content')
+    if (content && content.trim()) return content.trim()
+    const transcription = m.getString('transcription')
+    if (transcription && transcription.trim()) {
+      return '[áudio transcrito: ' + transcription.trim() + ']'
+    }
+    const msgType = m.getString('message_type') || ''
+    if (msgType === 'audioMessage' || msgType === 'audio' || msgType === 'ptt') {
+      return '[áudio de voz]'
+    }
+    return '[mídia]'
+  }
+
   const transcript = messages
     .slice()
     .reverse()
     .map(function (m) {
       const from = m.getBool('from_me') ? 'Atendente' : m.getString('push_name') || 'Cliente'
-      return from + ': ' + (m.getString('content') || '[mídia]')
+      return from + ': ' + formatMessageContent(m)
     })
     .join('\n')
 
