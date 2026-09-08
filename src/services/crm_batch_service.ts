@@ -14,20 +14,8 @@ export interface BatchActionResult {
 }
 
 export async function executeCrmBatchAction(params: BatchActionParams): Promise<BatchActionResult> {
-  const token = pb.authStore.token
-  const res = await fetch('/backend/v1/crm/batch-action', {
+  return pb.send<BatchActionResult>('/backend/v1/crm/batch-action', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(params),
+    body: params,
   })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}))
-    throw new Error(errorData.error || 'Falha ao executar ação em lote')
-  }
-
-  return res.json()
 }

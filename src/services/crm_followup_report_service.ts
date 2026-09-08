@@ -32,16 +32,7 @@ export interface FollowupReportResponse {
 }
 
 export async function fetchFollowupReport(days: 7 | 30 = 30): Promise<FollowupReportResponse> {
-  const token = pb.authStore.token
-  const res = await fetch(`/backend/v1/crm/followup-report?days=${days}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+  return pb.send<FollowupReportResponse>(`/backend/v1/crm/followup-report?days=${days}`, {
+    method: 'GET',
   })
-
-  if (!res.ok) {
-    throw new Error('Falha ao carregar relatório de follow-ups')
-  }
-
-  return res.json()
 }

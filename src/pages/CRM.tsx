@@ -80,6 +80,9 @@ import { CrmMonthlyReport } from '@/components/crm/CrmMonthlyReport'
 import { CrmAiReport } from '@/components/crm/CrmAiReport'
 import { DailySummaryBanner } from '@/components/crm/DailySummaryBanner'
 import { PipelineEditorSheet } from '@/components/crm/PipelineEditorSheet'
+import { CrmBatchActionBar } from '@/components/crm/CrmBatchActionBar'
+import { executeCrmBatchAction } from '@/services/crm_batch_service'
+import { Checkbox } from '@/components/ui/checkbox'
 import { CategoriesSheet } from '@/components/categories/CategoriesSheet'
 import { useCategories } from '@/hooks/use-categories'
 import { useCrmStages } from '@/hooks/use-crm-stages'
@@ -119,6 +122,8 @@ export default function CRM() {
   const [activeTab, setActiveTab] = useState('all')
   const [ownerFilter, setOwnerFilter] = useState<'todos' | 'meus'>('todos')
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
+  const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set())
+  const [batchLoading, setBatchLoading] = useState(false)
   const selectedContactId = searchParams.get('contact')
   const [contactToDelete, setContactToDelete] = useState<CrmContact | null>(null)
   const [importing, setImporting] = useState(false)
@@ -321,6 +326,38 @@ export default function CRM() {
       toast.error(getErrorMessage(err) || 'Erro ao atualizar sugestões. Tente novamente.')
     } finally {
       setRefreshingSuggestions(false)
+    }
+  }
+
+  const toggleSelectBatch = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setSelectedBatchIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleBatchAction = async (
+    actionType: 'stage' | 'care_status' | 'archive' | 'unarchive',
+    targetValue?: string,
+  ) => {
+    if (selectedBatchIds.size === 0) return
+    setBatchLoading(true)
+    try {
+      const res = await executeCrmBatchAction({
+        contact_ids: Array.from(selectedBatchIds),
+        action_type: actionType,
+        target_value: targetValue,
+      })
+      toast.success(`Ação concluída: ${res.updated_count} contatos atualizados`)
+      setSelectedBatchIds(new Set())
+      await reload()
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao executar ação em lote')
+    } finally {
+      setBatchLoading(false)
     }
   }
 
@@ -867,6 +904,8 @@ export default function CRM() {
             getContactTitle={getContactTitle}
             onOpenContact={openContact}
             onAskDelete={setContactToDelete}
+            selectedIds={selectedBatchIds}
+            onToggleSelect={toggleSelectBatch}
           />
         ))}
 
@@ -939,6 +978,16 @@ export default function CRM() {
                     )}
                     onClick={() => openContact(contact.id)}
                   >
+                    <div
+                      className="shrink-0 flex items-center pr-1"
+                      onClick={(e) => toggleSelectBatch(contact.id, e)}
+                    >
+                      <Checkbox
+                        checked={selectedBatchIds.has(contact.id)}
+                        className="h-4 w-4 rounded data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground border-muted-foreground/40 bg-white"
+                      />
+                    </div>
+
                     <div className="flex items-center gap-4 flex-1 min-w-0">
                       <div className="shrink-0">
                         <Avatar className="h-11 w-11 ring-2 ring-background">
@@ -1290,6 +1339,14 @@ export default function CRM() {
         open={isPipelineEditorOpen}
         onOpenChange={setIsPipelineEditorOpen}
         stages={stages}
+      />
+
+      <CrmBatchActionBar
+        selectedCount={selectedBatchIds.size}
+        stages={stages}
+        onClearSelection={() => setSelectedBatchIds(new Set())}
+        onAction={handleBatchAction}
+        loading={batchLoading}
       />
     </div>
   )
