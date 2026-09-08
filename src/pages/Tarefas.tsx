@@ -10,6 +10,7 @@ import {
   getStatusMeta,
 } from '@/lib/task-meta'
 import { downloadCsv, extractPhoneFromJid } from '@/lib/csv-export'
+import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { format } from 'date-fns'
 import { Task } from '@/types/models'
 import pb from '@/lib/pocketbase/client'
@@ -214,7 +215,11 @@ export default function Tarefas() {
       const priorityMeta = getPriorityMeta(task.priority)
       const statusMeta = getStatusMeta(task.status)
       return [
-        contact?.contact_name || contact?.push_name || '',
+        resolveDisplayName(
+          contact?.contact_name,
+          contact?.jid || contact?.phone,
+          contact?.push_name,
+        ),
         careMeta.label,
         priorityMeta.label,
         statusMeta.label,
@@ -525,11 +530,10 @@ export default function Tarefas() {
             const columnTasks = colSearch
               ? afterPriority.filter((t) => {
                   const contact = t.expand?.crm_contact_id
-                  const name = (
-                    contact?.contact_name ||
-                    contact?.push_name ||
-                    t.title ||
-                    ''
+                  const name = resolveDisplayName(
+                    contact?.contact_name,
+                    contact?.jid || contact?.phone,
+                    contact?.push_name || t.title,
                   ).toLowerCase()
                   const phone = (contact?.phone || contact?.jid?.split('@')[0] || '').toLowerCase()
                   const q = colSearch.toLowerCase()

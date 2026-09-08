@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T03:14:45.427Z",
+  "generatedAt": "2026-09-08T16:33:12.382Z",
   "collections": [
     {
       "name": "users",
@@ -558,6 +558,12 @@
         {
           "name": "is_forwarded",
           "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "transcription",
+          "type": "text",
           "required": false,
           "system": false
         }
@@ -1757,7 +1763,7 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": ["message", "care_alert", "task"]
+          "selectValues": ["message", "care_alert", "task", "system"]
         },
         {
           "name": "title",

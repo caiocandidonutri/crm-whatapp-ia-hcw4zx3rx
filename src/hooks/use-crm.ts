@@ -5,17 +5,7 @@ import { CrmContact } from '@/types/models'
 import { getCrmContacts, getCrmContactsPage } from '@/services/crm_service'
 import { toast } from 'sonner'
 
-export function formatPhoneBR(phone?: string) {
-  if (!phone) return ''
-  const digits = phone.replace(/\D/g, '')
-  if (digits.startsWith('55') && digits.length >= 12) {
-    const area = digits.slice(2, 4)
-    const firstPart = digits.slice(4, digits.length - 4)
-    const secondPart = digits.slice(digits.length - 4)
-    return `+55 (${area}) ${firstPart}-${secondPart}`
-  }
-  return phone
-}
+export { formatPhoneBR } from '@/lib/phone'
 
 export function useCrmContatos(instanceName?: string) {
   const [contacts, setContacts] = useState<CrmContact[]>([])

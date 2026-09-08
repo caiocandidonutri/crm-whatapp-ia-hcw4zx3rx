@@ -14,6 +14,7 @@ import pb from '@/lib/pocketbase/client'
 import { Task } from '@/types/models'
 import { cn } from '@/lib/utils'
 import { getPriorityMeta, getCareCategoryMeta } from '@/lib/task-meta'
+import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { updateTask, deleteTask } from '@/services/tasks'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -63,7 +64,11 @@ export function CareTaskCard({
   const careMeta = getCareCategoryMeta(careCategory)
   const isCareTask = careCategory !== 'sem_categoria'
 
-  const patientName = crmContact?.contact_name || crmContact?.push_name || task.title
+  const patientName = resolveDisplayName(
+    crmContact?.contact_name,
+    crmContact?.jid || crmContact?.phone,
+    crmContact?.push_name || task.title,
+  )
 
   const phone = crmContact?.phone || crmContact?.jid?.split('@')[0] || ''
 

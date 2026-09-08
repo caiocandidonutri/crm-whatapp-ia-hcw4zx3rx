@@ -111,7 +111,9 @@ const ChatRow = React.memo(function ChatRow({
       <div className="flex-1 min-w-0 flex flex-col justify-center">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2 truncate">
-            <span className="font-semibold text-primary truncate">{chat.name || 'Sem nome'}</span>
+            <span className="font-semibold text-primary truncate">
+              {chat.name || formatPhoneBR(chat.remote_jid) || 'Contato WhatsApp'}
+            </span>
             {chat.type === 'group' && (
               <Badge
                 variant="secondary"

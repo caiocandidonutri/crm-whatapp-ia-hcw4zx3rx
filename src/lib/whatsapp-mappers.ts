@@ -12,57 +12,32 @@ import pb from '@/lib/pocketbase/client'
  * Centralizada aqui pra ser usada em mappers, CRM list e CRM detail —
  * sempre que um contact_name for exibido, passa por isso.
  */
-export function isInvalidContactName(name?: string | null): boolean {
-  if (!name) return true
-  const trimmed = String(name).trim()
-  if (!trimmed) return true
-  if (/^\d{10,}$/.test(trimmed)) return true
-  const lower = trimmed.toLowerCase()
-  if (['você', 'voce', 'eu', 'you', 'me', 'i'].includes(lower)) return true
-  return false
-}
+import {
+  formatPhoneBR,
+  isInvalidContactName as checkInvalidName,
+  resolveDisplayName,
+} from '@/lib/phone'
+
+export { isInvalidContactName } from '@/lib/phone'
 
 /**
  * Resolve o nome de exibição final pra um contato/conversa: usa
  * contact_name se for um nome válido (não inválido pelo `isInvalidContactName`),
- * senão deriva do remote_jid via `jidToDisplayName`.
+ * senão deriva do remote_jid formatado como telefone brasileiro.
  */
 export function getDisplayName(
   contactName: string | undefined | null,
   remoteJid: string | undefined,
 ): string {
-  if (!isInvalidContactName(contactName)) return (contactName as string).trim()
-  return jidToDisplayName(remoteJid)
+  return resolveDisplayName(contactName, remoteJid)
 }
 
 /**
- * Quando contact_name está vazio, deriva um display name a partir do
- * remote_jid. Formata número BR conhecido (+55 com 12-13 dígitos), faz
- * fallback simples "+<dígitos>" pra outros, e devolve "Contato WhatsApp"
- * pra formatos não-numéricos (LID novo do Baileys, JIDs corrompidos).
- *
- * Histórico: antes o fallback usava `contact_phone`, mas esse campo era
- * populado em algumas convs antigas com o número CRU sem formatação
- * (ex.: "208439242412160"), o que dava aparência ruim na lista. Agora
- * derivamos do remote_jid e aplicamos formatação consistente.
- *
- * Exportada pra ser usada em outros lugares (ex.: nome do remetente em
- * mensagens de grupo no ChatArea).
+ * Formata o JID ou número como display name consistente.
+ * Nunca exibe o JID cru ou número sem formato brasileiro: ex: (35) 99288-0270.
  */
 export function jidToDisplayName(jid?: string): string {
-  if (!jid) return 'Contato WhatsApp'
-  if (jid.endsWith('@g.us')) return 'Grupo WhatsApp'
-  // @lid (Long ID novo do Baileys) é um identificador opaco, não número.
-  if (jid.endsWith('@lid')) return 'Contato WhatsApp'
-  const numberPart = jid.split('@')[0]
-  if (!numberPart || !/^\d+$/.test(numberPart)) return 'Contato WhatsApp'
-  if (numberPart.startsWith('55') && numberPart.length >= 12 && numberPart.length <= 13) {
-    const ddd = numberPart.slice(2, 4)
-    const rest = numberPart.slice(4)
-    if (rest.length === 9) return `+55 (${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`
-    if (rest.length === 8) return `+55 (${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`
-  }
-  return '+' + numberPart
+  return resolveDisplayName(null, jid)
 }
 
 export function conversationsToChats(conversations: Conversation[]) {

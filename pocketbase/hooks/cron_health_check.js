@@ -87,6 +87,37 @@ cronAdd('health_check', '*/5 * * * *', () => {
         instance.set('health_check_failures', (instance.getInt('health_check_failures') || 0) + 1)
         $app.save(instance)
         $app.logger().info('health_check_real_disconnect', 'instance', instanceName)
+
+        // Registrar notificação no sistema quando desconectado
+        try {
+          const userId = instance.getString('user_id')
+          if (userId) {
+            const existingNotifs = $app.findRecordsByFilter(
+              'notifications',
+              "user_id = {:uid} && type = 'system' && read = false && title ~ 'desconectada'",
+              '-created',
+              1,
+              0,
+              { uid: userId },
+            )
+            if (!existingNotifs || existingNotifs.length === 0) {
+              const notifCol = $app.findCollectionByNameOrId('notifications')
+              const notif = new Record(notifCol)
+              notif.set('user_id', userId)
+              notif.set('title', 'Instância WhatsApp desconectada')
+              notif.set(
+                'body',
+                'A instância "' +
+                  instanceName +
+                  '" perdeu a conexão com o WhatsApp. Verifique suas conexões.',
+              )
+              notif.set('type', 'system')
+              notif.set('read', false)
+              $app.save(notif)
+            }
+          }
+        } catch (_) {}
+
         continue
       }
 

@@ -86,12 +86,40 @@ export const diagnosticarWebhook = async (instanceName: string) => {
   })
 }
 
-export const enviarTexto = async (instanceName: string, number: string, text: string) => {
+export const enviarTexto = async (
+  instanceName: string,
+  number: string,
+  text: string,
+  quotedMessageId?: string,
+) => {
   return pb.send<{ success: boolean; message: any }>('/backend/v1/whatsapp/send-message', {
     method: 'POST',
-    body: JSON.stringify({ instanceName, number, text }),
+    body: JSON.stringify({ instanceName, number, text, quotedMessageId }),
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+export const encaminharMensagem = async (
+  instanceName: string,
+  targetRemoteJid: string,
+  messageId: string,
+) => {
+  return pb.send<{ success: boolean; message: any }>('/backend/v1/whatsapp/forward-message', {
+    method: 'POST',
+    body: JSON.stringify({ instanceName, targetRemoteJid, messageId }),
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+export const transcreverAudio = async (messageId: string) => {
+  return pb.send<{ success: boolean; transcription: string }>(
+    '/backend/v1/whatsapp/transcribe-audio',
+    {
+      method: 'POST',
+      body: JSON.stringify({ messageId }),
+      headers: { 'Content-Type': 'application/json' },
+    },
+  )
 }
 
 export const reimportarHistorico = async (instanceName: string, syncPeriodDays?: SyncPeriod) => {

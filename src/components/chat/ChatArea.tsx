@@ -30,7 +30,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { alternarArquivamentoConversa, atualizarNomeContato } from '@/services/whatsapp_service'
 import { isInvalidContactName } from '@/lib/whatsapp-mappers'
+import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { AddToCrmDialog } from '@/components/crm/AddToCrmDialog'
+import { ForwardDialog } from '@/components/chat/ForwardDialog'
+import { PatientContextPanel } from '@/components/chat/PatientContextPanel'
+import { transcreverAudio } from '@/services/whatsapp_service'
+import { UserCheck } from 'lucide-react'
 import { AgenteConversaToggle } from '@/components/chat/AgenteConversaToggle'
 import { TaskActionBar } from '@/components/chat/TaskActionBar'
 import { TaskFormDialog } from '@/components/chat/TaskFormDialog'
@@ -295,6 +300,13 @@ export function ChatArea({
   const [taskViewMessageId, setTaskViewMessageId] = useState<string | null>(null)
   const taskViewTasks = taskViewMessageId ? tasksByMessageId.get(taskViewMessageId) || [] : []
 
+  // Estados de Encaminhar / Responder / Contexto de Paciente / Transcrição
+  const [forwardModalOpen, setForwardModalOpen] = useState(false)
+  const [forwardingMessageId, setForwardingMessageId] = useState<string | null>(null)
+  const [quotedMessage, setQuotedMessage] = useState<any | null>(null)
+  const [patientPanelOpen, setPatientPanelOpen] = useState(false)
+  const [transcribingId, setTranscribingId] = useState<string | null>(null)
+
   // Limpa a seleção e reseta o flag "tem mais" sempre que troca de chat
   useEffect(() => {
     setHasMoreOlder(true)
@@ -549,17 +561,53 @@ export function ChatArea({
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!inputText.trim() || isSending || !onSendMessage) return
+    if (!inputText.trim() || isSending) return
 
+    const textToSend = inputText.trim()
+    const quoteId = quotedMessage?.id
     setIsSending(true)
     setSendError(null)
     try {
-      await onSendMessage(inputText)
+      if (quoteId) {
+        // Enviar com citação via endpoint direto de envio
+        await enviarTexto(chat.instance_name, chat.remote_jid, textToSend, quoteId)
+      } else if (onSendMessage) {
+        await onSendMessage(textToSend)
+      } else {
+        await enviarTexto(chat.instance_name, chat.remote_jid, textToSend)
+      }
       setInputText('')
+      setQuotedMessage(null)
     } catch (error) {
       setSendError(getErrorMessage(error))
     } finally {
       setIsSending(false)
+    }
+  }
+
+  const handleReplyMessage = (msg: any) => {
+    setQuotedMessage(msg)
+  }
+
+  const handleForwardMessage = (msg: any) => {
+    setForwardingMessageId(msg.id)
+    setForwardModalOpen(true)
+  }
+
+  const handleTranscribeMessage = async (msgId: string) => {
+    if (transcribingId) return
+    setTranscribingId(msgId)
+    try {
+      const res = await transcreverAudio(msgId)
+      if (res?.transcription) {
+        toast.success('Áudio transcrito com sucesso!')
+        const m = (chat.messages || []).find((x: any) => x.id === msgId)
+        if (m) m.transcription = res.transcription
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao transcrever áudio')
+    } finally {
+      setTranscribingId(null)
     }
   }
 
@@ -625,7 +673,7 @@ export function ChatArea({
           </Avatar>
           <div className="flex flex-col cursor-pointer">
             <span className="font-semibold text-primary text-base leading-tight">
-              {chat.name || 'Sem nome'}
+              {resolveDisplayName(chat.name, chat.remote_jid)}
             </span>
             <span className="text-xs text-muted-foreground">
               {chat.type === 'group'
@@ -663,6 +711,23 @@ export function ChatArea({
             >
               <HeartPulse className="w-4 h-4 sm:mr-1.5" />
               <span className="hidden sm:inline">Cuidado</span>
+            </Button>
+          )}
+          {chat?.type !== 'group' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPatientPanelOpen((prev) => !prev)}
+              title="Abrir painel de contexto do paciente"
+              className={cn(
+                'rounded-full text-xs font-semibold border-primary/20 transition-colors',
+                patientPanelOpen
+                  ? 'bg-primary text-white border-primary hover:bg-primary/90'
+                  : 'text-primary hover:bg-primary/5',
+              )}
+            >
+              <UserCheck className="w-4 h-4 sm:mr-1.5" />
+              <span className="hidden sm:inline">Paciente</span>
             </Button>
           )}
           {chat?.type !== 'group' && (
@@ -799,6 +864,10 @@ export function ChatArea({
               onToggleSelection={toggleSelection}
               onSelectMedia={handleSelectMedia}
               onTaskView={handleTaskView}
+              onReply={handleReplyMessage}
+              onForward={handleForwardMessage}
+              onTranscribe={handleTranscribeMessage}
+              transcribingId={transcribingId}
             />
           )
         })}
@@ -861,6 +930,31 @@ export function ChatArea({
               <X className="h-4 w-4" />
             </button>
           </Alert>
+        </div>
+      )}
+
+      {/* Preview de Citação / Resposta */}
+      {quotedMessage && (
+        <div className="bg-muted/70 px-4 py-2 border-t border-border flex items-center justify-between z-10 text-xs">
+          <div className="border-l-4 border-primary pl-2 overflow-hidden flex-1 mr-2">
+            <span className="font-semibold text-primary block truncate">
+              Respondendo para{' '}
+              {quotedMessage.senderId === 'me'
+                ? 'Você'
+                : quotedMessage.pushName || resolveDisplayName(null, quotedMessage.senderId)}
+            </span>
+            <span className="text-muted-foreground truncate block">
+              {quotedMessage.text || quotedMessage.media?.name || '[Mídia]'}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 rounded-full text-muted-foreground hover:text-foreground shrink-0"
+            onClick={() => setQuotedMessage(null)}
+          >
+            <X className="w-3.5 h-3.5" />
+          </Button>
         </div>
       )}
 
@@ -1236,6 +1330,24 @@ export function ChatArea({
         onOpenChange={setCareSheetOpen}
         contextTask={null}
         contactContext={careContactContext}
+      />
+      {/* Diálogo de Encaminhamento de Mensagem */}
+      <ForwardDialog
+        open={forwardModalOpen}
+        onOpenChange={setForwardModalOpen}
+        instanceName={chat.instance_name}
+        messageId={forwardingMessageId}
+        conversations={conversations}
+      />
+
+      {/* Painel Lateral de Contexto do Paciente */}
+      <PatientContextPanel
+        open={patientPanelOpen}
+        onClose={() => setPatientPanelOpen(false)}
+        remoteJid={chat.remote_jid}
+        contactName={chat.name}
+        instanceName={chat.instance_name}
+        onOpenAddToCrm={handleOpenAddToCrm}
       />
     </div>
   )

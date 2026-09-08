@@ -48,6 +48,27 @@ routerAdd(
     const remoteJid = hasDomain ? incoming : incoming + '@s.whatsapp.net'
     const evolutionNumber = isGroup ? incoming : incoming.split('@')[0]
 
+    const { quotedMessageId } = body
+    const payload = { number: evolutionNumber, text }
+    if (quotedMessageId) {
+      try {
+        const quotedRec = $app.findRecordById('whatsapp_messages', quotedMessageId)
+        const qMsgId = quotedRec.getString('message_id')
+        if (qMsgId) {
+          payload.quoted = {
+            key: {
+              id: qMsgId,
+              remoteJid: quotedRec.getString('remote_jid'),
+              fromMe: quotedRec.getBool('from_me'),
+            },
+            message: {
+              conversation: quotedRec.getString('content') || '',
+            },
+          }
+        }
+      } catch (_) {}
+    }
+
     const res = $http.send({
       url: `${url}/message/sendText/${instanceName}`,
       method: 'POST',
@@ -55,7 +76,7 @@ routerAdd(
         'Content-Type': 'application/json',
         apikey: apiKey,
       },
-      body: JSON.stringify({ number: evolutionNumber, text }),
+      body: JSON.stringify(payload),
       timeout: 15,
     })
 

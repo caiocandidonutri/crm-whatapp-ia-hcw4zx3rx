@@ -1,5 +1,24 @@
 import React, { memo } from 'react'
-import { Check, ListTodo, AlertCircle, Forward } from 'lucide-react'
+import {
+  Check,
+  ListTodo,
+  AlertCircle,
+  Forward,
+  Reply,
+  Copy,
+  Sparkles,
+  MoreVertical,
+  Volume2,
+} from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useLongPress } from '@/hooks/use-long-press'
 import { jidToDisplayName } from '@/lib/whatsapp-mappers'
@@ -27,6 +46,10 @@ interface MessageItemProps {
   onToggleSelection: (id: string) => void
   onSelectMedia: (media: SelectedMedia) => void
   onTaskView: (msgId: string) => void
+  onReply?: (msg: any) => void
+  onForward?: (msg: any) => void
+  onTranscribe?: (msgId: string) => void
+  transcribingId?: string | null
 }
 
 function formatTime(ts: string) {
@@ -50,6 +73,10 @@ function MessageItemComponent({
   onToggleSelection,
   onSelectMedia,
   onTaskView,
+  onReply,
+  onForward,
+  onTranscribe,
+  transcribingId,
 }: MessageItemProps) {
   const { handlers, isPressing } = useLongPress({
     onLongPress: () => {
@@ -65,6 +92,19 @@ function MessageItemComponent({
   const hasTasks = !!tasksForMessage && tasksForMessage.length > 0
   const urls = msg.text ? extractUrls(msg.text) : []
   const isUnsupported = isUnsupportedMessageType(msg.messageType) && !hasMedia
+  const isAudio =
+    msg.media?.type === 'audio' ||
+    msg.messageType === 'audioMessage' ||
+    msg.messageType === 'audio' ||
+    msg.media?.mimetype?.includes('audio')
+
+  const handleCopyText = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const textToCopy = msg.text || msg.transcription || ''
+    if (!textToCopy) return
+    navigator.clipboard.writeText(textToCopy)
+    toast.success('Texto copiado para a área de transferência')
+  }
 
   const taskColor = (() => {
     if (!tasksForMessage) return ''
@@ -154,6 +194,72 @@ function MessageItemComponent({
                 )}
               </div>
             )}
+            {/* Menu de contexto da mensagem (Encaminhar, Responder, Copiar) */}
+            {!isSelectionMode && (
+              <div
+                className={cn(
+                  'absolute top-1 z-30 opacity-0 group-hover:opacity-100 transition-opacity',
+                  isMe ? '-left-8' : '-right-8',
+                )}
+              >
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 rounded-full bg-background/80 shadow-sm border border-border/60 hover:bg-muted text-muted-foreground"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreVertical className="w-3.5 h-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align={isMe ? 'end' : 'start'} className="w-44">
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onReply?.(msg)
+                      }}
+                      className="cursor-pointer"
+                    >
+                      <Reply className="w-4 h-4 mr-2 text-primary" />
+                      Responder
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onForward?.(msg)
+                      }}
+                      className="cursor-pointer"
+                    >
+                      <Forward className="w-4 h-4 mr-2 text-blue-500" />
+                      Encaminhar
+                    </DropdownMenuItem>
+                    {msg.text && (
+                      <DropdownMenuItem onClick={handleCopyText} className="cursor-pointer">
+                        <Copy className="w-4 h-4 mr-2 text-slate-500" />
+                        Copiar texto
+                      </DropdownMenuItem>
+                    )}
+                    {isAudio && !isMe && !msg.transcription && onTranscribe && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onTranscribe(msg.id)
+                          }}
+                          className="cursor-pointer text-amber-600 focus:text-amber-700"
+                        >
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          Transcrever áudio
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+
             <div
               className={cn(
                 'relative text-[15px] flex flex-col w-auto min-w-0 overflow-hidden transition-all duration-500',
@@ -202,6 +308,35 @@ function MessageItemComponent({
                 status={msg.status}
                 onSelectMedia={onSelectMedia}
               />
+
+              {/* Botão e exibição de Transcrição de Áudio recebido */}
+              {isAudio && !isMe && (
+                <div className="px-2 pb-2 pt-1">
+                  {msg.transcription ? (
+                    <div className="mt-1 p-2 rounded-lg bg-primary/5 border border-primary/20 text-xs text-foreground/90">
+                      <div className="flex items-center gap-1 font-semibold text-[11px] text-primary mb-1">
+                        <Sparkles className="w-3 h-3" />
+                        Transcrição IA:
+                      </div>
+                      <p className="leading-relaxed select-text">{msg.transcription}</p>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onTranscribe?.(msg.id)
+                      }}
+                      disabled={transcribingId === msg.id}
+                      className="h-6 px-2 text-[11px] text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-md border border-amber-200"
+                    >
+                      <Sparkles className="w-3 h-3 mr-1" />
+                      {transcribingId === msg.id ? 'Transcrevendo...' : 'Transcrever áudio'}
+                    </Button>
+                  )}
+                </div>
+              )}
               {msg.linkPreview && (
                 <a
                   href={msg.linkPreview.url}
@@ -336,5 +471,7 @@ export const MessageItem = memo(
     prev.tasksForMessage === next.tasksForMessage &&
     prev.onToggleSelection === next.onToggleSelection &&
     prev.onSelectMedia === next.onSelectMedia &&
-    prev.onTaskView === next.onTaskView,
+    prev.onTaskView === next.onTaskView &&
+    prev.transcribingId === next.transcribingId &&
+    prev.msg.transcription === next.msg.transcription,
 )
