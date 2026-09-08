@@ -40,6 +40,17 @@ cronAdd('backfill_conv_timestamps', '* * * * *', () => {
       const instanceName = conv.getString('instance_name')
       if (!remoteJid || !instanceName) continue
 
+      try {
+        const instRecord = $app.findFirstRecordByFilter(
+          'whatsapp_instances',
+          'instance_name = {:name}',
+          { name: instanceName },
+        )
+        if (instRecord && instRecord.getString('status') !== 'connected') {
+          continue
+        }
+      } catch (_) {}
+
       let lastMsgs = []
       try {
         lastMsgs = $app.findRecordsByFilter(

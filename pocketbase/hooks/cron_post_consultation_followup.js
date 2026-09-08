@@ -140,6 +140,25 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
       followupText = 'Olá! Como você está se sentindo após a consulta? Estamos à disposição! 🙏'
 
     try {
+      // Idempotência: não criar se já existir tarefa de follow-up pendente/em_andamento
+      var alreadyHasTask = false
+      try {
+        var existingFollowups = $app.findRecordsByFilter(
+          'tasks',
+          "crm_contact_id = {:cid} && (care_category = 'followup_10_15' || title ~ 'Follow-up') && (status = 'pendente' || status = 'em_andamento')",
+          '-created',
+          1,
+          0,
+          { cid: contactId },
+        )
+        if (existingFollowups && existingFollowups.length > 0) {
+          alreadyHasTask = true
+        }
+      } catch (_) {}
+
+      if (alreadyHasTask) continue
+
+      var assignedTo = contact.getString('assigned_to') || ''
       var taskCol = $app.findCollectionByNameOrId('tasks')
       var task = new Record(taskCol)
       task.set('user_id', userId)
@@ -148,8 +167,10 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
       task.set('description', followupText)
       task.set('status', 'pendente')
       task.set('priority', 'media')
+      task.set('care_category', 'followup_10_15')
       task.set('crm_contact_id', contactId)
       task.set('due_date', todayStr)
+      if (assignedTo) task.set('assigned_to', assignedTo)
       $app.save(task)
       tasksCreated++
 

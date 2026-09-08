@@ -28,10 +28,27 @@ cronAdd('enrich_conversations', '* * * * *', () => {
     var trimmed = String(name).trim()
     if (!trimmed) return true
     if (trimmed.indexOf('@') !== -1) return true
+    if (/^[.\-_*#@!?,:;~^`'"]+$/.test(trimmed)) return true
     if (/^\d{10,}$/.test(trimmed)) return true
+    // Deve ter pelo menos uma letra (latina, com acento) ou caractere significativo, não só pontuação/números
+    if (!/[a-zA-Z\u00C0-\u017F]/.test(trimmed)) {
+      return true
+    }
     var lower = trimmed.toLowerCase()
     if (
-      ['você', 'voce', 'eu', 'you', 'me', 'i', 'contato whatsapp', 'sem nome'].indexOf(lower) !== -1
+      [
+        'você',
+        'voce',
+        'eu',
+        'you',
+        'me',
+        'i',
+        'contato whatsapp',
+        'sem nome',
+        'null',
+        'undefined',
+        'desconhecido',
+      ].indexOf(lower) !== -1
     )
       return true
     return false
@@ -111,13 +128,13 @@ cronAdd('enrich_conversations', '* * * * *', () => {
 
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().replace('T', ' ')
 
-  // Prioriza conversas que estão sem contact_name
+  // Prioriza conversas que estão sem contact_name ou com contact_name inválido ("." etc)
   const filter =
-    "(contact_name = '' || avatar_url = '') && (picture_fetched_at = '' || picture_fetched_at < {:yesterday})"
+    "(contact_name = '' || contact_name = '.' || avatar_url = '') && (picture_fetched_at = '' || picture_fetched_at < {:yesterday})"
 
   let records = []
   try {
-    records = $app.findRecordsByFilter('conversations', filter, '+created', 10, 0, { yesterday })
+    records = $app.findRecordsByFilter('conversations', filter, '+created', 30, 0, { yesterday })
   } catch (err) {
     $app.logger().error('cron_enrich_conversations fetch error', 'error', String(err))
     return
@@ -168,6 +185,18 @@ cronAdd('enrich_conversations', '* * * * *', () => {
   for (const record of records) {
     processedCount++
     const instanceName = record.getString('instance_name')
+    // Não enriquece conversas de instâncias inativas/desconectadas
+    try {
+      const instRecord = $app.findFirstRecordByFilter(
+        'whatsapp_instances',
+        'instance_name = {:name}',
+        { name: instanceName },
+      )
+      if (instRecord && instRecord.getString('status') !== 'connected') {
+        continue
+      }
+    } catch (_) {}
+
     const remoteJid = record.getString('remote_jid')
     const isGroup = record.getBool('is_group')
     let updated = false

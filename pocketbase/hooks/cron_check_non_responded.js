@@ -26,6 +26,18 @@ cronAdd('check_non_responded', '0 * * * *', () => {
       const remoteJid = conv.getString('remote_jid')
       const instanceName = conv.getString('instance_name')
 
+      // Ignora conversas pertencentes a instâncias que não estejam conectadas
+      try {
+        const instRec = $app.findFirstRecordByFilter(
+          'whatsapp_instances',
+          'instance_name = {:name}',
+          { name: instanceName },
+        )
+        if (instRec && instRec.getString('status') !== 'connected') {
+          continue
+        }
+      } catch (_) {}
+
       let lastMessages = []
       try {
         lastMessages = $app.findRecordsByFilter(

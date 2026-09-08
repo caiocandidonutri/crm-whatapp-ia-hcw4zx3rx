@@ -74,9 +74,31 @@ export function isInvalidContactName(name?: string | null): boolean {
   const trimmed = String(name).trim()
   if (!trimmed) return true
   if (trimmed.includes('@')) return true
+  // Rejeita strings que consistem apenas em pontuação/símbolos (como ".", "-", "...", "?", "!")
+  if (/^[.\-_*#@!?,:;~^`'"]+$/.test(trimmed)) return true
+  // Rejeita apenas dígitos com 10 ou mais caracteres (número cru ou LID)
   if (/^\d{10,}$/.test(trimmed)) return true
+  // Rejeita números com formatação de telefone crua sem letras
+  if (!/[a-zA-Z\u00C0-\u017F\u0400-\u04FF\u4E00-\u9FFF\p{Emoji}]/u.test(trimmed)) {
+    // Se não tiver nenhuma letra nem emoji, não é um nome de pessoa aceitável
+    return true
+  }
   const lower = trimmed.toLowerCase()
-  if (['você', 'voce', 'eu', 'you', 'me', 'i', 'contato whatsapp', 'sem nome'].includes(lower)) {
+  if (
+    [
+      'você',
+      'voce',
+      'eu',
+      'you',
+      'me',
+      'i',
+      'contato whatsapp',
+      'sem nome',
+      'null',
+      'undefined',
+      'desconhecido',
+    ].includes(lower)
+  ) {
     return true
   }
   return false

@@ -20,6 +20,16 @@ onRecordAfterCreateSuccess((e) => {
     var userId = msg.getString('user_id') || ''
     var accountId = msg.getString('account_id') || ''
 
+    // Ignora instâncias desconectadas
+    try {
+      var instRec = $app.findFirstRecordByFilter('whatsapp_instances', 'instance_name = {:name}', {
+        name: instanceName,
+      })
+      if (instRec && instRec.getString('status') !== 'connected') {
+        return e.next()
+      }
+    } catch (_) {}
+
     var contact = null
     try {
       contact = $app.findFirstRecordByFilter(
@@ -30,11 +40,33 @@ onRecordAfterCreateSuccess((e) => {
     } catch (_) {}
 
     var nowIso = new Date().toISOString().replace('T', ' ')
+    var pushName = msg.getString('push_name') || ''
+    var isInvalidPushName =
+      !pushName ||
+      pushName.trim() === '.' ||
+      /^[.\-_*#@!?,:;~^`'"]+$/.test(pushName.trim()) ||
+      !/[a-zA-Z\u00C0-\u017F]/.test(pushName.trim()) ||
+      ['você', 'voce', 'eu', 'you', 'me', 'i', 'contato whatsapp', 'sem nome'].indexOf(
+        pushName.trim().toLowerCase(),
+      ) !== -1
 
     if (contact) {
       contact.set('last_synced_at', nowIso)
       if (!contact.getString('account_id') && accountId) {
         contact.set('account_id', accountId)
+      }
+      // Se push_name for válido e o contato estiver sem contact_name válido, atualiza
+      if (!isInvalidPushName) {
+        var currentContactName = contact.getString('contact_name') || ''
+        if (
+          !currentContactName ||
+          currentContactName === '.' ||
+          /^[.\-_*#@!?,:;~^`'"]+$/.test(currentContactName.trim()) ||
+          !/[a-zA-Z\u00C0-\u017F]/.test(currentContactName.trim())
+        ) {
+          contact.set('contact_name', pushName)
+          contact.set('push_name', pushName)
+        }
       }
       try {
         $app.save(contact)
@@ -50,9 +82,9 @@ onRecordAfterCreateSuccess((e) => {
         newContact.set('instance_name', instanceName)
         newContact.set('jid', remoteJid)
         newContact.set('phone', remoteJid.split('@')[0])
-        var pushName = msg.getString('push_name') || ''
-        newContact.set('push_name', pushName)
-        newContact.set('contact_name', pushName)
+        var safePushName = isInvalidPushName ? '' : pushName
+        newContact.set('push_name', safePushName)
+        newContact.set('contact_name', safePushName)
         newContact.set('stage', 'lead')
         newContact.set('care_status', 'em_dia')
         newContact.set('last_synced_at', nowIso)

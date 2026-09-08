@@ -233,6 +233,17 @@ routerAdd(
       var c = contacts[k]
       var cJid = c.getString('jid') || '',
         cInst = c.getString('instance_name') || ''
+
+      try {
+        var instRec = $app.findFirstRecordByFilter(
+          'whatsapp_instances',
+          'instance_name = {:name}',
+          { name: cInst },
+        )
+        if (instRec && instRec.getString('status') !== 'connected') {
+          continue
+        }
+      } catch (_) {}
       var cName = c.getString('contact_name') || c.getString('push_name') || cJid || 'Contato'
       var cCare = c.getString('care_status') || 'em_dia',
         cStage = c.getString('stage') || ''
@@ -308,6 +319,9 @@ routerAdd(
         }
       }
 
+      var cAssignedTo = c.getString('assigned_to') || ''
+      var nextDayDate = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+
       for (var cc = 0; cc < cats.length; cc++) {
         var cat = cats[cc],
           title = (categoryLabels[cat] || cat) + ': ' + cName
@@ -323,9 +337,29 @@ routerAdd(
           found.set('priority', tp)
           if (convId) found.set('conversation_id', convId)
           if (cAction) found.set('description', cAction)
+          if (!found.getString('due_date')) found.set('due_date', nextDayDate)
+          if (cAssignedTo && !found.getString('assigned_to')) found.set('assigned_to', cAssignedTo)
           $app.saveNoValidate(found)
           tasksUpdated++
         } else {
+          // Idempotência: verifica se já existe tarefa ativa antes de criar
+          var alreadyExists = false
+          try {
+            var checkActive = $app.findRecordsByFilter(
+              'tasks',
+              "crm_contact_id = {:cid} && care_category = {:cat} && (status = 'pendente' || status = 'em_andamento')",
+              '-created',
+              1,
+              0,
+              { cid: c.id, cat: cat },
+            )
+            if (checkActive && checkActive.length > 0) {
+              alreadyExists = true
+            }
+          } catch (_) {}
+
+          if (alreadyExists) continue
+
           try {
             var tc = $app.findCollectionByNameOrId('tasks'),
               nt = new Record(tc)
@@ -336,6 +370,8 @@ routerAdd(
             nt.set('priority', tp)
             nt.set('care_category', cat)
             nt.set('crm_contact_id', c.id)
+            nt.set('due_date', nextDayDate)
+            if (cAssignedTo) nt.set('assigned_to', cAssignedTo)
             if (convId) nt.set('conversation_id', convId)
             if (cAction) nt.set('description', cAction)
             $app.saveNoValidate(nt)

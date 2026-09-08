@@ -46,10 +46,23 @@ onRecordAfterUpdateSuccess((e) => {
   var userId = contact.getString('user_id') || ''
   var jid = contact.getString('jid') || ''
   var instanceName = contact.getString('instance_name') || ''
-  var contactName =
-    contact.getString('contact_name') || contact.getString('push_name') || jid || 'Contato'
+  var assignedTo = contact.getString('assigned_to') || ''
+  var rawName = contact.getString('contact_name') || contact.getString('push_name') || ''
+  // Valida nome para não propagar "." ou lixo
+  if (
+    !rawName ||
+    rawName.trim() === '.' ||
+    /^[.\-_*#@!?,:;~^`'"]+$/.test(rawName.trim()) ||
+    !/[a-zA-Z\u00C0-\u017F]/.test(rawName.trim())
+  ) {
+    // Se for JID ou número, tenta formatar limpo
+    var numOnly = jid ? jid.split('@')[0] : ''
+    rawName = numOnly || 'Contato'
+  }
+  var contactName = rawName
 
   var nowTs = Math.floor(Date.now() / 1000)
+  var nextDayDate = new Date(Date.now() + 86400000).toISOString().split('T')[0]
 
   // --- Follow-up days (regra da conta, default 10) ---
   var followupDays = 10
@@ -220,7 +233,8 @@ onRecordAfterUpdateSuccess((e) => {
     }
 
     if (foundTask) {
-      // Atualiza título/prioridade/descrição se mudaram.
+      // Idempotência: Se já existe tarefa ativa (pendente/em_andamento) da mesma categoria,
+      // NUNCA cria nova — apenas atualiza a existente se necessário.
       var dirty = false
       if (foundTask.getString('title') !== title) {
         foundTask.set('title', title)
@@ -238,12 +252,38 @@ onRecordAfterUpdateSuccess((e) => {
         foundTask.set('description', aiAction)
         dirty = true
       }
+      if (!foundTask.getString('due_date')) {
+        foundTask.set('due_date', nextDayDate)
+        dirty = true
+      }
+      if (assignedTo && !foundTask.getString('assigned_to')) {
+        foundTask.set('assigned_to', assignedTo)
+        dirty = true
+      }
       if (dirty) {
         try {
           $app.saveNoValidate(foundTask)
         } catch (_) {}
       }
     } else {
+      // Verificação defensiva extra no banco antes de criar: garantir que não existe outra tarefa ativa
+      var alreadyExists = false
+      try {
+        var checkActive = $app.findRecordsByFilter(
+          'tasks',
+          "crm_contact_id = {:cid} && care_category = {:cat} && (status = 'pendente' || status = 'em_andamento')",
+          '-created',
+          1,
+          0,
+          { cid: contactId, cat: category },
+        )
+        if (checkActive && checkActive.length > 0) {
+          alreadyExists = true
+        }
+      } catch (_) {}
+
+      if (alreadyExists) continue
+
       try {
         var taskCol = $app.findCollectionByNameOrId('tasks')
         var newTask = new Record(taskCol)
@@ -254,6 +294,8 @@ onRecordAfterUpdateSuccess((e) => {
         newTask.set('priority', taskPriority)
         newTask.set('care_category', category)
         newTask.set('crm_contact_id', contactId)
+        newTask.set('due_date', nextDayDate)
+        if (assignedTo) newTask.set('assigned_to', assignedTo)
         if (conversationId) newTask.set('conversation_id', conversationId)
         if (aiAction) newTask.set('description', aiAction)
         $app.saveNoValidate(newTask)

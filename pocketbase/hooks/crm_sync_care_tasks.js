@@ -105,6 +105,17 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
       var contact = contacts[i]
       var jid = contact.getString('jid') || ''
       var instanceName = contact.getString('instance_name') || ''
+
+      try {
+        var instRec = $app.findFirstRecordByFilter(
+          'whatsapp_instances',
+          'instance_name = {:name}',
+          { name: instanceName },
+        )
+        if (instRec && instRec.getString('status') !== 'connected') {
+          continue
+        }
+      } catch (_) {}
       var contactName =
         contact.getString('contact_name') || contact.getString('push_name') || jid || 'Contato'
       var careStatus = contact.getString('care_status') || 'em_dia'
@@ -208,6 +219,8 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
         var category = currentCategories[c]
         var label = categoryLabels[category] || category
         var title = label + ': ' + contactName
+        var contactAssignedTo = contact.getString('assigned_to') || ''
+        var nextDayDate = new Date(Date.now() + 86400000).toISOString().split('T')[0]
 
         var foundTask = null
         for (var t2 = 0; t2 < existingTasks.length; t2++) {
@@ -222,9 +235,31 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
           foundTask.set('priority', taskPriority)
           if (conversationId) foundTask.set('conversation_id', conversationId)
           if (aiAction) foundTask.set('description', aiAction)
+          if (!foundTask.getString('due_date')) foundTask.set('due_date', nextDayDate)
+          if (contactAssignedTo && !foundTask.getString('assigned_to')) {
+            foundTask.set('assigned_to', contactAssignedTo)
+          }
           $app.saveNoValidate(foundTask)
           tasksUpdated++
         } else {
+          // Idempotência: verifica se já existe tarefa ativa por contato e categoria
+          var alreadyExists = false
+          try {
+            var checkActive = $app.findRecordsByFilter(
+              'tasks',
+              "crm_contact_id = {:cid} && care_category = {:cat} && (status = 'pendente' || status = 'em_andamento')",
+              '-created',
+              1,
+              0,
+              { cid: contact.id, cat: category },
+            )
+            if (checkActive && checkActive.length > 0) {
+              alreadyExists = true
+            }
+          } catch (_) {}
+
+          if (alreadyExists) continue
+
           try {
             var taskCol = $app.findCollectionByNameOrId('tasks')
             var newTask = new Record(taskCol)
@@ -235,6 +270,8 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
             newTask.set('priority', taskPriority)
             newTask.set('care_category', category)
             newTask.set('crm_contact_id', contact.id)
+            newTask.set('due_date', nextDayDate)
+            if (contactAssignedTo) newTask.set('assigned_to', contactAssignedTo)
             if (conversationId) newTask.set('conversation_id', conversationId)
             if (aiAction) newTask.set('description', aiAction)
             $app.saveNoValidate(newTask)
