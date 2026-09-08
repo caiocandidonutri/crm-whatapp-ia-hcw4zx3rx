@@ -136,19 +136,21 @@ export function CareTaskCard({
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 -mr-1 opacity-0 group-hover:opacity-100 text-muted-foreground focus:opacity-100"
+              className="h-8 w-8 min-h-[36px] min-w-[36px] -mr-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 text-muted-foreground focus:opacity-100"
               onClick={(e) => e.stopPropagation()}
+              aria-label="Opções da tarefa"
             >
               <MoreVertical className="w-4 h-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuContent align="end" className="w-48">
             {task.status !== 'concluida' && (
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation()
                   onComplete()
                 }}
+                className="min-h-[44px] cursor-pointer"
               >
                 <CheckCircle className="w-4 h-4 mr-2 text-emerald-600" /> Concluir
               </DropdownMenuItem>
@@ -159,12 +161,13 @@ export function CareTaskCard({
                   e.stopPropagation()
                   onOpenSecretary()
                 }}
+                className="min-h-[44px] cursor-pointer"
               >
                 <Heart className="w-4 h-4 mr-2 text-rose-500" /> Secretária
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
-              className="text-destructive focus:bg-destructive focus:text-destructive-foreground"
+              className="min-h-[44px] cursor-pointer text-destructive focus:bg-destructive focus:text-destructive-foreground"
               onClick={(e) => {
                 e.stopPropagation()
                 onDelete()
@@ -230,18 +233,18 @@ export function CareTaskCard({
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           {phone && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 px-2 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              className="h-8 md:h-6 px-2 text-xs md:text-[10px] opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg min-h-[36px] md:min-h-0"
               onClick={(e) => {
                 e.stopPropagation()
                 window.open(`https://wa.me/${phone.replace(/\D/g, '')}`, '_blank')
               }}
             >
-              <MessageCircle className="w-3 h-3 mr-1" />
+              <MessageCircle className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
               WhatsApp
             </Button>
           )}
@@ -249,7 +252,7 @@ export function CareTaskCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 px-2 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity bg-primary/5 text-primary hover:bg-primary/10"
+              className="h-8 md:h-6 px-2 text-xs md:text-[10px] opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity bg-primary/5 text-primary hover:bg-primary/10 rounded-lg min-h-[36px] md:min-h-0"
               onClick={(e) => {
                 e.stopPropagation()
                 const msgParam =
@@ -261,7 +264,7 @@ export function CareTaskCard({
                 navigate(`/conversas?chat=${task.conversation_id}${msgParam}`)
               }}
             >
-              <MessageCircle className="w-3 h-3 mr-1" />
+              <MessageCircle className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
               Conversa
             </Button>
           )}

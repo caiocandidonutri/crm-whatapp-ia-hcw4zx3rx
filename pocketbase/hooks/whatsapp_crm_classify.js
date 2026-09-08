@@ -61,19 +61,87 @@ routerAdd(
         })
         .join('\n')
 
+      let rulesDesc = 'Consulta inicial (7d), Retorno de SOP (15d), Procedimento hormonal (5d)'
+      try {
+        const rules = $app.findRecordsByFilter('care_followup_rules', 'id != ""', 'created', 50, 0)
+        const lines = []
+        for (let r = 0; r < rules.length; r++) {
+          const nm = rules[r].getString('name')
+          const ds = rules[r].getInt('followup_days') || 10
+          if (nm) lines.push(nm + ' (' + ds + 'd)')
+        }
+        if (lines.length > 0) rulesDesc = lines.join(', ')
+      } catch (_) {}
+
+      let existingContact = null
+      try {
+        existingContact = $app.findFirstRecordByFilter(
+          'crm_contacts',
+          'jid = {:jid} && instance_name = {:inst}',
+          { jid: remoteJid, inst: instanceName },
+        )
+      } catch (_) {}
+
+      const pStage = (existingContact && existingContact.getString('stage')) || 'lead'
+      const pCare = (existingContact && existingContact.getString('care_status')) || 'em_dia'
+      let activeTasksCount = 0
+      if (existingContact) {
+        try {
+          const tks = $app.findRecordsByFilter(
+            'tasks',
+            "crm_contact_id = {:cid} && status != 'concluida' && status != 'cancelada'",
+            '-created',
+            5,
+            0,
+            { cid: existingContact.id },
+          )
+          activeTasksCount = tks ? tks.length : 0
+        } catch (_) {}
+      }
+
       let aiResult = null
       try {
+        const sysPrompt =
+          'Você é o assistente de CRM e inteligência clínica da clínica de nutrição do Dr. Caio Cândido.\n' +
+          'Papéis fundamentais da clínica:\n' +
+          '- "Dr. Caio" / "Dr. Caio Cândido" é o nutricionista responsável pelas consultas e condutas.\n' +
+          '- "Fabiana" é a assistente/secretária de atendimento e agendamento.\n' +
+          '- Dr. Caio e Fabiana NUNCA devem ser interpretados como pacientes. O paciente é o interlocutor externo.\n' +
+          'Regras de Follow-up lidas da clínica: ' +
+          rulesDesc +
+          '.\n' +
+          'Vocabulário nutricional/clínico relevante: SOP (Síndrome dos Ovários Policísticos), plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica, sintomas e exames.\n\n' +
+          'Responda APENAS em JSON válido com os campos:\n' +
+          'stage (um de: lead, em_atendimento, cliente, nao_respondido),\n' +
+          'priority (um de: baixa, media, alta, urgente ou número de 1 a 10),\n' +
+          'suggested_action (breve próxima ação recomendada, max 120 chars).'
+
+        const userPrompt =
+          'Paciente/Contato: ' +
+          contactName +
+          '\n' +
+          'Estágio do pipeline (stage): ' +
+          pStage +
+          '\n' +
+          'Status de cuidado (care_status): ' +
+          pCare +
+          '\n' +
+          'Tarefas ativas de cuidado: ' +
+          activeTasksCount +
+          '\n\n' +
+          'Histórico da Conversa:\n' +
+          transcript
+
         const reply = $ai.chat({
           model: 'fast',
           messages: [
             {
               role: 'system',
-              content:
-                'Você é um assistente de CRM. Analise a conversa do WhatsApp e classifique o contato. Responda APENAS em JSON válido com os campos: stage (um de: lead, em_atendimento, cliente, nao_respondido), priority (um de: baixa, media, alta, urgente), suggested_action (breve próxima ação recomendada, max 120 chars).',
+              content: sysPrompt,
             },
             {
               role: 'user',
-              content: 'Contato: ' + contactName + '\n\nTranscrição:\n' + transcript,
+              content: userPrompt,
             },
           ],
         })

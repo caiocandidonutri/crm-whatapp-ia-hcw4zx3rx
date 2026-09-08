@@ -207,8 +207,8 @@ const ChatRow = React.memo(function ChatRow({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {/* Botões de Ação Direta no Card */}
-            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {/* Botões de Ação Direta no Card: Desktop hover */}
+            <div className="hidden md:flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
               {unreadCount > 0 && onMarkAsRead && (
                 <Button
                   variant="ghost"
@@ -237,6 +237,53 @@ const ChatRow = React.memo(function ChatRow({
                   <CheckCircle2 className="w-4 h-4" />
                 </Button>
               )}
+            </div>
+
+            {/* Mobile: menu de 3 pontinhos acessível por toque */}
+            <div className="md:hidden flex items-center">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 -mr-1 text-muted-foreground hover:text-foreground rounded-full"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="Opções da conversa"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-48"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {onMarkAsRead && (
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onMarkAsRead(chat.id)
+                      }}
+                      className="min-h-[44px] flex items-center gap-2 cursor-pointer"
+                    >
+                      <CheckCheck className="w-4 h-4 text-emerald-600" />
+                      <span>Marcar como lida</span>
+                    </DropdownMenuItem>
+                  )}
+                  {onFinalizeChat && (
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onFinalizeChat(chat.id)
+                      }}
+                      className="min-h-[44px] flex items-center gap-2 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-primary" />
+                      <span>Finalizar conversa</span>
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {unreadCount > 0 && (

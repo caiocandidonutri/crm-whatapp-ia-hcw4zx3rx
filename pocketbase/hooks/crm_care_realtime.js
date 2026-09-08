@@ -134,6 +134,24 @@ onRecordAfterCreateSuccess((e) => {
       (rawContactName.toLowerCase().indexOf('fabiana') !== -1 &&
         rawContactName.toLowerCase().indexOf('assistente') !== -1)
     var contactName = isBadName ? remoteJid.split('@')[0] : rawContactName
+
+    var rulesDescriptionText =
+      'Consulta inicial (7d), Retorno de SOP (15d), Procedimento hormonal (5d)'
+    try {
+      var allRules = $app.findRecordsByFilter('care_followup_rules', "id != ''", 'created', 50, 0)
+      var ruleLines = []
+      for (var rl = 0; rl < allRules.length; rl++) {
+        var rName = allRules[rl].getString('name')
+        var rDays = allRules[rl].getInt('followup_days') || 10
+        if (rName) {
+          ruleLines.push(rName + ' (' + rDays + 'd)')
+        }
+      }
+      if (ruleLines.length > 0) {
+        rulesDescriptionText = ruleLines.join(', ')
+      }
+    } catch (_) {}
+
     // Contexto do paciente e clínica
     var patientStage = contact.getString('stage') || 'lead'
     var patientCareStatus = contact.getString('care_status') || 'em_dia'
@@ -155,22 +173,20 @@ onRecordAfterCreateSuccess((e) => {
       var systemPromptCare =
         'Você é o assistente de inteligência clínica e CRM da clínica de nutrição do Dr. Caio Cândido (especialista em saúde metabólica, hormonal feminina, SOP, emagrecimento e planos alimentares).\n' +
         'Papéis fundamentais da clínica:\n' +
-        '- "Dr. Caio" / "Dr. Caio Cândido" é o médico/nutricionista responsável pelas consultas e condutas.\n' +
+        '- "Dr. Caio" / "Dr. Caio Cândido" é o nutricionista responsável pelas consultas e condutas.\n' +
         '- "Fabiana" é a assistente/secretária de atendimento e acolhimento.\n' +
-        '- Dr. Caio e Fabiana NUNCA são pacientes; o paciente é o interlocutor externo na conversa.\n' +
-        'Regras de Follow-up da clínica:\n' +
-        '- Consulta inicial: follow-up em 7 dias pós-consulta;\n' +
-        '- Retorno de SOP (Síndrome dos Ovários Policísticos): follow-up em 15 dias;\n' +
-        '- Procedimento hormonal / implante / ajuste: follow-up em 5 dias.\n' +
-        'Vocabulário nutricional/clínico relevante: SOP, plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica, sintomas, exames.\n\n' +
+        '- Dr. Caio e Fabiana NUNCA devem ser interpretados como pacientes; o paciente é o interlocutor externo na conversa.\n' +
+        'Regras de Follow-up da clínica lidas do banco: ' +
+        rulesDescriptionText +
+        '.\n' +
+        'Vocabulário nutricional/clínico relevante: SOP (Síndrome dos Ovários Policísticos), plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica, sintomas, exames.\n\n' +
         'Responda APENAS em JSON válido com os campos:\n' +
         'stage (um de: lead, em_atendimento, cliente, nao_respondido),\n' +
         'role (um de: paciente, nao_paciente),\n' +
         'is_patient (boolean: true se é paciente ou agendou consulta com Dr. Caio),\n' +
-        'conversion_detected (boolean: true se houve fechamento/agendamento/pagamento de consulta),\n' +
+        'conversion_detected (boolean: true se detectou agendamento/confirmação/fechamento de consulta),\n' +
         'suggested_action (próxima ação clínica/atendimento sugerida, max 120 chars),\n' +
         'priority (número de 1 a 10, onde 10 é mais urgente).'
-
       var userPromptCare =
         'Paciente/Contato: ' +
         contactName +

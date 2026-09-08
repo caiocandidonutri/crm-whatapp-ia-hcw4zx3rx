@@ -50,10 +50,22 @@ routerAdd(
     var twentyFourHoursAgo = nowTs - 86400
 
     var rulesById = {}
+    var rulesDescriptionText =
+      'Consulta inicial (7d), Retorno de SOP (15d), Procedimento hormonal (5d)'
     try {
       var allRules = $app.findRecordsByFilter('care_followup_rules', "id != ''", 'created', 500, 0)
+      var ruleLines = []
       for (var rl = 0; rl < allRules.length; rl++) {
-        rulesById[allRules[rl].id] = allRules[rl].getInt('followup_days') || 10
+        var rId = allRules[rl].id
+        var rName = allRules[rl].getString('name')
+        var rDays = allRules[rl].getInt('followup_days') || 10
+        rulesById[rId] = rDays
+        if (rName) {
+          ruleLines.push(rName + ' (' + rDays + 'd)')
+        }
+      }
+      if (ruleLines.length > 0) {
+        rulesDescriptionText = ruleLines.join(', ')
       }
     } catch (_) {}
 
@@ -157,23 +169,45 @@ routerAdd(
           try {
             var pStage = contact.getString('stage') || 'lead'
             var pCare = contact.getString('care_status') || 'em_dia'
+            var cTasksCount = 0
+            try {
+              var cTasks = $app.findRecordsByFilter(
+                'tasks',
+                "crm_contact_id = {:cid} && status != 'concluida' && status != 'cancelada'",
+                '-created',
+                5,
+                0,
+                { cid: contact.id },
+              )
+              cTasksCount = cTasks ? cTasks.length : 0
+            } catch (_) {}
+
             var sysPrompt =
-              'Você é o assistente de CRM da clínica de nutrição do Dr. Caio Cândido.\n' +
-              'Papéis: "Dr. Caio" é o nutricionista; "Fabiana" é a secretária/assistente; eles NUNCA são pacientes.\n' +
-              'Regras de Follow-up cadastradas: Consulta inicial (7d), Retorno de SOP (15d), Procedimento hormonal (5d).\n' +
-              'Vocabulário: SOP, plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica.\n' +
-              'Responda APENAS em JSON válido com os campos: stage (lead, em_atendimento, cliente, nao_respondido), role (paciente, nao_paciente), is_patient (boolean), conversion_detected (boolean), suggested_action (max 120 chars), priority (número 1-10).'
+              'Você é o assistente de CRM e inteligência clínica da clínica de nutrição do Dr. Caio Cândido.\n' +
+              'Papéis fundamentais da clínica:\n' +
+              '- "Dr. Caio" / "Dr. Caio Cândido" é o nutricionista responsável pelas condutas e consultas.\n' +
+              '- "Fabiana" é a assistente/secretária de acolhimento e agendamento.\n' +
+              '- Dr. Caio e Fabiana NUNCA devem ser interpretados como pacientes. O paciente/cliente é o interlocutor externo.\n' +
+              'Regras de Follow-up lidas da clínica: ' +
+              rulesDescriptionText +
+              '.\n' +
+              'Vocabulário nutricional/clínico relevante: SOP (Síndrome dos Ovários Policísticos), plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica, sintomas e exames.\n' +
+              'Responda APENAS em JSON válido com os campos: stage (um de: lead, em_atendimento, cliente, nao_respondido), role (um de: paciente, nao_paciente), is_patient (boolean), conversion_detected (boolean), suggested_action (max 120 chars), priority (número 1-10, onde 10 é mais urgente).'
 
             var userContent =
               'Paciente/Contato: ' +
               contactName +
               '\n' +
-              'Estágio: ' +
+              'Estágio do pipeline (stage): ' +
               pStage +
-              ' | Cuidado: ' +
+              '\n' +
+              'Status de cuidado (care_status): ' +
               pCare +
+              '\n' +
+              'Tarefas de cuidado ativas: ' +
+              cTasksCount +
               '\n\n' +
-              'Transcrição:\n' +
+              'Histórico da Conversa:\n' +
               transcript
 
             var reply = $ai.chat({

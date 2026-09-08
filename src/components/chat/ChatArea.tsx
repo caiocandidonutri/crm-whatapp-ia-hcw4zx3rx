@@ -716,8 +716,8 @@ export function ChatArea({
               onClick={handleOpenCareSecretary}
               title="Abrir Secretária de Cuidado deste paciente"
               className={cn(
-                'rounded-full text-xs font-semibold border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-colors',
-                isMobile ? 'px-2' : 'px-3',
+                'rounded-full text-xs font-semibold border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-colors min-h-[40px]',
+                isMobile ? 'px-2.5 min-w-[40px]' : 'px-3',
               )}
             >
               <HeartPulse className="w-4 h-4 sm:mr-1.5" />
@@ -731,10 +731,11 @@ export function ChatArea({
               onClick={() => setPatientPanelOpen((prev) => !prev)}
               title="Abrir painel de contexto do paciente"
               className={cn(
-                'rounded-full text-xs font-semibold border-primary/20 transition-colors',
+                'rounded-full text-xs font-semibold border-primary/20 transition-colors min-h-[40px]',
                 patientPanelOpen
                   ? 'bg-primary text-white border-primary hover:bg-primary/90'
                   : 'text-primary hover:bg-primary/5',
+                isMobile ? 'px-2.5 min-w-[40px]' : 'px-3',
               )}
             >
               <UserCheck className="w-4 h-4 sm:mr-1.5" />
@@ -764,7 +765,12 @@ export function ChatArea({
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-full">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full min-h-[44px] min-w-[44px]"
+                aria-label="Mais opções"
+              >
                 <MoreVertical className="w-5 h-5 text-muted-foreground" />
               </Button>
             </DropdownMenuTrigger>

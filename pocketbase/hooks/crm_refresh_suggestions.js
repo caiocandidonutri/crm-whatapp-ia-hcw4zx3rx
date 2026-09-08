@@ -39,8 +39,26 @@ routerAdd(
       let updated = 0
       let errors = 0
 
+      var rulesText = 'Consulta inicial 7d, Retorno de SOP 15d, Procedimento hormonal 5d'
+      try {
+        var rList = $app.findRecordsByFilter('care_followup_rules', 'id != ""', 'created', 50, 0)
+        var rParts = []
+        for (var ri = 0; ri < rList.length; ri++) {
+          var rName = rList[ri].getString('name')
+          var rDays = rList[ri].getInt('followup_days') || 10
+          if (rName) rParts.push(rName + ' (' + rDays + 'd)')
+        }
+        if (rParts.length > 0) rulesText = rParts.join(', ')
+      } catch (_) {}
+
       var systemPrompt =
-        'Voce e um assistente de CRM. Analise o contato e as mensagens recentes. Responda em JSON com: { "suggested_action": string (proxima acao recomendada, max 200 chars), "priority": number (1-5, onde 5 e urgente) }. Responda apenas o JSON.'
+        'Você é o assistente de inteligência clínica e CRM da clínica de nutrição do Dr. Caio Cândido.\n' +
+        'Papéis fixos: "Dr. Caio" é o nutricionista responsável; "Fabiana" é a assistente/secretária. NUNCA interpretá-los como pacientes.\n' +
+        'Regras de Follow-up lidas do banco: ' +
+        rulesText +
+        '.\n' +
+        'Vocabulário nutricional: SOP, plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica.\n' +
+        'Responda em JSON com: { "suggested_action": string (próxima ação recomendada, max 200 chars), "priority": number (1-5, onde 5 é urgente) }. Responda apenas o JSON.'
 
       for (let i = 0; i < contacts.length; i++) {
         const contact = contacts[i]
@@ -51,7 +69,21 @@ routerAdd(
             contact.getString('contact_name') || contact.getString('push_name') || 'Contato'
           const phone = contact.getString('phone') || ''
           const stage = contact.getString('stage') || ''
+          const careStatus = contact.getString('care_status') || 'em_dia'
           const notes = contact.getString('notes') || ''
+
+          let activeTasksCount = 0
+          try {
+            const tks = $app.findRecordsByFilter(
+              'tasks',
+              "crm_contact_id = {:cid} && status != 'concluida' && status != 'cancelada'",
+              '-created',
+              5,
+              0,
+              { cid: contactId },
+            )
+            activeTasksCount = tks ? tks.length : 0
+          } catch (_) {}
 
           var messages = []
           try {
@@ -86,9 +118,11 @@ routerAdd(
           } catch (_) {}
 
           var contextParts = [
-            'Nome: ' + contactName,
+            'Nome do Paciente/Contato: ' + contactName,
             phone ? 'Telefone: ' + phone : '',
-            stage ? 'Estagio: ' + stage : '',
+            stage ? 'Estágio do pipeline (stage): ' + stage : '',
+            'Status de cuidado (care_status): ' + careStatus,
+            'Tarefas ativas de cuidado: ' + activeTasksCount,
             notes ? 'Notas: ' + notes : '',
             messages.length > 0 ? 'Mensagens recentes:\n' + messages.join('\n') : '',
           ].filter(Boolean)

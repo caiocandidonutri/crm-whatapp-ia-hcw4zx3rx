@@ -11,13 +11,24 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
   var fortyEightHoursAgo = nowTs - 48 * 3600
 
   var rulesById = {}
+  var rulesDescriptionText =
+    'Consulta inicial (7d), Retorno de SOP (15d), Procedimento hormonal (5d)'
   try {
     var allRules = $app.findRecordsByFilter('care_followup_rules', 'id != ""', 'created', 500, 0)
+    var ruleLines = []
     for (var rl = 0; rl < allRules.length; rl++) {
-      rulesById[allRules[rl].id] = allRules[rl].getInt('followup_days') || 10
+      var rId = allRules[rl].id
+      var rName = allRules[rl].getString('name')
+      var rDays = allRules[rl].getInt('followup_days') || 10
+      rulesById[rId] = rDays
+      if (rName) {
+        ruleLines.push(rName + ' (' + rDays + 'd)')
+      }
+    }
+    if (ruleLines.length > 0) {
+      rulesDescriptionText = ruleLines.join(', ')
     }
   } catch (_) {}
-
   // --- Limiares de follow-up por conta (care_followup_thresholds) ---
   // Permite configurar após quantos dias sem resposta um paciente entra
   // em cada categoria: "nao_respondeu", "precisa_atencao", "perdido".
@@ -141,25 +152,66 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
           var contactName =
             contact.getString('contact_name') || contact.getString('push_name') || jid
 
+          var pStage = contact.getString('stage') || 'lead'
+          var pCare = contact.getString('care_status') || 'em_dia'
+          var cTasksCount = 0
           try {
+            var cTasks = $app.findRecordsByFilter(
+              'tasks',
+              "crm_contact_id = {:cid} && status != 'concluida' && status != 'cancelada'",
+              '-created',
+              5,
+              0,
+              { cid: contact.id },
+            )
+            cTasksCount = cTasks ? cTasks.length : 0
+          } catch (_) {}
+
+          try {
+            var sysPrompt =
+              'Você é o assistente de CRM e inteligência clínica da clínica de nutrição do Dr. Caio Cândido.\n' +
+              'Papéis fundamentais da clínica:\n' +
+              '- "Dr. Caio" / "Dr. Caio Cândido" é o nutricionista responsável pelas condutas e consultas.\n' +
+              '- "Fabiana" é a assistente/secretária de acolhimento e agendamento.\n' +
+              '- Dr. Caio e Fabiana NUNCA devem ser interpretados como pacientes. O paciente/cliente é o interlocutor externo.\n' +
+              'Regras de Follow-up lidas da clínica: ' +
+              rulesDescriptionText +
+              '.\n' +
+              'Vocabulário nutricional/clínico relevante: SOP (Síndrome dos Ovários Policísticos), plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica, sintomas e exames.\n' +
+              'Responda APENAS em JSON válido com os campos: ' +
+              'stage (um de: lead, em_atendimento, cliente, nao_respondido), ' +
+              'role (um de: paciente, nao_paciente), ' +
+              'is_patient (boolean: true se o contato é paciente/cliente que fechou consulta com Dr. Caio), ' +
+              'conversion_detected (boolean: true se detectou agendamento/confirmação/fechamento de consulta), ' +
+              'suggested_action (breve próxima ação recomendada, max 120 chars), ' +
+              'priority (número 1-10, onde 10 é urgente).'
+
+            var userContent =
+              'Paciente/Contato: ' +
+              contactName +
+              '\n' +
+              'Estágio do pipeline (stage): ' +
+              pStage +
+              '\n' +
+              'Status de cuidado (care_status): ' +
+              pCare +
+              '\n' +
+              'Tarefas de cuidado ativas: ' +
+              cTasksCount +
+              '\n\n' +
+              'Histórico da Conversa:\n' +
+              transcript
+
             var reply = $ai.chat({
               model: 'fast',
               messages: [
                 {
                   role: 'system',
-                  content:
-                    'Você é um assistente de CRM. Analise a conversa do WhatsApp e classifique o contato. ' +
-                    'Responda APENAS em JSON válido com os campos: ' +
-                    'stage (um de: lead, em_atendimento, cliente, nao_respondido), ' +
-                    'role (um de: paciente, nao_paciente), ' +
-                    'is_patient (boolean: true se o contato é paciente/cliente que fechou consulta), ' +
-                    'conversion_detected (boolean: true se detectou agendamento/confirmação/fechamento de consulta), ' +
-                    'suggested_action (breve próxima ação recomendada, max 120 chars), ' +
-                    'priority (número 1-10, onde 10 é urgente).',
+                  content: sysPrompt,
                 },
                 {
                   role: 'user',
-                  content: 'Contato: ' + contactName + '\n\nTranscrição:\n' + transcript,
+                  content: userContent,
                 },
               ],
             })

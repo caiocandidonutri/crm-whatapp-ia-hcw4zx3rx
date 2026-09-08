@@ -105,15 +105,23 @@ export function PatientContextPanel({
   const careMeta = contact?.care_status ? getCareCategoryMeta(contact.care_status) : null
 
   return (
-    <aside className="w-80 border-l border-border bg-white flex flex-col h-full z-20 shadow-sm shrink-0 animate-in slide-in-from-right duration-200">
+    <aside className="fixed inset-0 md:static md:inset-auto md:w-80 w-full bg-white flex flex-col h-full z-50 md:z-20 border-l border-border shadow-lg md:shadow-sm shrink-0 animate-in slide-in-from-right duration-200">
       {/* Cabeçalho do Painel */}
-      <div className="p-4 border-b border-border flex items-center justify-between">
+      <div className="p-4 border-b border-border flex items-center justify-between bg-white shrink-0 min-h-[56px]">
         <div className="flex items-center gap-2">
           <HeartPulse className="w-5 h-5 text-rose-600" />
-          <h3 className="font-semibold text-foreground text-sm">Contexto do Paciente</h3>
+          <h3 className="font-semibold text-foreground text-sm md:text-base">
+            Contexto do Paciente
+          </h3>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 rounded-full">
-          <X className="w-4 h-4" />
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClose}
+          className="h-10 w-10 min-h-[44px] min-w-[44px] rounded-full hover:bg-muted text-muted-foreground hover:text-foreground"
+          aria-label="Fechar contexto do paciente"
+        >
+          <X className="w-5 h-5" />
         </Button>
       </div>
 
@@ -139,9 +147,9 @@ export function PatientContextPanel({
               <Button
                 size="sm"
                 onClick={onOpenAddToCrm}
-                className="w-full bg-primary hover:bg-primary/90 text-white rounded-lg text-xs"
+                className="w-full min-h-[44px] bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium"
               >
-                <Plus className="w-3.5 h-3.5 mr-1" />
+                <Plus className="w-4 h-4 mr-1.5" />
                 Adicionar ao CRM
               </Button>
             )}

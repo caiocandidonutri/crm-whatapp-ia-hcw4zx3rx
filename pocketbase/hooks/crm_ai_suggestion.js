@@ -53,16 +53,50 @@ routerAdd(
         }
       } catch (_) {}
 
+      let rulesText = 'Consulta inicial 7d, Retorno de SOP 15d, Procedimento hormonal 5d'
+      try {
+        const rList = $app.findRecordsByFilter('care_followup_rules', 'id != ""', 'created', 50, 0)
+        const rParts = []
+        for (let ri = 0; ri < rList.length; ri++) {
+          const rName = rList[ri].getString('name')
+          const rDays = rList[ri].getInt('followup_days') || 10
+          if (rName) rParts.push(rName + ' (' + rDays + 'd)')
+        }
+        if (rParts.length > 0) rulesText = rParts.join(', ')
+      } catch (_) {}
+
+      const careStatus = contact.getString('care_status') || 'em_dia'
+      let activeTasksCount = 0
+      try {
+        const tks = $app.findRecordsByFilter(
+          'tasks',
+          "crm_contact_id = {:cid} && status != 'concluida' && status != 'cancelada'",
+          '-created',
+          5,
+          0,
+          { cid: contact.id },
+        )
+        activeTasksCount = tks ? tks.length : 0
+      } catch (_) {}
+
       const contextParts = [
-        'Nome: ' + contactName,
+        'Nome do Paciente/Contato: ' + contactName,
         phone ? 'Telefone: ' + phone : '',
-        stage ? 'Estagio: ' + stage : '',
+        stage ? 'Estágio do pipeline (stage): ' + stage : '',
+        'Status de cuidado (care_status): ' + careStatus,
+        'Tarefas ativas de cuidado: ' + activeTasksCount,
         notes ? 'Notas: ' + notes : '',
         messages.length > 0 ? 'Mensagens recentes:\n' + messages.join('\n') : '',
       ].filter(Boolean)
 
       const systemPrompt =
-        'Voce e um assistente de CRM. Analise o contato e as mensagens recentes. Responda em JSON com: { "suggested_action": string (proxima acao recomendada, max 200 chars), "priority": number (1-5, onde 5 e urgente) }. Responda apenas o JSON.'
+        'Você é o assistente de inteligência e CRM da clínica de nutrição do Dr. Caio Cândido.\n' +
+        'Papéis fixos: "Dr. Caio" é o nutricionista responsável; "Fabiana" é a assistente/secretária. NUNCA interpretá-los como pacientes.\n' +
+        'Regras de Follow-up da clínica: ' +
+        rulesText +
+        '.\n' +
+        'Vocabulário nutricional: SOP, plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica.\n' +
+        'Responda em JSON com: { "suggested_action": string (próxima ação recomendada, max 200 chars), "priority": number (1-5, onde 5 é urgente) }. Responda apenas o JSON.'
 
       const reply = $ai.chat({
         model: 'fast',
