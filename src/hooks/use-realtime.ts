@@ -26,22 +26,45 @@ export function useRealtime<TRecord extends RecordModel = RecordModel>(
 
     let unsubscribeFn: (() => Promise<void>) | undefined
     let cancelled = false
+    let retryTimeoutId: any = null
+    let attempt = 0
 
-    pb.collection<TRecord>(collectionName)
-      .subscribe('*', (e) => {
-        callbackRef.current(e)
-      })
-      .then((fn) => {
-        if (cancelled) {
-          fn().catch(() => {})
-        } else {
-          unsubscribeFn = fn
-        }
-      })
-      .catch(() => {})
+    const subscribeWithBackoff = () => {
+      if (cancelled) return
+
+      pb.collection<TRecord>(collectionName)
+        .subscribe('*', (e) => {
+          callbackRef.current(e)
+        })
+        .then((fn) => {
+          if (cancelled) {
+            fn().catch(() => {})
+          } else {
+            unsubscribeFn = fn
+            attempt = 0 // Conexão estabelecida com sucesso, reseta backoff
+          }
+        })
+        .catch((err: any) => {
+          // Trata POST /api/realtime 400 (Invalid realtime client) ou falha temporária
+          // de SSE/network silenciosamente em backoff exponencial, sem toast nem alerta ao usuário
+          if (cancelled) return
+
+          attempt++
+          // Backoff exponencial de 1s até no máximo 15s com jitter
+          const delay = Math.min(1000 * Math.pow(1.5, attempt) + Math.random() * 500, 15000)
+          retryTimeoutId = setTimeout(() => {
+            subscribeWithBackoff()
+          }, delay)
+        })
+    }
+
+    subscribeWithBackoff()
 
     return () => {
       cancelled = true
+      if (retryTimeoutId) {
+        clearTimeout(retryTimeoutId)
+      }
       if (unsubscribeFn) {
         unsubscribeFn().catch(() => {})
       }

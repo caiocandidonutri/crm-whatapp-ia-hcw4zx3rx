@@ -3,8 +3,18 @@ routerAdd(
   '/backend/v1/crm-care/dashboard',
   (e) => {
     try {
+      // Resposta rápida e defensiva: sem reter socket nem travar a requisição
       var userId = e.auth && e.auth.id
-      if (!userId) return e.unauthorizedError('auth required')
+      if (!userId) {
+        return e.json(200, {
+          attended_today: 0,
+          needs_return: 0,
+          pending_tasks: 0,
+          total_patients: 0,
+          funnel: {},
+          care_alerts: [],
+        })
+      }
 
       var accountId = ''
       try {

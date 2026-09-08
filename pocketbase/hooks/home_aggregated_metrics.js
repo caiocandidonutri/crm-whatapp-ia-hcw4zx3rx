@@ -105,39 +105,37 @@ routerAdd(
       convArchived = convArchivedRow.cnt
     } catch (_) {}
 
-    // Mensagens Hoje e Ontem
+    // Mensagens Hoje e Ontem (calculado direto por account_id e timestamp em whatsapp_messages)
     var messagesToday = 0
     var yesterdayMessages = 0
-    if (instanceName) {
-      var todayRow = new DynamicModel({ cnt: 0 })
-      try {
-        $app
-          .db()
-          .newQuery(
-            'SELECT COUNT(*) as cnt FROM whatsapp_messages WHERE account_id = {:accId} AND timestamp >= {:start} AND timestamp < {:end}',
-          )
-          .bind({ accId: accountId, start: todayStartSec, end: todayEndSec })
-          .one(todayRow)
-        messagesToday = todayRow.cnt
-      } catch (_) {}
-      var yestRow = new DynamicModel({ cnt: 0 })
-      try {
-        $app
-          .db()
-          .newQuery(
-            'SELECT COUNT(*) as cnt FROM whatsapp_messages WHERE account_id = {:accId} AND timestamp >= {:start} AND timestamp < {:end}',
-          )
-          .bind({
-            accId: accountId,
-            start: yesterdayStartSec,
-            end: todayStartSec,
-          })
-          .one(yestRow)
-        yesterdayMessages = yestRow.cnt
-      } catch (_) {}
-    }
+    var todayRow = new DynamicModel({ cnt: 0 })
+    try {
+      $app
+        .db()
+        .newQuery(
+          'SELECT COUNT(*) as cnt FROM whatsapp_messages WHERE account_id = {:accId} AND timestamp >= {:start} AND timestamp < {:end}',
+        )
+        .bind({ accId: accountId, start: todayStartSec, end: todayEndSec })
+        .one(todayRow)
+      messagesToday = todayRow.cnt
+    } catch (_) {}
+    var yestRow = new DynamicModel({ cnt: 0 })
+    try {
+      $app
+        .db()
+        .newQuery(
+          'SELECT COUNT(*) as cnt FROM whatsapp_messages WHERE account_id = {:accId} AND timestamp >= {:start} AND timestamp < {:end}',
+        )
+        .bind({
+          accId: accountId,
+          start: yesterdayStartSec,
+          end: todayStartSec,
+        })
+        .one(yestRow)
+      yesterdayMessages = yestRow.cnt
+    } catch (_) {}
 
-    // Gráfico 7 dias
+    // Gráfico 7 dias (calculado diretamente de whatsapp_messages por account_id e timestamp)
     var chart = []
     for (var d = 6; d >= 0; d--) {
       var dayStart = todayStartSec - d * 86400
@@ -146,30 +144,28 @@ routerAdd(
       var label = dayDate.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
       var sent = 0
       var received = 0
-      if (instanceName) {
-        var sentRow = new DynamicModel({ cnt: 0 })
-        try {
-          $app
-            .db()
-            .newQuery(
-              'SELECT COUNT(*) as cnt FROM whatsapp_messages WHERE account_id = {:accId} AND timestamp >= {:start} AND timestamp < {:end} AND from_me = 1',
-            )
-            .bind({ accId: accountId, start: dayStart, end: dayEnd })
-            .one(sentRow)
-          sent = sentRow.cnt
-        } catch (_) {}
-        var recvRow = new DynamicModel({ cnt: 0 })
-        try {
-          $app
-            .db()
-            .newQuery(
-              'SELECT COUNT(*) as cnt FROM whatsapp_messages WHERE account_id = {:accId} AND timestamp >= {:start} AND timestamp < {:end} AND from_me = 0',
-            )
-            .bind({ accId: accountId, start: dayStart, end: dayEnd })
-            .one(recvRow)
-          received = recvRow.cnt
-        } catch (_) {}
-      }
+      var sentRow = new DynamicModel({ cnt: 0 })
+      try {
+        $app
+          .db()
+          .newQuery(
+            'SELECT COUNT(*) as cnt FROM whatsapp_messages WHERE account_id = {:accId} AND timestamp >= {:start} AND timestamp < {:end} AND from_me = 1',
+          )
+          .bind({ accId: accountId, start: dayStart, end: dayEnd })
+          .one(sentRow)
+        sent = sentRow.cnt
+      } catch (_) {}
+      var recvRow = new DynamicModel({ cnt: 0 })
+      try {
+        $app
+          .db()
+          .newQuery(
+            'SELECT COUNT(*) as cnt FROM whatsapp_messages WHERE account_id = {:accId} AND timestamp >= {:start} AND timestamp < {:end} AND from_me = 0',
+          )
+          .bind({ accId: accountId, start: dayStart, end: dayEnd })
+          .one(recvRow)
+        received = recvRow.cnt
+      } catch (_) {}
       chart.push({
         label: label,
         sent: sent,

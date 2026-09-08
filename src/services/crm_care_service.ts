@@ -85,7 +85,38 @@ export function streamCareAgentChat(
 }
 
 export async function getCareDashboard(): Promise<CareDashboardData> {
-  return pb.send('/backend/v1/crm-care/dashboard', { method: 'GET' })
+  const token = pb.authStore.token || ''
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers.Authorization = token
+  }
+
+  // Timeout defensivo de 8s (AbortController) para não travar a UI se a rede ou backend atrasar
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 8000)
+
+  try {
+    return await pb.send<CareDashboardData>('/backend/v1/crm-care/dashboard', {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    })
+  } catch (err: any) {
+    // Se estourou timeout ou falhou de forma não crítica, retorna fallback limpo e defensivo
+    if (err?.name === 'AbortError' || err?.status === 401) {
+      return {
+        attended_today: 0,
+        needs_return: 0,
+        pending_tasks: 0,
+        total_patients: 0,
+        funnel: {},
+        care_alerts: [],
+      }
+    }
+    throw err
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 export async function getPatientGroups(filters?: PatientGroupFilters): Promise<PatientGroupsData> {

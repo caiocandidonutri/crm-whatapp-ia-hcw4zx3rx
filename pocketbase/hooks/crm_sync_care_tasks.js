@@ -106,6 +106,12 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
       var jid = contact.getString('jid') || ''
       var instanceName = contact.getString('instance_name') || ''
 
+      // Validação estrita de JID: só criar tarefa se terminar em @s.whatsapp.net e ter entre 10 e 13 dígitos
+      // Descartar @lid, @g.us, status@broadcast
+      if (!jid || !jid.endsWith('@s.whatsapp.net')) continue
+      var jidDigits = jid.split('@')[0]
+      if (!/^\d{10,13}$/.test(jidDigits)) continue
+
       if (!instanceName) continue
       try {
         var instRec = $app.findFirstRecordByFilter(

@@ -46,6 +46,12 @@ onRecordAfterUpdateSuccess((e) => {
   var userId = contact.getString('user_id') || ''
   var jid = contact.getString('jid') || ''
   var instanceName = contact.getString('instance_name') || ''
+
+  // Validação estrita de JID: só criar/manter tarefa se terminar em @s.whatsapp.net e ter entre 10 e 13 dígitos
+  // Descartar @lid, @g.us, status@broadcast
+  if (!jid || !jid.endsWith('@s.whatsapp.net')) return e.next()
+  var jidDigits = jid.split('@')[0]
+  if (!/^\d{10,13}$/.test(jidDigits)) return e.next()
   var assignedTo = contact.getString('assigned_to') || ''
   var rawName = contact.getString('contact_name') || contact.getString('push_name') || ''
   var lowerRaw = rawName.toLowerCase().trim()

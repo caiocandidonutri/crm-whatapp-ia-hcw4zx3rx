@@ -13,18 +13,9 @@
 cronAdd('backfill_conv_timestamps', '* * * * *', () => {
   let records = []
   try {
-    // Pega tanto valores 0 (default do NumberField) quanto null (rows
-    // antigas, anteriores à migration 0017, em que o campo pode ter ficado
-    // sem default). Sem o `= null`, conversas pré-migração jamais entravam
-    // no backfill.
-    records = $app.findRecordsByFilter(
-      'conversations',
-      'last_message_timestamp = 0 || last_message_timestamp = null',
-      '+created',
-      200,
-      0,
-      {},
-    )
+    // Busca até 200 conversas para conferir se há mensagens mais recentes
+    // ordenando pelas mais antigas atualizadas (+updated) para rodar continuamente
+    records = $app.findRecordsByFilter('conversations', 'remote_jid != ""', '+updated', 200, 0, {})
   } catch (err) {
     $app.logger().error('cron_backfill_conv_timestamps_query_error', 'error', String(err))
     return
@@ -38,45 +29,43 @@ cronAdd('backfill_conv_timestamps', '* * * * *', () => {
     try {
       const remoteJid = conv.getString('remote_jid')
       const instanceName = conv.getString('instance_name')
-      if (!remoteJid || !instanceName) continue
+      if (!remoteJid) continue
 
+      // Consulta o MAX(timestamp) de whatsapp_messages para esta conversa
+      const maxRow = new DynamicModel({ max_ts: 0 })
       try {
-        const instRecord = $app.findFirstRecordByFilter(
-          'whatsapp_instances',
-          'instance_name = {:name}',
-          { name: instanceName },
-        )
-        if (!instRecord || instRecord.getString('status') !== 'connected') {
-          continue
+        if (instanceName) {
+          $app
+            .db()
+            .newQuery(
+              'SELECT COALESCE(MAX(timestamp), 0) as max_ts FROM whatsapp_messages WHERE remote_jid = {:jid} AND instance_name = {:inst}',
+            )
+            .bind({ jid: remoteJid, inst: instanceName })
+            .one(maxRow)
+        } else {
+          $app
+            .db()
+            .newQuery(
+              'SELECT COALESCE(MAX(timestamp), 0) as max_ts FROM whatsapp_messages WHERE remote_jid = {:jid}',
+            )
+            .bind({ jid: remoteJid })
+            .one(maxRow)
         }
-      } catch (_) {
-        // Instância inexistente ou erro = desconectada, pular
-        continue
-      }
-
-      let lastMsgs = []
-      try {
-        lastMsgs = $app.findRecordsByFilter(
-          'whatsapp_messages',
-          'remote_jid = {:jid} && instance_name = {:name}',
-          '-timestamp',
-          1,
-          0,
-          { jid: remoteJid, name: instanceName },
-        )
       } catch (_) {
         continue
       }
 
-      if (lastMsgs && lastMsgs.length > 0) {
-        const ts = lastMsgs[0].getInt('timestamp') || 0
-        if (ts > 0) {
-          conv.set('last_message_timestamp', ts)
-          try {
-            $app.save(conv)
-            updatedCount++
-          } catch (_) {}
-        }
+      const maxTs = maxRow.max_ts || 0
+      const currentTs = conv.getInt('last_message_timestamp') || 0
+
+      // Atualiza quando o MAX das mensagens for maior que o gravado na conversa
+      // (cobrindo conversas zeradas ou com datas desatualizadas/antigas de agosto)
+      if (maxTs > currentTs) {
+        conv.set('last_message_timestamp', maxTs)
+        try {
+          $app.saveNoValidate(conv)
+          updatedCount++
+        } catch (_) {}
       }
     } catch (_) {}
   }
