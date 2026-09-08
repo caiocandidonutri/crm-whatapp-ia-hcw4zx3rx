@@ -28,13 +28,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { alternarArquivamentoConversa, atualizarNomeContato } from '@/services/whatsapp_service'
+import {
+  alternarArquivamentoConversa,
+  atualizarNomeContato,
+  enviarTexto,
+  transcreverAudio,
+} from '@/services/whatsapp_service'
 import { isInvalidContactName } from '@/lib/whatsapp-mappers'
 import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { AddToCrmDialog } from '@/components/crm/AddToCrmDialog'
 import { ForwardDialog } from '@/components/chat/ForwardDialog'
 import { PatientContextPanel } from '@/components/chat/PatientContextPanel'
-import { transcreverAudio } from '@/services/whatsapp_service'
 import { UserCheck } from 'lucide-react'
 import { AgenteConversaToggle } from '@/components/chat/AgenteConversaToggle'
 import { TaskActionBar } from '@/components/chat/TaskActionBar'
@@ -83,6 +87,7 @@ type ChatAreaProps = {
   onLoadOlderDb?: () => void
   onArchive?: (archived: boolean) => Promise<void> | void
   isArchived?: boolean
+  conversations?: any[]
 }
 
 export function ChatArea({
@@ -98,6 +103,7 @@ export function ChatArea({
   onLoadOlderDb,
   onArchive,
   isArchived,
+  conversations = [],
 }: ChatAreaProps) {
   const [inputText, setInputText] = useState('')
   const [isSending, setIsSending] = useState(false)

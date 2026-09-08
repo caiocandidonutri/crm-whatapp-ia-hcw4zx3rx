@@ -532,6 +532,7 @@ export default function Conversas() {
                 isArchived={activeConversation?.archived === true}
                 isMobile={isMobile}
                 highlightMsgId={highlightMsgId}
+                conversations={conversations}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50 space-y-4">

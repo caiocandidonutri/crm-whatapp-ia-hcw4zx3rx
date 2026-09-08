@@ -88,33 +88,63 @@ cronAdd('health_check', '*/5 * * * *', () => {
         $app.save(instance)
         $app.logger().info('health_check_real_disconnect', 'instance', instanceName)
 
-        // Registrar notificação no sistema quando desconectado
+        // Registrar notificação no sistema apenas na transição conectado -> desconectado
+        // Notificar tanto o dono quanto os membros da conta (se houver account_id)
         try {
           const userId = instance.getString('user_id')
-          if (userId) {
-            const existingNotifs = $app.findRecordsByFilter(
-              'notifications',
-              "user_id = {:uid} && type = 'system' && read = false && title ~ 'desconectada'",
-              '-created',
-              1,
-              0,
-              { uid: userId },
-            )
-            if (!existingNotifs || existingNotifs.length === 0) {
-              const notifCol = $app.findCollectionByNameOrId('notifications')
-              const notif = new Record(notifCol)
-              notif.set('user_id', userId)
-              notif.set('title', 'Instância WhatsApp desconectada')
-              notif.set(
-                'body',
-                'A instância "' +
-                  instanceName +
-                  '" perdeu a conexão com o WhatsApp. Verifique suas conexões.',
+          const accountId = instance.getString('account_id')
+          const notifCol = $app.findCollectionByNameOrId('notifications')
+
+          let targetUserIds = []
+          if (accountId) {
+            try {
+              const members = $app.findRecordsByFilter(
+                'account_members',
+                'account_id = {:accId}',
+                '-created',
+                100,
+                0,
+                { accId: accountId },
               )
-              notif.set('type', 'system')
-              notif.set('read', false)
-              $app.save(notif)
-            }
+              for (const m of members) {
+                const uid = m.getString('user_id')
+                if (uid && targetUserIds.indexOf(uid) === -1) {
+                  targetUserIds.push(uid)
+                }
+              }
+            } catch (_) {}
+          }
+          if (userId && targetUserIds.indexOf(userId) === -1) {
+            targetUserIds.push(userId)
+          }
+
+          for (const uid of targetUserIds) {
+            try {
+              // Evitar notificações duplicadas não lidas para a mesma queda
+              const existingNotifs = $app.findRecordsByFilter(
+                'notifications',
+                "user_id = {:uid} && type = 'system' && read = false && title ~ 'desconectada'",
+                '-created',
+                1,
+                0,
+                { uid: uid },
+              )
+              if (!existingNotifs || existingNotifs.length === 0) {
+                const notif = new Record(notifCol)
+                notif.set('user_id', uid)
+                if (accountId) notif.set('account_id', accountId)
+                notif.set('title', 'Instância WhatsApp desconectada')
+                notif.set(
+                  'body',
+                  'A instância "' +
+                    instanceName +
+                    '" perdeu a conexão com o WhatsApp. Reconecte para continuar enviando e recebendo mensagens.',
+                )
+                notif.set('type', 'system')
+                notif.set('read', false)
+                $app.saveNoValidate(notif)
+              }
+            } catch (_) {}
           }
         } catch (_) {}
 

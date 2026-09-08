@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, MessageSquare, Heart, CheckSquare, CheckCheck } from 'lucide-react'
+import { Bell, MessageSquare, Heart, CheckSquare, CheckCheck, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -14,12 +14,14 @@ const ICON_MAP: Record<string, typeof Bell> = {
   message: MessageSquare,
   care_alert: Heart,
   task: CheckSquare,
+  system: AlertCircle,
 }
 
 const COLOR_MAP: Record<string, string> = {
   message: 'text-emerald-600 bg-emerald-50',
   care_alert: 'text-rose-600 bg-rose-50',
   task: 'text-blue-600 bg-blue-50',
+  system: 'text-red-600 bg-red-50',
 }
 
 export function NotificationCenter() {
@@ -40,6 +42,8 @@ export function NotificationCenter() {
       }
     } else if (notif.type === 'task' && notif.task_id) {
       navigate('/tarefas')
+    } else if (notif.type === 'system') {
+      navigate('/conversas')
     }
   }
 

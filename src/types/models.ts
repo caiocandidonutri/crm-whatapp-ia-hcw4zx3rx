@@ -138,6 +138,8 @@ export interface CrmContact extends RecordModel {
     company_id?: CrmCompany
     assigned_to?: User
     followup_rule_id?: CareFollowupRule
+    stage_id?: { id: string; label?: string; title?: string }
+    [key: string]: any
   }
 }
 
@@ -264,7 +266,7 @@ export interface CareFollowupThreshold extends RecordModel {
 export interface Notification extends RecordModel {
   user_id: string
   account_id?: string
-  type: 'message' | 'care_alert' | 'task'
+  type: 'message' | 'care_alert' | 'task' | 'system'
   title: string
   body?: string
   conversation_id?: string

@@ -181,7 +181,17 @@ export function PatientContextPanel({
                     className="text-xs font-medium bg-primary/5 text-primary border-primary/20"
                   >
                     <Tag className="w-3 h-3 mr-1" />
-                    {contact.expand.stage_id.title}
+                    {contact.expand.stage_id.label ||
+                      contact.expand.stage_id.title ||
+                      contact.stage}
+                  </Badge>
+                ) : contact.stage ? (
+                  <Badge
+                    variant="outline"
+                    className="text-xs font-medium bg-primary/5 text-primary border-primary/20"
+                  >
+                    <Tag className="w-3 h-3 mr-1" />
+                    {contact.stage}
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="text-xs text-muted-foreground">
