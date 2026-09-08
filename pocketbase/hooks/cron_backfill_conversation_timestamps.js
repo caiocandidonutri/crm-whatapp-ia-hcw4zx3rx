@@ -46,10 +46,13 @@ cronAdd('backfill_conv_timestamps', '* * * * *', () => {
           'instance_name = {:name}',
           { name: instanceName },
         )
-        if (instRecord && instRecord.getString('status') !== 'connected') {
+        if (!instRecord || instRecord.getString('status') !== 'connected') {
           continue
         }
-      } catch (_) {}
+      } catch (_) {
+        // Instância inexistente ou erro = desconectada, pular
+        continue
+      }
 
       let lastMsgs = []
       try {

@@ -58,8 +58,10 @@ cronAdd('health_check', '*/5 * * * *', () => {
   for (const instance of instances) {
     try {
       const instanceName = instance.getString('instance_name')
+      if (!instanceName) continue
 
       let realConnected = false
+      let instanceNotFound = false
       try {
         const resConn = $http.send({
           url: apiUrl + '/instance/connectionState/' + instanceName,
@@ -74,6 +76,8 @@ cronAdd('health_check', '*/5 * * * *', () => {
           resConn.json.instance.state === 'open'
         ) {
           realConnected = true
+        } else if (resConn.statusCode === 404) {
+          instanceNotFound = true
         }
       } catch (err) {
         $app
@@ -87,6 +91,10 @@ cronAdd('health_check', '*/5 * * * *', () => {
         instance.set('health_check_failures', (instance.getInt('health_check_failures') || 0) + 1)
         $app.save(instance)
         $app.logger().info('health_check_real_disconnect', 'instance', instanceName)
+        if (instanceNotFound) {
+          // Se não existe na Evolution API, não adianta tentar reiniciar
+          continue
+        }
 
         // Registrar notificação no sistema apenas na transição conectado -> desconectado
         // Notificar tanto o dono quanto os membros da conta (se houver account_id)

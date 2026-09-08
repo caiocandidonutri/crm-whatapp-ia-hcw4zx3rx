@@ -62,7 +62,22 @@ onRecordAfterUpdateSuccess((e) => {
   var contactName = rawName
 
   var nowTs = Math.floor(Date.now() / 1000)
-  var nextDayDate = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+  var nextDayIso = new Date(Date.now() + 86400000).toISOString()
+  var cutoff36hIso = new Date(Date.now() - 36 * 3600 * 1000).toISOString()
+
+  // Item 2: Tratar instância inexistente = desconectada
+  if (!instanceName) return e.next()
+  try {
+    var instCheck = $app.findFirstRecordByFilter('whatsapp_instances', 'instance_name = {:name}', {
+      name: instanceName,
+    })
+    if (!instCheck || instCheck.getString('status') !== 'connected') {
+      return e.next()
+    }
+  } catch (_) {
+    // Instância inexistente ou erro: tratar como desconectada e PULAR
+    return e.next()
+  }
 
   // --- Follow-up days (regra da conta, default 10) ---
   var followupDays = 10
@@ -253,7 +268,7 @@ onRecordAfterUpdateSuccess((e) => {
         dirty = true
       }
       if (!foundTask.getString('due_date')) {
-        foundTask.set('due_date', nextDayDate)
+        foundTask.set('due_date', nextDayIso)
         dirty = true
       }
       if (assignedTo && !foundTask.getString('assigned_to')) {
@@ -266,6 +281,25 @@ onRecordAfterUpdateSuccess((e) => {
         } catch (_) {}
       }
     } else {
+      // Item 1: MEMÓRIA DE CONCLUSÃO — verificar se existe tarefa da MESMA care_category
+      // para o mesmo crm_contact_id com status='concluida' nas últimas 36h
+      var hasRecentCompleted = false
+      try {
+        var recentDone = $app.findRecordsByFilter(
+          'tasks',
+          "crm_contact_id = {:cid} && care_category = {:cat} && status = 'concluida' && (completed_at >= {:cutoff} || updated >= {:cutoff})",
+          '-updated',
+          1,
+          0,
+          { cid: contactId, cat: category, cutoff: cutoff36hIso },
+        )
+        if (recentDone && recentDone.length > 0) {
+          hasRecentCompleted = true
+        }
+      } catch (_) {}
+
+      if (hasRecentCompleted) continue
+
       // Verificação defensiva extra no banco antes de criar: garantir que não existe outra tarefa ativa
       var alreadyExists = false
       try {
@@ -294,7 +328,7 @@ onRecordAfterUpdateSuccess((e) => {
         newTask.set('priority', taskPriority)
         newTask.set('care_category', category)
         newTask.set('crm_contact_id', contactId)
-        newTask.set('due_date', nextDayDate)
+        newTask.set('due_date', nextDayIso)
         if (assignedTo) newTask.set('assigned_to', assignedTo)
         if (conversationId) newTask.set('conversation_id', conversationId)
         if (aiAction) newTask.set('description', aiAction)

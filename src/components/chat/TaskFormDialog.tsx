@@ -114,8 +114,8 @@ export function TaskFormDialog({
       const user_id = pb.authStore.record?.id
       let formattedDate = undefined
       if (dueDate) {
-        // Formato ISO string (aceito perfeitamente pelo PocketBase via substituição de T para espaço)
-        formattedDate = dueDate.toISOString().replace('T', ' ')
+        // Formato ISO completo (ex: 2026-09-09T00:00:00.000Z)
+        formattedDate = dueDate.toISOString()
       }
 
       await createTask({

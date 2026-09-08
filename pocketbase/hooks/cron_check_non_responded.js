@@ -27,16 +27,20 @@ cronAdd('check_non_responded', '0 * * * *', () => {
       const instanceName = conv.getString('instance_name')
 
       // Ignora conversas pertencentes a instâncias que não estejam conectadas
+      if (!instanceName) continue
       try {
         const instRec = $app.findFirstRecordByFilter(
           'whatsapp_instances',
           'instance_name = {:name}',
           { name: instanceName },
         )
-        if (instRec && instRec.getString('status') !== 'connected') {
+        if (!instRec || instRec.getString('status') !== 'connected') {
           continue
         }
-      } catch (_) {}
+      } catch (_) {
+        // Instância inexistente ou erro = desconectada, pular
+        continue
+      }
 
       let lastMessages = []
       try {

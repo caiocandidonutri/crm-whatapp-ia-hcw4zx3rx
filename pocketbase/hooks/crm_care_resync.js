@@ -234,16 +234,20 @@ routerAdd(
       var cJid = c.getString('jid') || '',
         cInst = c.getString('instance_name') || ''
 
+      if (!cInst) continue
       try {
         var instRec = $app.findFirstRecordByFilter(
           'whatsapp_instances',
           'instance_name = {:name}',
           { name: cInst },
         )
-        if (instRec && instRec.getString('status') !== 'connected') {
+        if (!instRec || instRec.getString('status') !== 'connected') {
           continue
         }
-      } catch (_) {}
+      } catch (_) {
+        // Instância inexistente ou erro = desconectada, pular
+        continue
+      }
       var cName = c.getString('contact_name') || c.getString('push_name') || cJid || 'Contato'
       var cCare = c.getString('care_status') || 'em_dia',
         cStage = c.getString('stage') || ''
@@ -320,7 +324,8 @@ routerAdd(
       }
 
       var cAssignedTo = c.getString('assigned_to') || ''
-      var nextDayDate = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+      var nextDayDate = new Date(Date.now() + 86400000).toISOString()
+      var cutoff36hIso = new Date(Date.now() - 36 * 3600 * 1000).toISOString()
 
       for (var cc = 0; cc < cats.length; cc++) {
         var cat = cats[cc],
@@ -342,6 +347,25 @@ routerAdd(
           $app.saveNoValidate(found)
           tasksUpdated++
         } else {
+          // Item 1: MEMÓRIA DE CONCLUSÃO — verificar se existe tarefa da MESMA care_category
+          // para o mesmo crm_contact_id com status='concluida' nas últimas 36h
+          var hasRecentCompleted = false
+          try {
+            var recentDone = $app.findRecordsByFilter(
+              'tasks',
+              "crm_contact_id = {:cid} && care_category = {:cat} && status = 'concluida' && (completed_at >= {:cutoff} || updated >= {:cutoff})",
+              '-updated',
+              1,
+              0,
+              { cid: c.id, cat: cat, cutoff: cutoff36hIso },
+            )
+            if (recentDone && recentDone.length > 0) {
+              hasRecentCompleted = true
+            }
+          } catch (_) {}
+
+          if (hasRecentCompleted) continue
+
           // Idempotência: verifica se já existe tarefa ativa antes de criar
           var alreadyExists = false
           try {

@@ -430,7 +430,7 @@ export function useConversas(
     !!accountId && !!instanceName,
   )
 
-  return { conversations, loading, loadingMore, hasMore, loadMore, reload }
+  return { conversations, setConversations, loading, loadingMore, hasMore, loadMore, reload }
 }
 
 // Tamanho da página na carga inicial de mensagens. Antes usávamos

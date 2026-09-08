@@ -54,6 +54,7 @@ import { useAuth } from '@/hooks/use-auth'
 import { useCurrentAccount } from '@/hooks/use-current-account'
 import { useHistorySync } from '@/hooks/use-history-sync'
 import { useCrmContatos } from '@/hooks/use-crm'
+import pb from '@/lib/pocketbase/client'
 
 export default function Conversas() {
   const isMobile = useIsMobile()
@@ -62,6 +63,7 @@ export default function Conversas() {
   const [showArchived, setShowArchived] = useState(false)
   const {
     conversations,
+    setConversations,
     loading: loadingChats,
     loadingMore: loadingMoreChats,
     reload: reloadChats,
@@ -71,6 +73,36 @@ export default function Conversas() {
     showArchived,
   )
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
+  const clearingUnreadRef = useRef<Set<string>>(new Set())
+
+  // Zerar unread_count de forma idempotente local e no PocketBase
+  const markChatAsRead = useCallback(
+    (convIdOrJid: string) => {
+      const conv = conversations.find((c) => c.id === convIdOrJid || c.remote_jid === convIdOrJid)
+      if (!conv || !conv.unread_count || conv.unread_count <= 0) return
+      if (clearingUnreadRef.current.has(conv.id)) return
+
+      clearingUnreadRef.current.add(conv.id)
+      // Atualiza localmente no objeto
+      conv.unread_count = 0
+
+      // Dispara re-render da lista de conversas com unread_count = 0
+      setConversations((prev) =>
+        prev.map((c) => (c.id === conv.id ? { ...c, unread_count: 0 } : c)),
+      )
+
+      // Persiste no backend de forma assíncrona
+      pb.collection('conversations')
+        .update(conv.id, { unread_count: 0 })
+        .catch((err) => {
+          console.warn('Falha ao zerar unread_count:', err)
+        })
+        .finally(() => {
+          clearingUnreadRef.current.delete(conv.id)
+        })
+    },
+    [conversations],
+  )
 
   // Contatos do CRM da instância ativa: quando uma conversa tem um contato
   // no CRM, o nome salvo no CRM tem prioridade sobre o nome do WhatsApp
@@ -277,13 +309,25 @@ export default function Conversas() {
   useEffect(() => {
     if (!isMobile && !activeChatId && conversations.length > 0) {
       setActiveChatId(conversations[0].id)
+      markChatAsRead(conversations[0].id)
     }
-  }, [isMobile, activeChatId, conversations])
+  }, [isMobile, activeChatId, conversations, markChatAsRead])
 
-  const handleSelectChat = useCallback((id: string) => {
-    setActiveChatId(id)
-    setHighlightMsgId(null)
-  }, [])
+  // Efeito adicional para zerar unread_count se o activeChatId mudar ou se novas mensagens chegarem na conversa ativa
+  useEffect(() => {
+    if (activeChatId) {
+      markChatAsRead(activeChatId)
+    }
+  }, [activeChatId, markChatAsRead])
+
+  const handleSelectChat = useCallback(
+    (id: string) => {
+      setActiveChatId(id)
+      setHighlightMsgId(null)
+      markChatAsRead(id)
+    },
+    [markChatAsRead],
+  )
 
   const handleArchive = async (conversationId: string, archived: boolean) => {
     try {

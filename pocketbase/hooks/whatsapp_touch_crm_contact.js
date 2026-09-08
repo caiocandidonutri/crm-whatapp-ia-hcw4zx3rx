@@ -20,15 +20,21 @@ onRecordAfterCreateSuccess((e) => {
     var userId = msg.getString('user_id') || ''
     var accountId = msg.getString('account_id') || ''
 
-    // Ignora instâncias desconectadas
+    // Ignora instâncias desconectadas ou inexistentes
+    if (!instanceName) return e.next()
     try {
       var instRec = $app.findFirstRecordByFilter('whatsapp_instances', 'instance_name = {:name}', {
         name: instanceName,
       })
-      if (instRec && instRec.getString('status') !== 'connected') {
+      if (!instRec || instRec.getString('status') !== 'connected') {
         return e.next()
       }
-    } catch (_) {}
+    } catch (_) {
+      // Instância inexistente ou erro = desconectada, pular
+      return e.next()
+    }
+
+    var fromMe = msg.getBool('from_me')
 
     var contact = null
     try {
@@ -54,6 +60,17 @@ onRecordAfterCreateSuccess((e) => {
       contact.set('last_synced_at', nowIso)
       if (!contact.getString('account_id') && accountId) {
         contact.set('account_id', accountId)
+      }
+      // Item 3: Quando a mensagem for do paciente (!from_me):
+      // se contact.stage === 'nao_respondido' -> setar 'em_atendimento'
+      // se contact.care_status === 'nao_respondeu' -> setar 'em_dia'
+      if (!fromMe) {
+        if (contact.getString('stage') === 'nao_respondido') {
+          contact.set('stage', 'em_atendimento')
+        }
+        if (contact.getString('care_status') === 'nao_respondeu') {
+          contact.set('care_status', 'em_dia')
+        }
       }
       // Se push_name for válido e o contato estiver sem contact_name válido, atualiza
       if (!isInvalidPushName) {
@@ -85,7 +102,8 @@ onRecordAfterCreateSuccess((e) => {
         var safePushName = isInvalidPushName ? '' : pushName
         newContact.set('push_name', safePushName)
         newContact.set('contact_name', safePushName)
-        newContact.set('stage', 'lead')
+        // Se a mensagem for do paciente (!from_me), estágio é 'em_atendimento'; caso contrário 'lead'
+        newContact.set('stage', !fromMe ? 'em_atendimento' : 'lead')
         newContact.set('care_status', 'em_dia')
         newContact.set('last_synced_at', nowIso)
         $app.save(newContact)

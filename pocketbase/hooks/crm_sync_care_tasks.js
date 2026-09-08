@@ -106,16 +106,20 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
       var jid = contact.getString('jid') || ''
       var instanceName = contact.getString('instance_name') || ''
 
+      if (!instanceName) continue
       try {
         var instRec = $app.findFirstRecordByFilter(
           'whatsapp_instances',
           'instance_name = {:name}',
           { name: instanceName },
         )
-        if (instRec && instRec.getString('status') !== 'connected') {
+        if (!instRec || instRec.getString('status') !== 'connected') {
           continue
         }
-      } catch (_) {}
+      } catch (_) {
+        // Instância inexistente ou erro = desconectada, pular
+        continue
+      }
       var contactName =
         contact.getString('contact_name') || contact.getString('push_name') || jid || 'Contato'
       var careStatus = contact.getString('care_status') || 'em_dia'
@@ -220,7 +224,8 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
         var label = categoryLabels[category] || category
         var title = label + ': ' + contactName
         var contactAssignedTo = contact.getString('assigned_to') || ''
-        var nextDayDate = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+        var nextDayDate = new Date(Date.now() + 86400000).toISOString()
+        var cutoff36hIso = new Date(Date.now() - 36 * 3600 * 1000).toISOString()
 
         var foundTask = null
         for (var t2 = 0; t2 < existingTasks.length; t2++) {
@@ -242,6 +247,25 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
           $app.saveNoValidate(foundTask)
           tasksUpdated++
         } else {
+          // Item 1: MEMÓRIA DE CONCLUSÃO — verificar se existe tarefa da MESMA care_category
+          // para o mesmo crm_contact_id com status='concluida' nas últimas 36h
+          var hasRecentCompleted = false
+          try {
+            var recentDone = $app.findRecordsByFilter(
+              'tasks',
+              "crm_contact_id = {:cid} && care_category = {:cat} && status = 'concluida' && (completed_at >= {:cutoff} || updated >= {:cutoff})",
+              '-updated',
+              1,
+              0,
+              { cid: contact.id, cat: category, cutoff: cutoff36hIso },
+            )
+            if (recentDone && recentDone.length > 0) {
+              hasRecentCompleted = true
+            }
+          } catch (_) {}
+
+          if (hasRecentCompleted) continue
+
           // Idempotência: verifica se já existe tarefa ativa por contato e categoria
           var alreadyExists = false
           try {

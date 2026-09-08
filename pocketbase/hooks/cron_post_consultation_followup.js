@@ -1,6 +1,7 @@
 cronAdd('post_consultation_followup', '0 9 * * *', () => {
   var nowTs = Math.floor(Date.now() / 1000)
-  var todayStr = new Date().toISOString().split('T')[0]
+  var nextDayIso = new Date(Date.now() + 86400000).toISOString()
+  var cutoff36hIso = new Date(Date.now() - 36 * 3600 * 1000).toISOString()
 
   var rulesById = {}
   try {
@@ -75,7 +76,22 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
     var accountId = contact.getString('account_id')
     var contactName =
       contact.getString('contact_name') || contact.getString('push_name') || 'Paciente'
+    var instanceName = contact.getString('instance_name') || ''
     var patientFollowupDays = getFollowupDays(contact)
+
+    // Item 2: Instância inexistente = desconectada, pular
+    if (!instanceName) continue
+    try {
+      var instRec = $app.findFirstRecordByFilter('whatsapp_instances', 'instance_name = {:name}', {
+        name: instanceName,
+      })
+      if (!instRec || instRec.getString('status') !== 'connected') {
+        continue
+      }
+    } catch (_) {
+      // Instância inexistente ou erro = desconectada, pular
+      continue
+    }
 
     var existingTask = null
     try {
@@ -167,9 +183,28 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
       task.set('description', followupText)
       task.set('status', 'pendente')
       task.set('priority', 'media')
+      // Item 1: MEMÓRIA DE CONCLUSÃO — verificar se existe tarefa da categoria followup_10_15
+      // concluída nas últimas 36h
+      var hasRecentCompleted = false
+      try {
+        var recentDone = $app.findRecordsByFilter(
+          'tasks',
+          "crm_contact_id = {:cid} && care_category = 'followup_10_15' && status = 'concluida' && (completed_at >= {:cutoff} || updated >= {:cutoff})",
+          '-updated',
+          1,
+          0,
+          { cid: contactId, cutoff: cutoff36hIso },
+        )
+        if (recentDone && recentDone.length > 0) {
+          hasRecentCompleted = true
+        }
+      } catch (_) {}
+
+      if (hasRecentCompleted) continue
+
       task.set('care_category', 'followup_10_15')
       task.set('crm_contact_id', contactId)
-      task.set('due_date', todayStr)
+      task.set('due_date', nextDayIso)
       if (assignedTo) task.set('assigned_to', assignedTo)
       $app.save(task)
       tasksCreated++

@@ -86,16 +86,20 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
       var instanceName = contact.getString('instance_name') || ''
 
       // Se o contato pertencer a instância desconectada, pula
+      if (!instanceName) continue
       try {
         var instRec = $app.findFirstRecordByFilter(
           'whatsapp_instances',
           'instance_name = {:name}',
           { name: instanceName },
         )
-        if (instRec && instRec.getString('status') !== 'connected') {
+        if (!instRec || instRec.getString('status') !== 'connected') {
           continue
         }
-      } catch (_) {}
+      } catch (_) {
+        // Instância inexistente ou erro = desconectada, pular
+        continue
+      }
 
       if (aiClassified < 30 && jid && instanceName) {
         var messages = []

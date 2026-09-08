@@ -186,16 +186,20 @@ cronAdd('enrich_conversations', '* * * * *', () => {
     processedCount++
     const instanceName = record.getString('instance_name')
     // Não enriquece conversas de instâncias inativas/desconectadas
+    if (!instanceName) continue
     try {
       const instRecord = $app.findFirstRecordByFilter(
         'whatsapp_instances',
         'instance_name = {:name}',
         { name: instanceName },
       )
-      if (instRecord && instRecord.getString('status') !== 'connected') {
+      if (!instRecord || instRecord.getString('status') !== 'connected') {
         continue
       }
-    } catch (_) {}
+    } catch (_) {
+      // Instância inexistente ou erro = desconectada, pular
+      continue
+    }
 
     const remoteJid = record.getString('remote_jid')
     const isGroup = record.getBool('is_group')
