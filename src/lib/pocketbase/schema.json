@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-08T21:52:45.172Z",
+  "generatedAt": "2026-09-08T22:00:42.934Z",
   "collections": [
     {
       "name": "users",
@@ -797,6 +797,12 @@
           "required": false,
           "system": false,
           "collectionRef": "care_followup_rules"
+        },
+        {
+          "name": "archived",
+          "type": "bool",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [

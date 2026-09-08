@@ -109,10 +109,9 @@ function TaskCard({ task, onDelete }: { task: Task; onDelete: (t: Task) => void 
       {task.description && (
         <>
           <Separator className="bg-border/50" />
-          <div
-            className="text-sm text-foreground/80 prose prose-sm max-w-none prose-p:leading-snug prose-p:my-1"
-            dangerouslySetInnerHTML={{ __html: task.description }}
-          />
+          <p className="text-sm text-foreground/80 whitespace-pre-wrap">
+            {task.description.replace(/<[^>]+>/g, ' ')}
+          </p>
         </>
       )}
 

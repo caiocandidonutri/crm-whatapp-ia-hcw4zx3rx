@@ -15,6 +15,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +53,8 @@ interface CrmPipelineBoardProps {
   getContactTitle: (c: CrmContact) => string
   onOpenContact: (id: string) => void
   onAskDelete: (c: CrmContact) => void
+  selectedIds?: Set<string>
+  onToggleSelect?: (id: string, e: React.MouseEvent) => void
 }
 
 export function CrmPipelineBoard({
@@ -62,6 +65,8 @@ export function CrmPipelineBoard({
   getContactTitle,
   onOpenContact,
   onAskDelete,
+  selectedIds = new Set(),
+  onToggleSelect,
 }: CrmPipelineBoardProps) {
   const navigate = useNavigate()
   const [draggedId, setDraggedId] = useState<string | null>(null)
@@ -162,11 +167,28 @@ export function CrmPipelineBoard({
                         onDragEnd={() => setDraggedId(null)}
                         onClick={() => onOpenContact(contact.id)}
                         className={cn(
-                          'group bg-white border border-border/60 rounded-xl p-3.5 shadow-sm cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-md transition-all',
+                          'group bg-white border border-border/60 rounded-xl p-3.5 shadow-sm cursor-grab active:cursor-grabbing hover:border-primary/40 hover:shadow-md transition-all relative',
                           draggedId === contact.id && 'opacity-50 border-dashed',
+                          selectedIds.has(contact.id) &&
+                            'ring-2 ring-primary border-primary bg-primary/[0.02]',
                         )}
                       >
-                        <div className="flex items-start gap-3">
+                        {onToggleSelect && (
+                          <div
+                            className="absolute top-2.5 left-2.5 z-10"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onToggleSelect(contact.id, e)
+                            }}
+                          >
+                            <Checkbox
+                              checked={selectedIds.has(contact.id)}
+                              className="h-4 w-4 rounded data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground border-muted-foreground/40 bg-white"
+                            />
+                          </div>
+                        )}
+
+                        <div className={cn('flex items-start gap-3', onToggleSelect && 'pl-5')}>
                           <Avatar className="h-10 w-10 ring-2 ring-background shrink-0">
                             <AvatarImage src={contact.avatar_url} />
                             <AvatarFallback className="bg-primary/10 text-primary font-serif font-bold text-sm">

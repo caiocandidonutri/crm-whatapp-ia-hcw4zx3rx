@@ -59,7 +59,7 @@ routerAdd(
         const rParts = []
         for (let ri = 0; ri < rList.length; ri++) {
           const rName = rList[ri].getString('name')
-          const rDays = rList[ri].getInt('followup_days') || 10
+          const rDays = rList[ri].getInt('followup_days') || 7
           if (rName) rParts.push(rName + ' (' + rDays + 'd)')
         }
         if (rParts.length > 0) rulesText = rParts.join(', ')

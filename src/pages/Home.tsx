@@ -31,6 +31,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useTasks } from '@/hooks/use-tasks'
 import { getPriorityMeta, CARE_CATEGORIES } from '@/lib/task-meta'
 import { stageStyle } from '@/lib/stage-colors'
+import { FollowupRecoveryReport } from '@/components/crm/FollowupRecoveryReport'
 import pb from '@/lib/pocketbase/client'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -763,6 +764,9 @@ export default function Home() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ═══ SECTION RELATÓRIO DE FOLLOW-UPS: PACIENTES RECUPERADOS POR REGRA ═══ */}
+      <FollowupRecoveryReport />
 
       {/* ═══ SECTION 3: FUNIL DE PACIENTES + PENDÊNCIAS DE CUIDADO ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

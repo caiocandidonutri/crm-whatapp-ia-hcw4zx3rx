@@ -188,10 +188,9 @@ export function CareTaskCard({
       )}
 
       {task.description && !isCareTask && (
-        <div
-          className="text-xs text-muted-foreground line-clamp-2 mb-2 [&>p]:m-0 [&>*]:m-0"
-          dangerouslySetInnerHTML={{ __html: task.description }}
-        />
+        <p className="text-xs text-muted-foreground line-clamp-2 mb-2 whitespace-pre-wrap">
+          {task.description.replace(/<[^>]+>/g, ' ')}
+        </p>
       )}
 
       <div className="flex items-center justify-between text-xs text-muted-foreground mt-2 border-t pt-2">

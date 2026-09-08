@@ -7,12 +7,11 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
   try {
     var allRules = $app.findRecordsByFilter('care_followup_rules', 'id != ""', 'created', 500, 0)
     for (var r = 0; r < allRules.length; r++) {
-      rulesById[allRules[r].id] = allRules[r].getInt('followup_days') || 10
+      rulesById[allRules[r].id] = allRules[r].getInt('followup_days') || 7
     }
   } catch (_) {}
 
-  var DEFAULT_FOLLOWUP_DAYS = 10
-
+  var DEFAULT_FOLLOWUP_DAYS = 7
   function getFollowupDays(patient) {
     var ruleId = patient.getString('followup_rule_id')
     if (ruleId && rulesById[ruleId]) return rulesById[ruleId]

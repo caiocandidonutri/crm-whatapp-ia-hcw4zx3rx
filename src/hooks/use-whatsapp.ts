@@ -233,32 +233,17 @@ export function useConversas(
         (r) => !r.last_message_timestamp || r.last_message_timestamp === 0,
       ).length
 
-      console.log(
-        `[useConversas] página 1: ${sortedFirst.length}/${totalItems} (${totalPages} págs total)` +
-          (missingTs > 0
-            ? `, ${missingTs} sem ts real nesta página`
-            : `, ordem reflete horário real do WhatsApp ✅`),
-      )
-
       // Auto-backfill: 1x por sessão, e SÓ fora de import. Em erro, não
       // retentamos — o cron `backfill_conv_timestamps` do PocketBase resolve
       // sem precisar do front.
       if (missingTs > 0 && !backfillTriedRef.current && !isImporting) {
         backfillTriedRef.current = true
         fazerBackfillTimestamps()
-          .then((res) => {
-            console.log(
-              `[useConversas] backfill: ${res.updated} atualizadas, ${res.pending_after} ainda sem ts`,
-            )
+          .then(() => {
             // Não dispara load() automaticamente — realtime já vai entregar
             // os updates via applyConversationEvent.
           })
-          .catch((err) => {
-            console.warn(
-              '[useConversas] backfill falhou (cron resolverá em até 1min):',
-              err?.message || err,
-            )
-          })
+          .catch(() => {})
       }
 
       setLoadingMore(false)

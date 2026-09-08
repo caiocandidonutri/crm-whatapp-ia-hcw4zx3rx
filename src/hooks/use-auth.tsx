@@ -34,7 +34,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (pb.authStore.isValid) {
       pb.collection('users')
         .authRefresh()
-        .catch(() => pb.authStore.clear())
+        .catch(() => {
+          // Só limpa se o token realmente estiver inválido/expirado
+          if (!pb.authStore.isValid) {
+            pb.authStore.clear()
+          }
+        })
         .finally(() => setLoading(false))
     } else {
       setLoading(false)

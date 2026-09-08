@@ -157,10 +157,9 @@ export function TaskViewDialog({ task, open, onOpenChange }: Props) {
             <div>
               <h4 className="text-sm font-semibold mb-2">Descrição</h4>
               {task.description ? (
-                <div
-                  className="prose prose-sm dark:prose-invert max-w-none text-foreground"
-                  dangerouslySetInnerHTML={{ __html: task.description }}
-                />
+                <p className="prose prose-sm dark:prose-invert max-w-none text-foreground whitespace-pre-wrap">
+                  {task.description.replace(/<[^>]+>/g, ' ')}
+                </p>
               ) : (
                 <p className="text-sm text-muted-foreground italic">Nenhuma descrição fornecida.</p>
               )}
