@@ -7,6 +7,13 @@ export interface HomeChartItem {
   total: number
 }
 
+export interface FunnelStageMetric {
+  key: string
+  label: string
+  color: string
+  count: number
+}
+
 export interface HomeMetricsData {
   conversations: number
   unread: number
@@ -20,6 +27,31 @@ export interface HomeMetricsData {
     pending: number
     myPending: number
     myOverdue: number
+  }
+  funnel?: FunnelStageMetric[]
+  followupsRecovered7d?: number
+  responseRate8h?: {
+    answeredWithin8h: number
+    totalAttendantMsgs: number
+    ratePct: number
+  }
+  audios?: {
+    transcribed: number
+    pending: number
+    total: number
+  }
+  careTasksByCategory?: {
+    precisa_consulta: number
+    precisa_atencao: number
+    nao_respondeu: number
+    precisa_retorno: number
+    alta_demanda: number
+    followup_10_15: number
+  }
+  conversationsStats?: {
+    active: number
+    archived: number
+    total: number
   }
 }
 
