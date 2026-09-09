@@ -9,9 +9,14 @@ routerAdd(
     if (!accountId) return e.json(200, { summary: '', contacts: 0, tasks: 0, pending: 0 })
 
     try {
-      const today = new Date()
-      const startOfDay =
-        new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000
+      // Início do dia no fuso America/Sao_Paulo (UTC-3)
+      const SP_OFFSET_MS = -3 * 3600 * 1000
+      const nowUtcMs = Date.now()
+      const nowSp = new Date(nowUtcMs + SP_OFFSET_MS)
+      const spYear = nowSp.getUTCFullYear()
+      const spMonth = nowSp.getUTCMonth()
+      const spDate = nowSp.getUTCDate()
+      const startOfDay = Math.floor((Date.UTC(spYear, spMonth, spDate) - SP_OFFSET_MS) / 1000)
 
       const contacts = $app.findRecordsByFilter(
         'crm_contacts',

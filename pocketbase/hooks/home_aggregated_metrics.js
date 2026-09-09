@@ -62,13 +62,21 @@ routerAdd(
       } catch (_) {}
     }
 
-    var now = new Date()
-    var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    var todayStartSec = Math.floor(startOfToday.getTime() / 1000)
+    // Cálculo de dia baseado no fuso da clínica: America/Sao_Paulo (UTC-3)
+    // Mensagens entre 21h e 23h59 de Brasília devem pertencer ao dia local, e não virar dia seguinte.
+    var SP_OFFSET_MS = -3 * 3600 * 1000
+    var nowUtcMs = Date.now()
+    var nowSp = new Date(nowUtcMs + SP_OFFSET_MS)
+
+    // Meia-noite do dia local em America/Sao_Paulo (convertido para UTC timestamp segundos)
+    var spYear = nowSp.getUTCFullYear()
+    var spMonth = nowSp.getUTCMonth()
+    var spDate = nowSp.getUTCDate()
+    var todayStartSec = Math.floor(Date.UTC(spYear, spMonth, spDate) / 1000) - SP_OFFSET_MS / 1000
     var todayEndSec = todayStartSec + 86400
     var yesterdayStartSec = todayStartSec - 86400
     var sevenDaysAgoSec = todayStartSec - 7 * 86400
-    var sevenDaysAgoIso = new Date(now.getTime() - 7 * 86400000)
+    var sevenDaysAgoIso = new Date(nowUtcMs - 7 * 86400000)
       .toISOString()
       .replace('T', ' ')
       .substring(0, 19)
@@ -136,12 +144,21 @@ routerAdd(
     } catch (_) {}
 
     // Gráfico 7 dias (calculado diretamente de whatsapp_messages por account_id e timestamp)
+    // Agrupamento estrito pelo fuso America/Sao_Paulo
     var chart = []
     for (var d = 6; d >= 0; d--) {
       var dayStart = todayStartSec - d * 86400
       var dayEnd = dayStart + 86400
-      var dayDate = new Date(dayStart * 1000)
-      var label = dayDate.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
+      // Data local de São Paulo para rótulo
+      var dayLocalMs = dayStart * 1000 + SP_OFFSET_MS
+      var dayDate = new Date(dayLocalMs)
+      // Formato weekday curto determinístico
+      var weekdayNames = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
+      var wd = weekdayNames[dayDate.getUTCDay()] || 'seg'
+      var dayNum = ('0' + dayDate.getUTCDate()).slice(-2)
+      var monthNum = ('0' + (dayDate.getUTCMonth() + 1)).slice(-2)
+      var label = wd + ' ' + dayNum + '/' + monthNum
+      var fullDateStr = dayDate.getUTCFullYear() + '-' + monthNum + '-' + dayNum
       var sent = 0
       var received = 0
       var sentRow = new DynamicModel({ cnt: 0 })
@@ -168,6 +185,10 @@ routerAdd(
       } catch (_) {}
       chart.push({
         label: label,
+        weekday: wd,
+        date: fullDateStr,
+        dayMonth: dayNum + '/' + monthNum,
+        dayStartSec: dayStart,
         sent: sent,
         received: received,
         total: sent + received,
@@ -406,7 +427,7 @@ routerAdd(
       myPending = myPendingRow.cnt
     } catch (_) {}
 
-    var todayIso = startOfToday.toISOString().split('T')[0]
+    var todayIso = spYear + '-' + ('0' + (spMonth + 1)).slice(-2) + '-' + ('0' + spDate).slice(-2)
     var myOverdueRow = new DynamicModel({ cnt: 0 })
     try {
       $app

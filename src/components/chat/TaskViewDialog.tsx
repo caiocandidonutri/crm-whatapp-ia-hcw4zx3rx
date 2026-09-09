@@ -1,7 +1,16 @@
 import { useState } from 'react'
+import { formatLongDateSaoPaulo, formatTimeSaoPaulo } from '@/lib/datetime'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { CheckCircle2, Circle, Clock, Trash2, Loader2, AlertCircle } from 'lucide-react'
+import {
+  CheckCircle2,
+  Circle,
+  Clock,
+  Trash2,
+  Loader2,
+  AlertCircle,
+  Calendar as CalendarIcon,
+} from 'lucide-react'
 import { Task } from '@/types/models'
 import { updateTask, deleteTask } from '@/services/tasks'
 import { cn } from '@/lib/utils'
@@ -89,11 +98,12 @@ function TaskCard({ task, onDelete }: { task: Task; onDelete: (t: Task) => void 
               {pConf.label}
             </Badge>
             {task.due_date && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1 font-medium bg-muted/50 px-2 py-0.5 rounded-full border border-border/50">
-                <Clock className="w-3 h-3" />
-                {format(new Date(task.due_date), "dd 'de' MMM, HH:mm", { locale: ptBR })}
+              <span className="flex items-center gap-1">
+                <CalendarIcon className="w-4 h-4" />
+                {formatLongDateSaoPaulo(task.due_date, false)} às{' '}
+                {formatTimeSaoPaulo(task.due_date)}
               </span>
-            )}
+            )}{' '}
           </div>
         </div>
         <Button

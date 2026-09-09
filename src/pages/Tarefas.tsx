@@ -11,6 +11,7 @@ import {
 } from '@/lib/task-meta'
 import { downloadCsv, extractPhoneFromJid } from '@/lib/csv-export'
 import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
+import { formatBrazilianDate } from '@/lib/datetime'
 import { format } from 'date-fns'
 import { Task } from '@/types/models'
 import pb from '@/lib/pocketbase/client'
@@ -226,7 +227,7 @@ export default function Tarefas() {
         priorityMeta.label,
         statusMeta.label,
         contact?.ai_suggested_action || '',
-        task.due_date ? format(new Date(task.due_date), 'dd/MM/yyyy') : '',
+        task.due_date ? formatBrazilianDate(task.due_date, true) : '',
         contact?.phone || extractPhoneFromJid(contact?.jid) || '',
       ]
     })

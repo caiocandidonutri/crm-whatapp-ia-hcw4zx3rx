@@ -245,9 +245,18 @@ export function FollowupRecoveryReport({ className }: Props) {
                 {report.recent_recovered.map((patient, idx) => {
                   let formattedDate = ''
                   try {
-                    formattedDate = format(new Date(patient.recovered_at), "dd 'de' MMM, HH:mm", {
-                      locale: ptBR,
+                    const d = new Date(patient.recovered_at)
+                    const datePart = d.toLocaleDateString('pt-BR', {
+                      timeZone: 'America/Sao_Paulo',
+                      day: '2-digit',
+                      month: 'short',
                     })
+                    const timePart = d.toLocaleTimeString('pt-BR', {
+                      timeZone: 'America/Sao_Paulo',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                    formattedDate = `${datePart}, ${timePart}`
                   } catch (_) {
                     formattedDate = patient.recovered_at || 'Recentemente'
                   }

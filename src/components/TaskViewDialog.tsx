@@ -10,6 +10,7 @@ import { Task } from '@/types/models'
 import { getStatusMeta, getPriorityMeta } from '@/lib/task-meta'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { formatLongDateSaoPaulo } from '@/lib/datetime'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
@@ -92,11 +93,11 @@ export function TaskViewDialog({ task, open, onOpenChange }: Props) {
           <DialogTitle className="text-xl">{task.title}</DialogTitle>
           <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mt-2">
             {task.due_date && (
-              <span className="flex items-center gap-1">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <CalendarIcon className="w-4 h-4" />
-                Vencimento: {format(new Date(task.due_date), 'PPP', { locale: ptBR })}
-              </span>
-            )}
+                Vencimento: {formatLongDateSaoPaulo(task.due_date, true)}
+              </div>
+            )}{' '}
             {linkedCount > 0 && (
               <span className="flex items-center gap-1">
                 <Paperclip className="w-4 h-4" />

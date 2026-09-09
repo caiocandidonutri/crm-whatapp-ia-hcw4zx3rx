@@ -54,9 +54,14 @@ routerAdd(
         })
       } catch (_) {}
 
-      var todayStart = new Date()
-      todayStart.setHours(0, 0, 0, 0)
-      var todayStartMs = todayStart.getTime()
+      // Início do dia no fuso America/Sao_Paulo (UTC-3)
+      var SP_OFFSET_MS = -3 * 3600 * 1000
+      var nowUtcMs = Date.now()
+      var nowSp = new Date(nowUtcMs + SP_OFFSET_MS)
+      var spYear = nowSp.getUTCFullYear()
+      var spMonth = nowSp.getUTCMonth()
+      var spDate = nowSp.getUTCDate()
+      var todayStartMs = Date.UTC(spYear, spMonth, spDate) - SP_OFFSET_MS
 
       var attendedToday = 0
       var needsReturn = 0

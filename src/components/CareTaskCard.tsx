@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { getPriorityMeta, getCareCategoryMeta } from '@/lib/task-meta'
 import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { updateTask, deleteTask } from '@/services/tasks'
+import { formatBrazilianDate, getDayKeySaoPaulo } from '@/lib/datetime'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -212,15 +213,25 @@ export function CareTaskCard({
               </AvatarFallback>
             </Avatar>
           )}
-          {task.due_date && (
-            <div
-              className="flex items-center gap-1 bg-muted px-1.5 py-0.5 rounded-md"
-              title="Vencimento"
-            >
-              <CalendarIcon className="w-3 h-3" />
-              {format(new Date(task.due_date), 'dd/MM', { locale: ptBR })}
-            </div>
-          )}
+          {task.due_date &&
+            (() => {
+              const todayKey = getDayKeySaoPaulo(new Date())
+              const dueKey = getDayKeySaoPaulo(task.due_date)
+              const isOverdue = dueKey < todayKey && task.status !== 'concluida'
+              return (
+                <div
+                  className={cn(
+                    'flex items-center gap-1 px-1.5 py-0.5 rounded-md font-medium',
+                    isOverdue ? 'bg-rose-100 text-rose-700' : 'bg-muted text-foreground/80',
+                  )}
+                  title={isOverdue ? 'Tarefa atrasada' : 'Vencimento'}
+                >
+                  <CalendarIcon className="w-3 h-3" />
+                  {formatBrazilianDate(task.due_date, false)}
+                  {isOverdue && <span className="text-[9px] font-bold">!</span>}
+                </div>
+              )
+            })()}
           {linkedCount > 0 && (
             <div
               className="flex items-center gap-1 bg-muted px-1.5 py-0.5 rounded-md"

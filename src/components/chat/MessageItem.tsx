@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { useLongPress } from '@/hooks/use-long-press'
 import { jidToDisplayName } from '@/lib/whatsapp-mappers'
 import { Task } from '@/types/models'
+import { formatTimeSaoPaulo } from '@/lib/datetime'
 import { extractUrls, renderTextWithLinks } from '@/lib/link-utils'
 import { LinkPreviewCard } from '@/components/chat/LinkPreviewCard'
 import { MessageMedia } from '@/components/chat/MessageMedia'
@@ -53,11 +54,7 @@ interface MessageItemProps {
 }
 
 function formatTime(ts: string) {
-  try {
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return ts
-  }
+  return formatTimeSaoPaulo(ts) || ts
 }
 
 function MessageItemComponent({

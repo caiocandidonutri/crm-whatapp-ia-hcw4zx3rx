@@ -44,6 +44,12 @@ import { TaskViewDialog } from '@/components/TaskViewDialog'
 import { consultarStatusInstancia } from '@/services/whatsapp_service'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { fetchHomeMetrics, HomeMetricsData } from '@/services/home_metrics'
+import {
+  formatLongDateSaoPaulo,
+  formatRecentActivityDate,
+  formatBrazilianDate,
+  getDayKeySaoPaulo,
+} from '@/lib/datetime'
 
 export default function Home() {
   const { user } = useAuth()
@@ -243,12 +249,10 @@ export default function Home() {
     return 'BOA NOITE'
   }
 
-  const currentDateStr = new Date().toLocaleDateString('pt-BR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  })
-  const formattedDate = currentDateStr.charAt(0).toUpperCase() + currentDateStr.slice(1)
+  const formattedDate = (() => {
+    const s = formatLongDateSaoPaulo(new Date(), false)
+    return s.charAt(0).toUpperCase() + s.slice(1)
+  })()
 
   const instanceStatus = instance?.status || 'disconnected'
   const isStatusUnavailable = statusCheckFailed
@@ -1054,8 +1058,14 @@ export default function Home() {
                           side="top"
                           className="bg-popover text-popover-foreground border-border shadow-lg font-sans z-50"
                         >
-                          <div className="flex flex-col gap-1.5 text-xs min-w-[120px] p-1">
-                            <div className="font-bold text-sm mb-1 text-primary">{d.label}</div>
+                          <div className="flex flex-col gap-1.5 text-xs min-w-[140px] p-1">
+                            <div className="font-bold text-sm mb-1 text-primary capitalize">
+                              {d.date
+                                ? formatLongDateSaoPaulo(d.date + 'T12:00:00Z', false)
+                                : d.dayStartSec
+                                  ? formatLongDateSaoPaulo(d.dayStartSec * 1000, false)
+                                  : d.label}
+                            </div>
                             <div className="flex items-center justify-between gap-4">
                               <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
                                 <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500"></div>{' '}
@@ -1126,13 +1136,10 @@ export default function Home() {
               ) : (
                 myUrgentTasks.slice(0, 4).map((task) => {
                   const meta = getPriorityMeta(task.priority)
-                  const due = task.due_date ? new Date(task.due_date) : null
-                  let isOverdue = false
-                  if (due) {
-                    const d = new Date()
-                    d.setHours(0, 0, 0, 0)
-                    isOverdue = due < d
-                  }
+                  const dueStr = task.due_date || ''
+                  const todayKey = getDayKeySaoPaulo(new Date())
+                  const dueKey = dueStr ? getDayKeySaoPaulo(dueStr) : ''
+                  const isOverdue = !!(dueKey && dueKey < todayKey)
 
                   return (
                     <div
@@ -1156,7 +1163,7 @@ export default function Home() {
                         >
                           {meta.label}
                         </Badge>
-                        {due && (
+                        {dueStr && (
                           <span
                             className={cn(
                               'text-[11px] font-semibold',
@@ -1165,10 +1172,7 @@ export default function Home() {
                           >
                             {isOverdue
                               ? '⚠ Vencida'
-                              : `Vence ${due.toLocaleDateString('pt-BR', {
-                                  day: '2-digit',
-                                  month: '2-digit',
-                                })}`}
+                              : `Vence ${formatBrazilianDate(dueStr, false)}`}
                           </span>
                         )}
                       </div>
@@ -1273,14 +1277,11 @@ export default function Home() {
             <div className="divide-y divide-border/30">
               {recentChats.map((chat) => {
                 const title = chat.contact_name || chat.remote_jid
-                const realMs =
+                const rawTs =
                   chat.last_message_timestamp && chat.last_message_timestamp > 0
-                    ? chat.last_message_timestamp * 1000
-                    : new Date(chat.updated).getTime()
-                const time = new Date(realMs).toLocaleTimeString('pt-BR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
+                    ? chat.last_message_timestamp
+                    : chat.updated
+                const relativeTime = formatRecentActivityDate(rawTs)
                 return (
                   <div
                     key={chat.id}
@@ -1314,8 +1315,8 @@ export default function Home() {
                     </div>
 
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
-                      <span className="text-[11px] text-muted-foreground font-semibold">
-                        {time}
+                      <span className="text-[11px] text-muted-foreground font-semibold whitespace-nowrap">
+                        {relativeTime}
                       </span>
                       {chat.unread_count > 0 ? (
                         <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shadow-sm">

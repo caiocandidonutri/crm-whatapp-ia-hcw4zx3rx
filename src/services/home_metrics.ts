@@ -2,6 +2,10 @@ import pb from '@/lib/pocketbase/client'
 
 export interface HomeChartItem {
   label: string
+  weekday?: string
+  date?: string
+  dayMonth?: string
+  dayStartSec?: number
   sent: number
   received: number
   total: number

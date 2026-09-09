@@ -83,7 +83,9 @@ export function CareAlertHistory({ accountId }: CareAlertHistoryProps) {
                   <Clock className="w-3.5 h-3.5 text-muted-foreground" />
                 )}
                 <span className="text-[10px] text-muted-foreground">
-                  {new Date(alert.created).toLocaleString('pt-BR')}
+                  {new Date(alert.created).toLocaleString('pt-BR', {
+                    timeZone: 'America/Sao_Paulo',
+                  })}
                 </span>
               </div>
             </div>

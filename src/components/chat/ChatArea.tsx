@@ -50,6 +50,7 @@ import { CareSecretarySheet, type CareContactContext } from '@/components/CareSe
 import pb from '@/lib/pocketbase/client'
 import { getTasks } from '@/services/tasks'
 import { getCrmContactByJid } from '@/services/crm_service'
+import { getDayKeySaoPaulo, getChatDateSeparatorLabel } from '@/lib/datetime'
 import { Task, CrmContact } from '@/types/models'
 import { useRealtime } from '@/hooks/use-realtime'
 import { CategoryPicker } from '@/components/categories/CategoryPicker'
@@ -866,26 +867,41 @@ export function ChatArea({
           const senderColor = chat.groupDetails?.colors?.[msg.senderId] || '#5A6B5A'
           const isSelected = selectedMessages.has(msg.id)
 
+          // Separador de data estilo WhatsApp
+          // Compara o dia civil da mensagem atual com o da anterior no fuso America/Sao_Paulo
+          const currentDayKey = getDayKeySaoPaulo(msg.timestamp)
+          const prevDayKey = prevMsg ? getDayKeySaoPaulo(prevMsg.timestamp) : ''
+          const showDateSeparator = idx === 0 || (currentDayKey && currentDayKey !== prevDayKey)
+          const separatorLabel = showDateSeparator ? getChatDateSeparatorLabel(msg.timestamp) : ''
+
           return (
-            <MessageItem
-              key={msg.id}
-              msg={msg}
-              isMe={isMe}
-              isFirstInGroup={isFirstInGroup}
-              showSenderName={showSenderName}
-              senderColor={senderColor}
-              isSelectionMode={isSelectionMode}
-              isSelected={isSelected}
-              localHighlight={localHighlight}
-              tasksForMessage={tasksByMessageId.get(msg.id)}
-              onToggleSelection={toggleSelection}
-              onSelectMedia={handleSelectMedia}
-              onTaskView={handleTaskView}
-              onReply={handleReplyMessage}
-              onForward={handleForwardMessage}
-              onTranscribe={handleTranscribeMessage}
-              transcribingId={transcribingId}
-            />
+            <React.Fragment key={msg.id}>
+              {showDateSeparator && separatorLabel && (
+                <div className="flex items-center justify-center my-3 select-none pointer-events-none sticky top-1 z-10">
+                  <div className="bg-white/95 dark:bg-muted/90 backdrop-blur-md text-foreground/80 font-medium text-[11px] px-3.5 py-1 rounded-full shadow-sm border border-border/60 tracking-wider uppercase">
+                    {separatorLabel}
+                  </div>
+                </div>
+              )}
+              <MessageItem
+                msg={msg}
+                isMe={isMe}
+                isFirstInGroup={isFirstInGroup}
+                showSenderName={showSenderName}
+                senderColor={senderColor}
+                isSelectionMode={isSelectionMode}
+                isSelected={isSelected}
+                localHighlight={localHighlight}
+                tasksForMessage={tasksByMessageId.get(msg.id)}
+                onToggleSelection={toggleSelection}
+                onSelectMedia={handleSelectMedia}
+                onTaskView={handleTaskView}
+                onReply={handleReplyMessage}
+                onForward={handleForwardMessage}
+                onTranscribe={handleTranscribeMessage}
+                transcribingId={transcribingId}
+              />
+            </React.Fragment>
           )
         })}
 
