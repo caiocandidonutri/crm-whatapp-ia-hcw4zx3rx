@@ -42,7 +42,16 @@ export interface HomeMetricsData {
   audios?: {
     transcribed: number
     pending: number
+    skipped?: number
     total: number
+  }
+  dailyUsage?: {
+    transcriptions_count: number
+    transcriptions_limit: number
+    transcriptions_paused: boolean
+    ai_analyses_count: number
+    ai_analyses_limit: number
+    ai_analyses_paused: boolean
   }
   careTasksByCategory?: {
     precisa_consulta: number

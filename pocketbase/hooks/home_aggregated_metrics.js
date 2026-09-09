@@ -343,17 +343,19 @@ routerAdd(
       }
     } catch (_) {}
 
-    // 4. Áudios transcritos (contador: total transcritos vs pendentes)
+    // 4. Áudios transcritos (contador: transcritos válidos vs pendentes elegíveis vs dispensados)
     var audiosTranscribed = 0
     var audiosPending = 0
-    var audRow = new DynamicModel({ transcribed_cnt: 0, pending_cnt: 0 })
+    var audiosSkipped = 0
+    var audRow = new DynamicModel({ transcribed_cnt: 0, pending_cnt: 0, skipped_cnt: 0 })
     try {
       $app
         .db()
         .newQuery(
           'SELECT ' +
-            "SUM(CASE WHEN transcription IS NOT NULL AND transcription != '' THEN 1 ELSE 0 END) as transcribed_cnt, " +
-            "SUM(CASE WHEN transcription IS NULL OR transcription = '' THEN 1 ELSE 0 END) as pending_cnt " +
+            "SUM(CASE WHEN transcription IS NOT NULL AND transcription != '' AND transcription != 'SKIP_NO_TRANSCRIBE' THEN 1 ELSE 0 END) as transcribed_cnt, " +
+            "SUM(CASE WHEN transcription IS NULL OR transcription = '' THEN 1 ELSE 0 END) as pending_cnt, " +
+            "SUM(CASE WHEN transcription = 'SKIP_NO_TRANSCRIBE' THEN 1 ELSE 0 END) as skipped_cnt " +
             'FROM whatsapp_messages ' +
             "WHERE account_id = {:accId} AND (message_type = 'audioMessage' || message_type = 'audio' || message_type = 'ptt' || media_file LIKE '%.ogg' || media_filename LIKE '%.ogg')",
         )
@@ -361,6 +363,33 @@ routerAdd(
         .one(audRow)
       audiosTranscribed = audRow.transcribed_cnt || 0
       audiosPending = audRow.pending_cnt || 0
+      audiosSkipped = audRow.skipped_cnt || 0
+    } catch (_) {}
+
+    // 4.1 Uso Diário (Teto diário de transcrições e análises IA)
+    var todayDayKey =
+      spYear + '-' + ('0' + (spMonth + 1)).slice(-2) + '-' + ('0' + spDate).slice(-2)
+    var dailyUsageData = {
+      transcriptions_count: 0,
+      transcriptions_limit: 150,
+      transcriptions_paused: false,
+      ai_analyses_count: 0,
+      ai_analyses_limit: 200,
+      ai_analyses_paused: false,
+    }
+    try {
+      var duFilter = accountId
+        ? "day_key = '" + todayDayKey + "' && account_id = '" + accountId + "'"
+        : "day_key = '" + todayDayKey + "'"
+      var duRec = $app.findFirstRecordByFilter('app_daily_usage', duFilter)
+      if (duRec) {
+        dailyUsageData.transcriptions_count = duRec.getInt('transcriptions_count') || 0
+        dailyUsageData.transcriptions_limit = duRec.getInt('transcriptions_limit') || 150
+        dailyUsageData.transcriptions_paused = duRec.getBool('transcriptions_paused') || false
+        dailyUsageData.ai_analyses_count = duRec.getInt('ai_analyses_count') || 0
+        dailyUsageData.ai_analyses_limit = duRec.getInt('ai_analyses_limit') || 200
+        dailyUsageData.ai_analyses_paused = duRec.getBool('ai_analyses_paused') || false
+      }
     } catch (_) {}
 
     // 5. Pendências ativas por categoria (precisa_consulta, precisa_atencao, nao_respondeu, precisa_retorno, alta_demanda, followup_10_15)
@@ -464,8 +493,10 @@ routerAdd(
       audios: {
         transcribed: audiosTranscribed,
         pending: audiosPending,
-        total: audiosTranscribed + audiosPending,
+        skipped: audiosSkipped,
+        total: audiosTranscribed + audiosPending + audiosSkipped,
       },
+      dailyUsage: dailyUsageData,
       careTasksByCategory: careTasksByCategory,
       conversationsStats: {
         active: convActive,

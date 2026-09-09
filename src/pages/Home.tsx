@@ -705,25 +705,33 @@ export default function Home() {
                   <span className="text-4xl md:text-5xl font-bold font-serif text-primary tracking-tight leading-none">
                     {audiosTranscribed}
                   </span>
-                  <span className="text-xs text-muted-foreground font-sans">transcritos</span>
+                  <span className="text-xs text-muted-foreground font-sans">transcritos úteis</span>
                 </div>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex items-center flex-wrap gap-1.5 mt-1">
                   {audiosPending > 0 ? (
                     <Badge
                       variant="secondary"
                       className="text-[10px] bg-amber-100 text-amber-800 font-semibold border-amber-200"
                     >
-                      {audiosPending} pendente{audiosPending === 1 ? '' : 's'}
+                      {audiosPending} pendente{audiosPending === 1 ? '' : 's'} (7d)
                     </Badge>
                   ) : (
                     <Badge
                       variant="secondary"
                       className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold border-emerald-200"
                     >
-                      Todos transcritos
+                      Fila em dia
                     </Badge>
                   )}
-                  <span className="text-[11px] text-muted-foreground font-sans">IA ativada</span>
+                  {metrics?.dailyUsage && (
+                    <span className="text-[10px] text-muted-foreground font-sans">
+                      • Hoje: {metrics.dailyUsage.transcriptions_count}/
+                      {metrics.dailyUsage.transcriptions_limit} áudios |{' '}
+                      {metrics.dailyUsage.ai_analyses_count}/{metrics.dailyUsage.ai_analyses_limit}{' '}
+                      IA
+                    </span>
+                  )}
+                  <span className="text-[11px] text-muted-foreground font-sans">IA ativa</span>
                 </div>
               </div>
             )}

@@ -112,14 +112,27 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
         continue
       }
 
-      if (aiClassified < 30 && jid && instanceName) {
+      // Regra 1: Não reclassificar clientes fechados via IA
+      var isAlreadyCliente = contact.getString('stage') === 'cliente'
+
+      // Regra 2: Cooldown de 6 horas
+      var lastReclassStr = contact.getString('last_ai_reclassified_at')
+      var inCooldown = false
+      if (lastReclassStr) {
+        var lastReclassTime = new Date(lastReclassStr).getTime()
+        if (!isNaN(lastReclassTime) && Date.now() - lastReclassTime < 6 * 3600 * 1000) {
+          inCooldown = true
+        }
+      }
+
+      if (!isAlreadyCliente && !inCooldown && aiClassified < 20 && jid && instanceName) {
         var messages = []
         try {
           messages = $app.findRecordsByFilter(
             'whatsapp_messages',
             'remote_jid = {:jid} && instance_name = {:inst} && timestamp >= {:ts}',
             '-timestamp',
-            15,
+            8,
             0,
             { jid: jid, inst: instanceName, ts: fortyEightHoursAgo },
           )
@@ -128,10 +141,17 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
         if (messages && messages.length > 0) {
           function formatMessageContent(m) {
             var content = m.getString('content')
-            if (content && content.trim()) return content.trim()
+            if (content && content.trim()) {
+              return content.trim().length > 300
+                ? content.trim().substring(0, 300) + '…'
+                : content.trim()
+            }
             var transcription = m.getString('transcription')
-            if (transcription && transcription.trim()) {
-              return '[áudio transcrito: ' + transcription.trim() + ']'
+            if (transcription && transcription.trim() && transcription !== 'SKIP_NO_TRANSCRIBE') {
+              var cut = transcription.trim()
+              return (
+                '[áudio transcrito: ' + (cut.length > 200 ? cut.substring(0, 200) + '…' : cut) + ']'
+              )
             }
             var msgType = m.getString('message_type') || ''
             if (msgType === 'audioMessage' || msgType === 'audio' || msgType === 'ptt') {
@@ -258,6 +278,31 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
                 }
                 aiClassified++
                 totalClassified++
+                var nowIso = new Date().toISOString().replace('T', ' ')
+                contact.set('last_ai_reclassified_at', nowIso)
+
+                try {
+                  var dNow = new Date()
+                  var utcNow = dNow.getTime() + dNow.getTimezoneOffset() * 60000
+                  var spTime = new Date(utcNow - 3 * 3600000)
+                  var dayKey =
+                    spTime.getFullYear() +
+                    '-' +
+                    String(spTime.getMonth() + 1).padStart(2, '0') +
+                    '-' +
+                    String(spTime.getDate()).padStart(2, '0')
+                  var uFilter = accountId
+                    ? "day_key = '" + dayKey + "' && account_id = '" + accountId + "'"
+                    : "day_key = '" + dayKey + "'"
+                  var uR = null
+                  try {
+                    uR = $app.findFirstRecordByFilter('app_daily_usage', uFilter)
+                  } catch (_) {}
+                  if (uR) {
+                    uR.set('ai_analyses_count', (uR.getInt('ai_analyses_count') || 0) + 1)
+                    $app.save(uR)
+                  }
+                } catch (_) {}
               }
             }
           } catch (_) {}

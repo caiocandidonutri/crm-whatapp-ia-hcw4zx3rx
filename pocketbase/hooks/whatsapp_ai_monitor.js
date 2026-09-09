@@ -21,10 +21,52 @@ onRecordAfterCreateSuccess((e) => {
     return e.next()
   }
 
+  // 1. NÃO reclassificar clientes existentes
+  if (contact.getString('stage') === 'cliente') {
+    return e.next()
+  }
+
+  // 2. Cooldown de 6 horas por contato
+  const lastReclassifiedStr = contact.getString('last_ai_reclassified_at')
+  if (lastReclassifiedStr) {
+    const lastReclassifiedTime = new Date(lastReclassifiedStr).getTime()
+    const sixHoursMs = 6 * 3600 * 1000
+    if (!isNaN(lastReclassifiedTime) && Date.now() - lastReclassifiedTime < sixHoursMs) {
+      return e.next()
+    }
+  }
+
   const updatedStr = contact.getString('updated')
   if (updatedStr) {
     const updatedTime = new Date(updatedStr).getTime()
     if (!isNaN(updatedTime) && Date.now() - updatedTime < 5 * 60 * 1000) {
+      return e.next()
+    }
+  }
+
+  // 3. Teto diário de IA
+  const accountId = msg.getString('account_id')
+  const dNow = new Date()
+  const utcNow = dNow.getTime() + dNow.getTimezoneOffset() * 60000
+  const spTime = new Date(utcNow - 3 * 3600000)
+  const dayKey =
+    spTime.getFullYear() +
+    '-' +
+    String(spTime.getMonth() + 1).padStart(2, '0') +
+    '-' +
+    String(spTime.getDate()).padStart(2, '0')
+  const usageFilter = accountId
+    ? "day_key = '" + dayKey + "' && account_id = '" + accountId + "'"
+    : "day_key = '" + dayKey + "'"
+  let uRec = null
+  try {
+    uRec = $app.findFirstRecordByFilter('app_daily_usage', usageFilter)
+  } catch (_) {}
+  if (uRec) {
+    const aCount = uRec.getInt('ai_analyses_count') || 0
+    const aLimit = uRec.getInt('ai_analyses_limit') || 200
+    const aPaused = uRec.getBool('ai_analyses_paused')
+    if (aPaused || aCount >= aLimit) {
       return e.next()
     }
   }
@@ -35,7 +77,7 @@ onRecordAfterCreateSuccess((e) => {
       'whatsapp_messages',
       'remote_jid = {:jid} && instance_name = {:inst}',
       '-timestamp',
-      15,
+      8,
       0,
       { jid: remoteJid, inst: instanceName },
     )
@@ -47,10 +89,13 @@ onRecordAfterCreateSuccess((e) => {
 
   function formatMessageContent(m) {
     const content = m.getString('content')
-    if (content && content.trim()) return content.trim()
+    if (content && content.trim()) {
+      return content.trim().length > 300 ? content.trim().substring(0, 300) + '…' : content.trim()
+    }
     const transcription = m.getString('transcription')
-    if (transcription && transcription.trim()) {
-      return '[áudio transcrito: ' + transcription.trim() + ']'
+    if (transcription && transcription.trim() && transcription !== 'SKIP_NO_TRANSCRIBE') {
+      const cut = transcription.trim()
+      return '[áudio transcrito: ' + (cut.length > 200 ? cut.substring(0, 200) + '…' : cut) + ']'
     }
     const msgType = m.getString('message_type') || ''
     if (msgType === 'audioMessage' || msgType === 'audio' || msgType === 'ptt') {
@@ -203,6 +248,29 @@ onRecordAfterCreateSuccess((e) => {
       contact.set('ai_priority', Math.min(Math.max(priority, 1), 10))
     }
   }
+
+  const nowIso = new Date().toISOString().replace('T', ' ')
+  contact.set('last_ai_reclassified_at', nowIso)
+
+  // Incrementar contador diário
+  try {
+    if (!uRec) {
+      const uCol = $app.findCollectionByNameOrId('app_daily_usage')
+      uRec = new Record(uCol)
+      uRec.set('day_key', dayKey)
+      if (accountId) uRec.set('account_id', accountId)
+      uRec.set('transcriptions_count', 0)
+      uRec.set('transcriptions_limit', 150)
+      uRec.set('ai_analyses_count', 0)
+      uRec.set('ai_analyses_limit', 200)
+    }
+    const nextCount = (uRec.getInt('ai_analyses_count') || 0) + 1
+    uRec.set('ai_analyses_count', nextCount)
+    if (nextCount >= (uRec.getInt('ai_analyses_limit') || 200)) {
+      uRec.set('ai_analyses_paused', true)
+    }
+    $app.save(uRec)
+  } catch (_) {}
 
   try {
     $app.saveNoValidate(contact)

@@ -21,7 +21,7 @@ routerAdd(
 
     // Se já tiver transcrição no banco, devolve direto
     const existing = msg.getString('transcription')
-    if (existing) {
+    if (existing && existing !== 'SKIP_NO_TRANSCRIBE') {
       return e.json(200, { success: true, transcription: existing })
     }
 
@@ -122,6 +122,40 @@ routerAdd(
     transcriptionText = transcriptionText.trim()
     msg.set('transcription', transcriptionText)
     $app.save(msg)
+
+    // Contabilizar no uso diário
+    try {
+      const accId = msg.getString('account_id')
+      const d = new Date()
+      const utc = d.getTime() + d.getTimezoneOffset() * 60000
+      const spTime = new Date(utc - 3 * 3600000)
+      const dayKey =
+        spTime.getFullYear() +
+        '-' +
+        String(spTime.getMonth() + 1).padStart(2, '0') +
+        '-' +
+        String(spTime.getDate()).padStart(2, '0')
+      const filter = accId
+        ? "day_key = '" + dayKey + "' && account_id = '" + accId + "'"
+        : "day_key = '" + dayKey + "'"
+      let u = null
+      try {
+        u = $app.findFirstRecordByFilter('app_daily_usage', filter)
+      } catch (_) {}
+      if (!u) {
+        const uCol = $app.findCollectionByNameOrId('app_daily_usage')
+        u = new Record(uCol)
+        u.set('day_key', dayKey)
+        if (accId) u.set('account_id', accId)
+        u.set('transcriptions_count', 0)
+        u.set('transcriptions_limit', 150)
+        u.set('ai_analyses_count', 0)
+        u.set('ai_analyses_limit', 200)
+      }
+      u.set('transcriptions_count', (u.getInt('transcriptions_count') || 0) + 1)
+      $app.save(u)
+    } catch (_) {}
+
     console.log(
       '[transcribe-audio] Mensagem ' +
         messageId +

@@ -664,6 +664,15 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
             newMsg.set('media_file', f)
             newMsg.set('media_mimetype', msg.extractedMedia.mimetype)
             newMsg.set('media_filename', finalFilename)
+
+            // Se for áudio histórico antigo (> 7 dias), marcar SKIP_NO_TRANSCRIBE logo no salvamento
+            if (
+              (msgType === 'audioMessage' || msgType === 'audio' || ext === '.ogg') &&
+              msgAge > 7 * 86400
+            ) {
+              newMsg.set('transcription', 'SKIP_NO_TRANSCRIBE')
+            }
+
             $app.save(newMsg)
 
             const savedFile = newMsg.getString('media_file')

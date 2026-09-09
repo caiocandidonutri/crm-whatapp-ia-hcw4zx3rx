@@ -22,12 +22,54 @@ onRecordAfterCreateSuccess((e) => {
     } catch (_) {}
 
     if (contact) {
+      // Regra 1: Não reclassificar se o contato já for cliente
+      if (contact.getString('stage') === 'cliente') {
+        return e.next()
+      }
+
+      // Regra 2: Cooldown de 6 HORAS por contato
+      var lastReclassifiedStr = contact.getString('last_ai_reclassified_at')
+      if (lastReclassifiedStr) {
+        var lastReclassifiedTime = new Date(lastReclassifiedStr).getTime()
+        var sixHoursMs = 6 * 3600 * 1000
+        if (!isNaN(lastReclassifiedTime) && Date.now() - lastReclassifiedTime < sixHoursMs) {
+          return e.next()
+        }
+      }
+
       var updatedStr = contact.getString('updated')
       if (updatedStr) {
         var updatedTime = new Date(updatedStr).getTime()
         if (!isNaN(updatedTime) && Date.now() - updatedTime < 30 * 1000) {
           return e.next()
         }
+      }
+    }
+
+    // Regra 3: Teto diário de análises IA
+    var accountId = msg.getString('account_id')
+    var dNow = new Date()
+    var utcNow = dNow.getTime() + dNow.getTimezoneOffset() * 60000
+    var spTime = new Date(utcNow - 3 * 3600000)
+    var dayKey =
+      spTime.getFullYear() +
+      '-' +
+      String(spTime.getMonth() + 1).padStart(2, '0') +
+      '-' +
+      String(spTime.getDate()).padStart(2, '0')
+    var usageFilter = accountId
+      ? "day_key = '" + dayKey + "' && account_id = '" + accountId + "'"
+      : "day_key = '" + dayKey + "'"
+    var uRec = null
+    try {
+      uRec = $app.findFirstRecordByFilter('app_daily_usage', usageFilter)
+    } catch (_) {}
+    if (uRec) {
+      var aCount = uRec.getInt('ai_analyses_count') || 0
+      var aLimit = uRec.getInt('ai_analyses_limit') || 200
+      var aPaused = uRec.getBool('ai_analyses_paused')
+      if (aPaused || aCount >= aLimit) {
+        return e.next()
       }
     }
 
@@ -92,7 +134,7 @@ onRecordAfterCreateSuccess((e) => {
         'whatsapp_messages',
         'remote_jid = {:jid} && instance_name = {:inst}',
         '-timestamp',
-        15,
+        8,
         0,
         { jid: remoteJid, inst: instanceName },
       )
@@ -104,10 +146,13 @@ onRecordAfterCreateSuccess((e) => {
 
     function formatMessageContent(m) {
       var content = m.getString('content')
-      if (content && content.trim()) return content.trim()
+      if (content && content.trim()) {
+        return content.trim().length > 300 ? content.trim().substring(0, 300) + '…' : content.trim()
+      }
       var transcription = m.getString('transcription')
-      if (transcription && transcription.trim()) {
-        return '[áudio transcrito: ' + transcription.trim() + ']'
+      if (transcription && transcription.trim() && transcription !== 'SKIP_NO_TRANSCRIBE') {
+        var cut = transcription.trim()
+        return '[áudio transcrito: ' + (cut.length > 200 ? cut.substring(0, 200) + '…' : cut) + ']'
       }
       var msgType = m.getString('message_type') || ''
       if (msgType === 'audioMessage' || msgType === 'audio' || msgType === 'ptt') {
@@ -211,6 +256,26 @@ onRecordAfterCreateSuccess((e) => {
         ],
       })
 
+      // Incrementar contador de análises IA diário
+      try {
+        if (!uRec) {
+          var uCol = $app.findCollectionByNameOrId('app_daily_usage')
+          uRec = new Record(uCol)
+          uRec.set('day_key', dayKey)
+          if (accountId) uRec.set('account_id', accountId)
+          uRec.set('transcriptions_count', 0)
+          uRec.set('transcriptions_limit', 150)
+          uRec.set('ai_analyses_count', 0)
+          uRec.set('ai_analyses_limit', 200)
+        }
+        var nextCount = (uRec.getInt('ai_analyses_count') || 0) + 1
+        uRec.set('ai_analyses_count', nextCount)
+        if (nextCount >= (uRec.getInt('ai_analyses_limit') || 200)) {
+          uRec.set('ai_analyses_paused', true)
+        }
+        $app.save(uRec)
+      } catch (_) {}
+
       var rawText =
         reply.choices &&
         reply.choices[0] &&
@@ -271,7 +336,9 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
     contact.set('care_status', careStatus)
-    contact.set('last_synced_at', new Date().toISOString().replace('T', ' '))
+    var nowIsoStr = new Date().toISOString().replace('T', ' ')
+    contact.set('last_ai_reclassified_at', nowIsoStr)
+    contact.set('last_synced_at', nowIsoStr)
 
     try {
       $app.saveNoValidate(contact)

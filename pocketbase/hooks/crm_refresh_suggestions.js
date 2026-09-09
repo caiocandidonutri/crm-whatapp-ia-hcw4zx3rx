@@ -60,9 +60,45 @@ routerAdd(
         'Vocabulário nutricional: SOP, plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica.\n' +
         'Responda em JSON com: { "suggested_action": string (próxima ação recomendada, max 200 chars), "priority": number (1-5, onde 5 é urgente) }. Responda apenas o JSON.'
 
+      // Teto diário de IA
+      const dNow = new Date()
+      const utcNow = dNow.getTime() + dNow.getTimezoneOffset() * 60000
+      const spTime = new Date(utcNow - 3 * 3600000)
+      const dayKey =
+        spTime.getFullYear() +
+        '-' +
+        String(spTime.getMonth() + 1).padStart(2, '0') +
+        '-' +
+        String(spTime.getDate()).padStart(2, '0')
+      const uFilter = accountId
+        ? "day_key = '" + dayKey + "' && account_id = '" + accountId + "'"
+        : "day_key = '" + dayKey + "'"
+      let uRec = null
+      try {
+        uRec = $app.findFirstRecordByFilter('app_daily_usage', uFilter)
+      } catch (_) {}
+
       for (let i = 0; i < contacts.length; i++) {
         const contact = contacts[i]
         const contactId = contact.id
+
+        // Cooldown 6h por contato
+        const lastRecStr = contact.getString('last_ai_reclassified_at')
+        if (lastRecStr) {
+          const lastRecTime = new Date(lastRecStr).getTime()
+          if (!isNaN(lastRecTime) && Date.now() - lastRecTime < 6 * 3600 * 1000) {
+            continue
+          }
+        }
+
+        // Teto diário de IA
+        if (uRec) {
+          const aCount = uRec.getInt('ai_analyses_count') || 0
+          const aLimit = uRec.getInt('ai_analyses_limit') || 200
+          if (uRec.getBool('ai_analyses_paused') || aCount >= aLimit) {
+            break
+          }
+        }
 
         try {
           const contactName =
@@ -154,7 +190,30 @@ routerAdd(
             'ai_priority',
             Number.isFinite(priority) ? Math.min(Math.max(priority, 1), 5) : 3,
           )
+          const nowIso = new Date().toISOString().replace('T', ' ')
+          contactRecord.set('last_ai_reclassified_at', nowIso)
           $app.save(contactRecord)
+
+          // Incrementa teto diário
+          try {
+            if (!uRec) {
+              const uCol = $app.findCollectionByNameOrId('app_daily_usage')
+              uRec = new Record(uCol)
+              uRec.set('day_key', dayKey)
+              if (accountId) uRec.set('account_id', accountId)
+              uRec.set('transcriptions_count', 0)
+              uRec.set('transcriptions_limit', 150)
+              uRec.set('ai_analyses_count', 0)
+              uRec.set('ai_analyses_limit', 200)
+            }
+            const cur = (uRec.getInt('ai_analyses_count') || 0) + 1
+            uRec.set('ai_analyses_count', cur)
+            if (cur >= (uRec.getInt('ai_analyses_limit') || 200)) {
+              uRec.set('ai_analyses_paused', true)
+            }
+            $app.save(uRec)
+          } catch (_) {}
+
           updated++
         } catch (err) {
           errors++

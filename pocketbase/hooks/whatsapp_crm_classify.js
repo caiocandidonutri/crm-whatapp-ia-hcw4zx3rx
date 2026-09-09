@@ -19,6 +19,71 @@ routerAdd(
       const instanceName = conversation.getString('instance_name')
       const remoteJid = conversation.getString('remote_jid')
       const contactName = conversation.getString('contact_name') || remoteJid
+      const accountId = conversation.getString('account_id')
+
+      let existingContact = null
+      try {
+        existingContact = $app.findFirstRecordByFilter(
+          'crm_contacts',
+          'jid = {:jid} && instance_name = {:inst}',
+          { jid: remoteJid, inst: instanceName },
+        )
+      } catch (_) {}
+
+      // COOLDOWN DE 6 HORAS: verificar campo last_ai_reclassified_at
+      if (existingContact) {
+        const lastReclassifiedStr = existingContact.getString('last_ai_reclassified_at')
+        if (lastReclassifiedStr) {
+          const lastReclassifiedTime = new Date(lastReclassifiedStr).getTime()
+          const sixHoursMs = 6 * 3600 * 1000
+          if (!isNaN(lastReclassifiedTime) && Date.now() - lastReclassifiedTime < sixHoursMs) {
+            const waitMins = Math.round((sixHoursMs - (Date.now() - lastReclassifiedTime)) / 60000)
+            console.log(
+              '[crm-classify] Cooldown ativo (6h) para contato ' +
+                remoteJid +
+                '. Restam ' +
+                waitMins +
+                ' min.',
+            )
+            return e.json(200, {
+              classified: false,
+              reason: 'cooldown_active',
+              cooldown_remaining_minutes: waitMins,
+              contact_id: existingContact.id,
+            })
+          }
+        }
+      }
+
+      // TETO DIÁRIO DE ANÁLISES IA
+      const dNow = new Date()
+      const utcNow = dNow.getTime() + dNow.getTimezoneOffset() * 60000
+      const spTime = new Date(utcNow - 3 * 3600000)
+      const dayKey =
+        spTime.getFullYear() +
+        '-' +
+        String(spTime.getMonth() + 1).padStart(2, '0') +
+        '-' +
+        String(spTime.getDate()).padStart(2, '0')
+      const usageFilter = accountId
+        ? "day_key = '" + dayKey + "' && account_id = '" + accountId + "'"
+        : "day_key = '" + dayKey + "'"
+      let uRec = null
+      try {
+        uRec = $app.findFirstRecordByFilter('app_daily_usage', usageFilter)
+      } catch (_) {}
+      if (uRec) {
+        const aCount = uRec.getInt('ai_analyses_count') || 0
+        const aLimit = uRec.getInt('ai_analyses_limit') || 200
+        const aPaused = uRec.getBool('ai_analyses_paused')
+        if (aPaused || aCount >= aLimit) {
+          return e.json(200, {
+            classified: false,
+            reason: 'daily_limit_reached',
+            message: 'Teto diário de análises IA atingido hoje.',
+          })
+        }
+      }
 
       let messages = []
       try {
@@ -26,7 +91,7 @@ routerAdd(
           'whatsapp_messages',
           'remote_jid = {:jid} && instance_name = {:inst}',
           '-timestamp',
-          20,
+          8,
           0,
           { jid: remoteJid, inst: instanceName },
         )
@@ -40,10 +105,17 @@ routerAdd(
 
       function formatMessageContent(m) {
         const content = m.getString('content')
-        if (content && content.trim()) return content.trim()
+        if (content && content.trim()) {
+          return content.trim().length > 300
+            ? content.trim().substring(0, 300) + '…'
+            : content.trim()
+        }
         const transcription = m.getString('transcription')
-        if (transcription && transcription.trim()) {
-          return '[áudio transcrito: ' + transcription.trim() + ']'
+        if (transcription && transcription.trim() && transcription !== 'SKIP_NO_TRANSCRIBE') {
+          const cut = transcription.trim()
+          return (
+            '[áudio transcrito: ' + (cut.length > 200 ? cut.substring(0, 200) + '…' : cut) + ']'
+          )
         }
         const msgType = m.getString('message_type') || ''
         if (msgType === 'audioMessage' || msgType === 'audio' || msgType === 'ptt') {
@@ -53,7 +125,7 @@ routerAdd(
       }
 
       const transcript = messages
-        .slice(0, 15)
+        .slice(0, 8)
         .reverse()
         .map(function (m) {
           const from = m.getBoolean('from_me') ? 'Atendente' : m.getString('push_name') || 'Cliente'
@@ -71,15 +143,6 @@ routerAdd(
           if (nm) lines.push(nm + ' (' + ds + 'd)')
         }
         if (lines.length > 0) rulesDesc = lines.join(', ')
-      } catch (_) {}
-
-      let existingContact = null
-      try {
-        existingContact = $app.findFirstRecordByFilter(
-          'crm_contacts',
-          'jid = {:jid} && instance_name = {:inst}',
-          { jid: remoteJid, inst: instanceName },
-        )
       } catch (_) {}
 
       const pStage = (existingContact && existingContact.getString('stage')) || 'lead'
@@ -157,6 +220,26 @@ routerAdd(
             aiResult = JSON.parse(jsonMatch[0])
           }
         }
+
+        // Incrementar contador diário
+        try {
+          if (!uRec) {
+            const uCol = $app.findCollectionByNameOrId('app_daily_usage')
+            uRec = new Record(uCol)
+            uRec.set('day_key', dayKey)
+            if (accountId) uRec.set('account_id', accountId)
+            uRec.set('transcriptions_count', 0)
+            uRec.set('transcriptions_limit', 150)
+            uRec.set('ai_analyses_count', 0)
+            uRec.set('ai_analyses_limit', 200)
+          }
+          const nextCount = (uRec.getInt('ai_analyses_count') || 0) + 1
+          uRec.set('ai_analyses_count', nextCount)
+          if (nextCount >= (uRec.getInt('ai_analyses_limit') || 200)) {
+            uRec.set('ai_analyses_paused', true)
+          }
+          $app.save(uRec)
+        } catch (_) {}
       } catch (aiErr) {
         if (aiErr instanceof SkipAiConfigError) {
           return e.json(503, { error: 'AI temporarily unavailable' })
@@ -180,11 +263,13 @@ routerAdd(
         // no existing contact
       }
 
+      const nowIso = new Date().toISOString().replace('T', ' ')
       if (crmContact) {
         if (aiResult.stage) crmContact.set('stage', aiResult.stage)
         if (aiResult.suggested_action)
           crmContact.set('ai_suggested_action', aiResult.suggested_action)
         if (aiResult.priority) crmContact.set('ai_priority', aiResult.priority)
+        crmContact.set('last_ai_reclassified_at', nowIso)
         $app.saveNoValidate(crmContact)
       } else {
         try {
@@ -201,6 +286,7 @@ routerAdd(
             crmContact.set('ai_suggested_action', aiResult.suggested_action)
           if (aiResult.priority) crmContact.set('ai_priority', aiResult.priority)
           crmContact.set('account_id', conversation.getString('account_id'))
+          crmContact.set('last_ai_reclassified_at', nowIso)
           $app.saveNoValidate(crmContact)
         } catch (createErr) {
           $app.logger().error('crm-classify: failed to create contact', 'error', String(createErr))
