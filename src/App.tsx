@@ -32,7 +32,7 @@ function AppRoutes() {
   const { showBanner, requestPermission, dismissBanner } = usePushNotifications(isAuthenticated)
 
   return (
-    <>
+    <span className="contents">
       <Routes>
         <Route path="/" element={<Index />} />
         <Route element={<ProtectedRoute />}>
@@ -56,7 +56,7 @@ function AppRoutes() {
           onDismiss={dismissBanner}
         />
       )}
-    </>
+    </span>
   )
 }
 

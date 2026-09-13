@@ -117,12 +117,12 @@ function TaskCard({ task, onDelete }: { task: Task; onDelete: (t: Task) => void 
       </div>
 
       {task.description && (
-        <>
+        <span className="contents">
           <Separator className="bg-border/50" />
           <p className="text-sm text-foreground/80 whitespace-pre-wrap">
             {task.description.replace(/<[^>]+>/g, ' ')}
           </p>
-        </>
+        </span>
       )}
 
       <div className="flex items-center justify-end mt-1">
@@ -180,7 +180,7 @@ export function TaskViewDialog({
   }
 
   return (
-    <>
+    <span className="contents">
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-lg p-0 overflow-hidden bg-muted/20 border-border shadow-lg">
           <DialogHeader className="p-5 pb-3 bg-white border-b border-border/50">
@@ -238,6 +238,6 @@ export function TaskViewDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </span>
   )
 }

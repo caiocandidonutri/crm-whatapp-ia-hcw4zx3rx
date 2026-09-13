@@ -155,7 +155,7 @@ export function PatientContextPanel({
             )}
           </div>
         ) : (
-          <>
+          <div className="contents">
             {/* Informações Básicas do Paciente */}
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12 border">
@@ -279,10 +279,10 @@ export function PatientContextPanel({
                           <span>•</span>
                           <span>{statusMeta.label}</span>
                           {task.due_date && (
-                            <>
+                            <span className="inline-flex items-center gap-2">
                               <span>•</span>
                               <span>Venc: {format(new Date(task.due_date), 'dd/MM')}</span>
-                            </>
+                            </span>
                           )}
                         </div>
                       </div>
@@ -291,7 +291,7 @@ export function PatientContextPanel({
                 </div>
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
     </aside>

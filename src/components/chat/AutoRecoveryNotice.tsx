@@ -42,15 +42,15 @@ export function AutoRecoveryNotice({ instance }: { instance: WhatsappInstance | 
   return (
     <div className="shrink-0 px-4 py-1.5 bg-blue-50 border-b border-blue-100 flex items-center gap-2 text-xs text-blue-800 animate-fade-in">
       {isRestarting ? (
-        <>
+        <span className="inline-flex items-center gap-2">
           <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
           <span>Reiniciando instância automaticamente para restaurar a sincronização…</span>
-        </>
+        </span>
       ) : (
-        <>
+        <span className="inline-flex items-center gap-2">
           <Wrench className="w-3 h-3 shrink-0" />
           <span>Reconfigurando webhook automaticamente para restaurar a sincronização…</span>
-        </>
+        </span>
       )}
     </div>
   )

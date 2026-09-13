@@ -238,19 +238,19 @@ function MessageItemComponent({
                       </DropdownMenuItem>
                     )}
                     {isAudio && !isMe && !msg.transcription && onTranscribe && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onTranscribe(msg.id)
-                          }}
-                          className="cursor-pointer text-amber-600 focus:text-amber-700"
-                        >
-                          <Sparkles className="w-4 h-4 mr-2" />
-                          Transcrever áudio
-                        </DropdownMenuItem>
-                      </>
+                      <DropdownMenuSeparator />
+                    )}
+                    {isAudio && !isMe && !msg.transcription && onTranscribe && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onTranscribe(msg.id)
+                        }}
+                        className="cursor-pointer text-amber-600 focus:text-amber-700"
+                      >
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Transcrever áudio
+                      </DropdownMenuItem>
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>

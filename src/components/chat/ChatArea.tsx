@@ -1002,7 +1002,7 @@ export function ChatArea({
         />
 
         {!isRecording && (
-          <>
+          <span className="contents">
             <Button
               variant="ghost"
               size="icon"
@@ -1086,7 +1086,7 @@ export function ChatArea({
                 }}
               />
             </form>
-          </>
+          </span>
         )}
 
         {isRecording && (

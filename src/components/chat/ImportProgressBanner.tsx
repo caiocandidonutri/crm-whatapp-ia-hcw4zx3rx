@@ -94,13 +94,13 @@ export function ImportProgressBanner({ instance }: ImportProgressBannerProps) {
           </p>
           <p className="text-xs text-blue-700/80 mt-0.5">
             {count > 0 ? (
-              <>
+              <span className="contents">
                 <span className="font-semibold">{count.toLocaleString('pt-BR')}</span> mensagens
                 recebidas.{' '}
                 <span className="opacity-80">
                   Pode usar normalmente — a lista atualiza sozinha quando termina.
                 </span>
-              </>
+              </span>
             ) : (
               'Aguardando o WhatsApp do seu celular começar o envio. Pode usar normalmente.'
             )}
