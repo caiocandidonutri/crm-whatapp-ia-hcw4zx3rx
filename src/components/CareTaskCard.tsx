@@ -79,11 +79,14 @@ export function CareTaskCard({
       : 1
     : 0
 
+  const isUrgente = task.priority === 'urgente'
+
   return (
     <Card
       className={cn(
         'p-3 cursor-pointer hover:shadow-md transition-all group bg-background border shadow-sm relative active:cursor-grabbing',
         isDragging && 'opacity-50 scale-95 shadow-none',
+        isUrgente && 'border-red-500/80 bg-red-50/20 shadow-red-100/50 hover:border-red-600',
       )}
       draggable
       onDragStart={(e) => onDragStart(e, task.id)}
@@ -109,7 +112,15 @@ export function CareTaskCard({
         </div>
       )}
       <div className="flex justify-between items-start mb-2">
-        <div className={cn('flex flex-wrap items-center gap-1', selectable && 'ml-6')}>
+        <div className={cn('flex flex-wrap items-center gap-1.5', selectable && 'ml-6')}>
+          {isUrgente && (
+            <Badge
+              variant="destructive"
+              className="text-[10px] font-bold px-2 py-0.5 bg-red-600 text-white animate-pulse border-red-700 shadow-sm uppercase tracking-wide flex items-center gap-1"
+            >
+              🚨 URGENTE
+            </Badge>
+          )}
           {isCareTask && (
             <Badge
               variant="outline"

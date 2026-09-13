@@ -446,7 +446,14 @@ export default function Home() {
           <Button
             variant="outline"
             className="flex-1 rounded-full min-h-[44px]"
-            onClick={() => loadMetrics(false)}
+            onClick={async () => {
+              try {
+                await silentAuthRefresh()
+              } catch (_) {
+                // se falhar, loadMetrics ainda tentará carregar
+              }
+              loadMetrics(false)
+            }}
           >
             Tentar reconectar
           </Button>

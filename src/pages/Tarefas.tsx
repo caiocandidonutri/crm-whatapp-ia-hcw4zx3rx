@@ -136,7 +136,7 @@ export default function Tarefas() {
   }
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter((t) => {
+    const list = tasks.filter((t) => {
       const matchSearch =
         t.title.toLowerCase().includes(search.toLowerCase()) ||
         (t.description || '').toLowerCase().includes(search.toLowerCase())
@@ -145,6 +145,31 @@ export default function Tarefas() {
       const taskCareCategory = t.care_category || 'sem_categoria'
       const matchCategory = activeCategory === 'todos' || taskCareCategory === activeCategory
       return matchSearch && matchPriority && matchMine && matchCategory
+    })
+
+    // Ordenar no topo as tarefas URGENTES (priority === 'urgente' ou 'alta')
+    const PRIORITY_ORDER: Record<string, number> = {
+      urgente: 4,
+      alta: 3,
+      media: 2,
+      baixa: 1,
+    }
+
+    return list.sort((a, b) => {
+      const pA = PRIORITY_ORDER[a.priority] || 0
+      const pB = PRIORITY_ORDER[b.priority] || 0
+      if (pA !== pB) {
+        return pB - pA // urgentes e altas primeiro
+      }
+      // Se mesma prioridade, ordenar por data de vencimento / criação
+      const aDue = a.due_date ? new Date(a.due_date).getTime() : 0
+      const bDue = b.due_date ? new Date(b.due_date).getTime() : 0
+      if (aDue && bDue) return aDue - bDue
+      if (aDue) return -1
+      if (bDue) return 1
+      const aCreated = a.created ? new Date(a.created).getTime() : 0
+      const bCreated = b.created ? new Date(b.created).getTime() : 0
+      return bCreated - aCreated
     })
   }, [tasks, search, priorityFilter, filterMine, activeCategory])
 

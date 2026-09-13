@@ -75,4 +75,5 @@ pb.afterSend = async (response, data) => {
   return data
 }
 
+export { pb }
 export default pb
