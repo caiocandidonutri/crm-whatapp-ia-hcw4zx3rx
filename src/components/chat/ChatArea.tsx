@@ -875,7 +875,7 @@ export function ChatArea({
           const separatorLabel = showDateSeparator ? getChatDateSeparatorLabel(msg.timestamp) : ''
 
           return (
-            <React.Fragment key={msg.id}>
+            <div key={msg.id} className="contents">
               {showDateSeparator && separatorLabel && (
                 <div className="flex items-center justify-center my-3 select-none pointer-events-none sticky top-1 z-10">
                   <div className="bg-white/95 dark:bg-muted/90 backdrop-blur-md text-foreground/80 font-medium text-[11px] px-3.5 py-1 rounded-full shadow-sm border border-border/60 tracking-wider uppercase">
@@ -901,7 +901,7 @@ export function ChatArea({
                 onTranscribe={handleTranscribeMessage}
                 transcribingId={transcribingId}
               />
-            </React.Fragment>
+            </div>
           )
         })}
 
