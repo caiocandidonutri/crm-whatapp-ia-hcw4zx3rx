@@ -825,10 +825,10 @@ export function ChatArea({
               className="rounded-full h-8 text-xs text-muted-foreground hover:text-primary hover:bg-primary/5 px-4"
             >
               {loadingOlderDb ? (
-                <>
+                <span className="inline-flex items-center">
                   <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
                   Carregando...
-                </>
+                </span>
               ) : (
                 'Carregar mais antigas'
               )}
@@ -849,10 +849,10 @@ export function ChatArea({
               className="rounded-full h-8 text-xs text-muted-foreground hover:text-primary hover:bg-primary/5 px-4"
             >
               {isLoadingOlder ? (
-                <>
+                <span className="inline-flex items-center">
                   <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
                   Carregando...
-                </>
+                </span>
               ) : (
                 'Carregar mensagens mais antigas do aparelho'
               )}
@@ -1200,15 +1200,15 @@ export function ChatArea({
             </Button>
             <Button onClick={handleSaveContactName} disabled={isSavingName} className="rounded-xl">
               {isSavingName ? (
-                <>
+                <span className="inline-flex items-center">
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Salvando...
-                </>
+                </span>
               ) : (
-                <>
+                <span className="inline-flex items-center">
                   <Check className="w-4 h-4 mr-2" />
                   Salvar
-                </>
+                </span>
               )}
             </Button>
           </DialogFooter>

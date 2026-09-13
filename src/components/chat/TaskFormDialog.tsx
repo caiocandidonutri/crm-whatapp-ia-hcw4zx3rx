@@ -338,10 +338,10 @@ export function TaskFormDialog({
             </Button>
             <Button type="submit" disabled={isLoading} className="min-w-[120px]">
               {isLoading ? (
-                <>
+                <span className="inline-flex items-center">
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Salvando...
-                </>
+                </span>
               ) : (
                 'Criar Tarefa'
               )}

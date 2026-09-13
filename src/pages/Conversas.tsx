@@ -532,7 +532,7 @@ export default function Conversas() {
               )}
             >
               {isTimeout ? (
-                <>
+                <span className="inline-flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4" />
                   Falha ao estabilizar conexão.
                   <Button
@@ -543,12 +543,12 @@ export default function Conversas() {
                   >
                     Reconectar
                   </Button>
-                </>
+                </span>
               ) : (
-                <>
+                <span className="inline-flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Estabilizando conexão com o WhatsApp... Aguarde alguns segundos.
-                </>
+                </span>
               )}
             </div>
           )}
@@ -660,15 +660,15 @@ export default function Conversas() {
               className="rounded-xl"
             >
               {isResetting ? (
-                <>
+                <span className="inline-flex items-center">
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Apagando...
-                </>
+                </span>
               ) : (
-                <>
+                <span className="inline-flex items-center">
                   <Trash2 className="w-4 h-4 mr-2" />
                   Apagar tudo
-                </>
+                </span>
               )}
             </Button>
           </DialogFooter>
@@ -754,15 +754,15 @@ export default function Conversas() {
               className="rounded-xl bg-amber-600 hover:bg-amber-700"
             >
               {isReimporting ? (
-                <>
+                <span className="inline-flex items-center">
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Reimportando...
-                </>
+                </span>
               ) : (
-                <>
+                <span className="inline-flex items-center">
                   <History className="w-4 h-4 mr-2" />
                   Reimportar agora
-                </>
+                </span>
               )}
             </Button>
           </DialogFooter>

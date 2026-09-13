@@ -137,15 +137,15 @@ export function ForwardDialog({
             className="bg-primary hover:bg-primary/90 text-white"
           >
             {forwarding ? (
-              <>
+              <span className="inline-flex items-center">
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 Encaminhando...
-              </>
+              </span>
             ) : (
-              <>
+              <span className="inline-flex items-center">
                 <Send className="w-4 h-4 mr-2" />
                 Encaminhar
-              </>
+              </span>
             )}
           </Button>
         </DialogFooter>

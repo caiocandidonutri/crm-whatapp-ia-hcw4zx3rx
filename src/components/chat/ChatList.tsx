@@ -163,12 +163,12 @@ const ChatRow = React.memo(function ChatRow({
             )}
           >
             {messagePreview ? (
-              <>
+              <span className="contents">
                 <Search className="w-3 h-3 shrink-0 text-primary" />
                 <span className="truncate italic text-primary/70">{messagePreview}</span>
-              </>
+              </span>
             ) : (
-              <>
+              <span className="contents">
                 {(chat.lastMessage?.fromMe || lastMsg?.senderId === 'me') && (
                   <span className="shrink-0">Você: </span>
                 )}
@@ -202,7 +202,7 @@ const ChatRow = React.memo(function ChatRow({
                 >
                   {chat.lastMessage?.text || lastMsg?.text || (lastMsg?.media ? 'Mídia' : '')}
                 </span>
-              </>
+              </span>
             )}
           </div>
 
@@ -460,7 +460,7 @@ export function ChatList({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               {unreadGroupCount > 0 && (
-                <>
+                <span className="contents">
                   <DropdownMenuItem
                     onClick={handleClearAllGroupUnreads}
                     disabled={isClearingGroupUnreads}
@@ -470,20 +470,20 @@ export function ChatList({
                     Zerar não lidas de grupos ({unreadGroupCount})
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                </>
+                </span>
               )}
               {onToggleArchived && (
                 <DropdownMenuItem onClick={onToggleArchived}>
                   {showArchived ? (
-                    <>
+                    <span className="inline-flex items-center">
                       <ArchiveRestore className="mr-2 w-4 h-4" />
                       Ocultar arquivadas
-                    </>
+                    </span>
                   ) : (
-                    <>
+                    <span className="inline-flex items-center">
                       <Archive className="mr-2 w-4 h-4" />
                       Mostrar arquivadas
-                    </>
+                    </span>
                   )}
                 </DropdownMenuItem>
               )}
@@ -515,7 +515,7 @@ export function ChatList({
                 </DropdownMenuItem>
               )}
               {onFactoryReset && (
-                <>
+                <span className="contents">
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={onFactoryReset}
@@ -524,7 +524,7 @@ export function ChatList({
                     <Trash2 className="mr-2 w-4 h-4" />
                     Apagar conta
                   </DropdownMenuItem>
-                </>
+                </span>
               )}
             </DropdownMenuContent>
           </DropdownMenu>

@@ -317,15 +317,15 @@ export function AddToCrmDialog({
           </Button>
           <Button onClick={handleSubmit} disabled={creating} className="rounded-xl">
             {creating ? (
-              <>
+              <span className="inline-flex items-center">
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 Adicionando…
-              </>
+              </span>
             ) : (
-              <>
+              <span className="inline-flex items-center">
                 <UserPlus className="w-4 h-4 mr-2" />
                 Adicionar ao CRM
-              </>
+              </span>
             )}
           </Button>
         </DialogFooter>
