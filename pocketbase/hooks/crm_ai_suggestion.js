@@ -85,6 +85,7 @@ routerAdd(
         stage ? 'Estágio do pipeline (stage): ' + stage : '',
         'Status de cuidado (care_status): ' + careStatus,
         'Tarefas ativas de cuidado: ' + activeTasksCount,
+        'Ao falar de agendamento, considere o local registrado no CRM; se não houver, pergunte educadamente a preferência entre Carmo do Rio Claro (Climed), Alfenas (Instituto Harmoniza) e Monte Belo.',
         notes ? 'Notas: ' + notes : '',
         messages.length > 0 ? 'Mensagens recentes:\n' + messages.join('\n') : '',
       ].filter(Boolean)

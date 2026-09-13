@@ -137,10 +137,9 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
 
     // ---- Contexto do CRM do contato ----
     // Buscamos o registro em crm_contacts pelo (instance_name, jid) para
-    // enriquecer o prompt com a fase do paciente no pipeline, seu status
-    // de cuidado, a data da ultima consulta e a acao sugerida pela IA.
-    // Tudo eh tolerante a ausencia: se nao houver contato no CRM, ou se
-    // algum campo estiver vazio, simplesmente omitimos aquela linha.
+    // enriquecer o prompt com a identificação exata do paciente (nome completo,
+    // telefone sem @s.whatsapp.net), fase no pipeline, status de cuidado,
+    // data da última consulta e ação sugerida.
     var crmContact = null
     try {
       crmContact = $app.findFirstRecordByFilter(
@@ -150,6 +149,39 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
       )
     } catch (_) {}
 
+    // Resolução robusta do nome do contato
+    var rawContactName = ''
+    if (crmContact) {
+      rawContactName =
+        crmContact.getString('contact_name') || crmContact.getString('push_name') || ''
+    }
+    if (!rawContactName && conv) {
+      rawContactName = conv.getString('contact_name') || conv.getString('push_name') || ''
+    }
+    if (!rawContactName && msg) {
+      rawContactName = msg.getString('push_name') || ''
+    }
+
+    // Filtra nomes inválidos / que pertençam à equipe da clínica
+    var lowerRaw = rawContactName.toLowerCase().trim()
+    var isSelfName =
+      lowerRaw === 'você' ||
+      lowerRaw === 'voce' ||
+      lowerRaw === 'assistente' ||
+      lowerRaw === 'dr. caio' ||
+      lowerRaw === 'dr caio' ||
+      lowerRaw === 'dr. caio cândido nutri' ||
+      lowerRaw === 'dr caio candido nutri' ||
+      lowerRaw === 'dr. caio nutricionista' ||
+      lowerRaw === 'dr caio nutricionista' ||
+      (lowerRaw.indexOf('fabiana') !== -1 && lowerRaw.indexOf('assistente') !== -1) ||
+      lowerRaw === 'fabiana assistente dr. caio nutricionista' ||
+      lowerRaw === 'fabiana assistente dr. caio cândido nutri' ||
+      lowerRaw === 'fabiana assistente dr. caio candido nutri'
+
+    var contactName = !isSelfName && rawContactName.trim() ? rawContactName.trim() : 'Paciente'
+    var contactPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '')
+
     var crmStage = crmContact ? crmContact.getString('stage') || '' : ''
     var crmCareStatus = crmContact ? crmContact.getString('care_status') || '' : ''
     var crmConvertedAt = crmContact ? crmContact.getString('converted_at') || '' : ''
@@ -157,13 +189,11 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
     var crmAiPriority = crmContact ? crmContact.getInt('ai_priority') || 0 : 0
 
     // ---- Tom/orientacao por fase ----
-    // Traduz a combinacao de stage + care_status numa orientacao de tom
-    // para a IA. Isso e o coracao da personalizacao: a resposta muda de
-    // acordo com a fase real do paciente no CRM.
     var toneGuidance = ''
     var phaseKey = ''
 
-    if (crmCareStatus === 'nao_respondeu' || crmStage === 'nao_respondido') {
+    var stageLower = crmStage.toLowerCase()
+    if (crmCareStatus === 'nao_respondeu' || stageLower === 'nao_respondido') {
       phaseKey = 'reengajamento'
       toneGuidance =
         'REENGAJAMENTO: o contato nao respondeu ha algum tempo. Use um tom caloroso e breve, ' +
@@ -174,7 +204,8 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
         'RETORNO URGENTE: o contato precisa de retorno. Lembre-o com urgencia adequada (sem alarmismo) ' +
         'da importancia de retornar/agendar. Seja objetivo e ofereca horarios concretos.'
     } else if (
-      crmStage === 'Em atendimento' ||
+      stageLower === 'em atendimento' ||
+      stageLower === 'em_atendimento' ||
       crmCareStatus === 'precisa_consulta' ||
       crmCareStatus === 'precisa_atencao'
     ) {
@@ -182,10 +213,8 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
       toneGuidance =
         'EM ATENDIMENTO: o contato esta em atendimento ou precisa de consulta. Incentive o ' +
         'agendamento, oferea informacoes sobre o servico e esclareca duvidas. Tom proativo e acolhedor.'
-    } else if (crmStage === 'Cliente' || crmAiSuggestedAction) {
+    } else if (stageLower === 'cliente' || crmAiSuggestedAction) {
       phaseKey = 'pos_consulta'
-      // Para clientes, calculamos ha quantos dias foi a ultima consulta
-      // (converted_at) para o follow-up ser personalizado no tempo.
       var daysSinceConverted = ''
       if (crmConvertedAt) {
         try {
@@ -200,32 +229,101 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
         (daysSinceConverted ? ' (ultima consulta ha ' + daysSinceConverted + ' dias)' : '') +
         '. Pergunte como esta, se ha duvidas ou dificuldades, e sugira retorno se for o caso.'
     } else {
-      // Leads / primeiro contato — cai aqui quando nao ha stage definido
-      // ou quando o stage e "Leads".
       phaseKey = isNewLead ? 'lead_novo' : 'lead_qualificacao'
       toneGuidance = isNewLead
-        ? 'LEAD NOVO / PRIMEIRO CONTATO: aja como agente closer. Faca boas-vindas, apresente-se, ' +
-          'explique sobre o profissional/servicos/valores e conduza a qualificacao e ao agendamento.'
-        : 'LEAD / QUALIFICACAO: o contato ainda nao e paciente. Conduza a qualificacao com perguntas ' +
-          'objetivas e incentive o agendamento de uma primeira consulta.'
+        ? 'LEAD NOVO / PRIMEIRO CONTATO: aja como secretária acolhedora e atenta. Faca boas-vindas, ' +
+          'apresente-se com carinho, esclareca duvidas sobre os servicos e conduza ao agendamento.'
+        : 'LEAD / QUALIFICACAO: o contato ainda nao e paciente. Conduza com perguntas ' +
+          'atenciosas e incentive o agendamento de uma primeira consulta.'
     }
 
     var crmContextBlock = '\n\n[CONTEXTO DO CONTATO NO CRM]'
+    crmContextBlock += '\nNome do contato / Paciente: ' + contactName
+    crmContextBlock += '\nTelefone / WhatsApp: ' + contactPhone
     crmContextBlock += '\nFase do pipeline: ' + (crmStage || 'nao definido')
     crmContextBlock += '\nStatus de cuidado: ' + (crmCareStatus || 'nao definido')
     crmContextBlock += '\nData da ultima consulta: ' + (crmConvertedAt || 'sem registro')
     if (crmAiSuggestedAction) {
-      crmContextBlock += '\nAcao sugerida anteriormente: ' + crmAiSuggestedAction
+      var isContaminatedAction =
+        crmAiSuggestedAction.indexOf('Edvan') !== -1 ||
+        crmAiSuggestedAction.indexOf('Elayne') !== -1 ||
+        crmAiSuggestedAction.indexOf('Elaine') !== -1
+      if (!isContaminatedAction) {
+        crmContextBlock += '\nAcao sugerida anteriormente: ' + crmAiSuggestedAction
+      }
     }
     if (crmAiPriority > 0) {
       crmContextBlock += '\nPrioridade IA: ' + crmAiPriority + ' (1-10)'
     }
     crmContextBlock += '\nOrientacao de tom para esta fase (' + phaseKey + '): ' + toneGuidance
+    crmContextBlock +=
+      '\nAo falar de agendamento, considere o local registrado no CRM; se não houver, pergunte educadamente a preferência entre Carmo do Rio Claro (Climed), Alfenas (Instituto Harmoniza) e Monte Belo.'
+    crmContextBlock +=
+      '\nIMPORTANTE: Este atendimento e EXCLUSIVO para "' +
+      contactName +
+      '" (' +
+      contactPhone +
+      '). NUNCA use nomes de outras pessoas, pacientes anteriores ou assuntos de outros atendimentos. Use apenas o historico real abaixo.'
     crmContextBlock += '\n[ FIM DO CONTEXTO DO CONTATO ]'
 
-    var textContent = msg.getString('content') || 'Mensagem em formato de midia.'
-    // O bloco de contexto do CRM substitui a heuristica antiga (isNewLead),
-    // mas mantemos isNewLead como sinal adicional dentro do bloco.
+    // ---- HISTÓRICO REAL DA CONVERSA DESTE CONTATO ----
+    // Busca até 15 mensagens anteriores deste contato estrito (remote_jid + instance_name)
+    // para que o modelo tenha o fio da conversa e nunca alucine nomes ou assuntos alheios.
+    var historyBlock = ''
+    try {
+      var recentHistory = $app.findRecordsByFilter(
+        'whatsapp_messages',
+        'remote_jid = {:jid} && instance_name = {:inst} && id != {:curId}',
+        '-timestamp',
+        15,
+        0,
+        { jid: remoteJid, inst: instanceName, curId: msg.id },
+      )
+
+      if (recentHistory && recentHistory.length > 0) {
+        // Ordena cronologicamente (mais antiga para mais recente)
+        recentHistory.reverse()
+        var historyLines = []
+        for (var h = 0; h < recentHistory.length; h++) {
+          var hMsg = recentHistory[h]
+          var hContent = hMsg.getString('content') || ''
+          var hTrans = hMsg.getString('transcription') || ''
+          // Se tiver transcrição de áudio e conteúdo vazio, usa a transcrição
+          if (
+            (!hContent || hContent.startsWith('[audio') || hContent.startsWith('[Áudio')) &&
+            hTrans &&
+            hTrans !== 'SKIP_NO_TRANSCRIBE'
+          ) {
+            hContent = '[Áudio transcrito]: ' + hTrans
+          }
+          if (!hContent) continue
+          var senderLabel = hMsg.getBool('from_me')
+            ? 'Atendente/Fabiana'
+            : 'Paciente (' + contactName + ')'
+          historyLines.push('- ' + senderLabel + ': ' + hContent.trim())
+        }
+        if (historyLines.length > 0) {
+          historyBlock =
+            '\n\n[HISTÓRICO RECENTE DA CONVERSA DESTE CONTATO]\n' +
+            historyLines.join('\n') +
+            '\n[FIM DO HISTÓRICO]'
+        }
+      }
+    } catch (histErr) {
+      $app.logger().error('cron_ai: error fetching conversation history', 'error', String(histErr))
+    }
+
+    var textContent = msg.getString('content') || ''
+    var msgTrans = msg.getString('transcription') || ''
+    if (
+      (!textContent || textContent.startsWith('[audio') || textContent.startsWith('[Áudio')) &&
+      msgTrans &&
+      msgTrans !== 'SKIP_NO_TRANSCRIBE'
+    ) {
+      textContent = '[Áudio transcrito]: ' + msgTrans
+    }
+    if (!textContent) textContent = 'Mensagem em formato de midia.'
+
     var leadContext = crmContextBlock
 
     var finalMessage =
@@ -234,16 +332,53 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
       '\n</system_instruction>' +
       leadContext +
       documentContext +
-      '\n\nMensagem: ' +
+      historyBlock +
+      '\n\n[NOVA MENSAGEM RECEBIDA DO PACIENTE ' +
+      contactName.toUpperCase() +
+      ']:\n' +
       textContent
 
-    var aiConvId = conv.getString('ai_conversation_id') || null
+    // ISOLAMENTO DE SESSÃO: Garante conversation_id exclusivo por conversa
+    // ISOLAMENTO DE SESSÃO: Garante conversation_id exclusivo por conversa
+    var aiConvId = conv.getString('ai_conversation_id') || ''
+    try {
+      var agentConv = $ai.agent('whatsapp-manager').getOrCreateConversation({
+        user_id: userId,
+        id: aiConvId || null,
+        title: 'WhatsApp: ' + contactName + ' (' + contactPhone + ')',
+      })
+      if (agentConv && agentConv.id) {
+        aiConvId = agentConv.id
+        if (conv.getString('ai_conversation_id') !== aiConvId) {
+          conv.set('ai_conversation_id', aiConvId)
+          try {
+            $app.save(conv)
+          } catch (_) {}
+        }
+      }
+    } catch (getConvErr) {
+      $app.logger().warn('cron_ai: getOrCreateConversation fallback', 'error', String(getConvErr))
+    }
+
+    $app
+      .logger()
+      .info(
+        'cron_ai: prompt dispatch',
+        'contact',
+        contactName,
+        'phone',
+        contactPhone,
+        'remote_jid',
+        remoteJid,
+        'conv_id',
+        aiConvId,
+      )
 
     var result
     try {
       result = $ai.agent('whatsapp-manager').chat({
         user_id: userId,
-        conversation_id: aiConvId,
+        conversation_id: aiConvId || null,
         message: finalMessage,
       })
     } catch (err) {
@@ -252,9 +387,11 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
       return false
     }
 
-    if (!aiConvId && result.conversation_id) {
+    if (!conv.getString('ai_conversation_id') && result && result.conversation_id) {
       conv.set('ai_conversation_id', result.conversation_id)
-      $app.save(conv)
+      try {
+        $app.save(conv)
+      } catch (_) {}
     }
 
     var replyText = result.content || ''
@@ -445,8 +582,36 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
 
     var evolutionNumber = remoteJid.split('@')[0]
     var accountId = msg.getString('account_id')
+    var crmContact = null
+    try {
+      crmContact = $app.findFirstRecordByFilter(
+        'crm_contacts',
+        'instance_name = {:inst} && jid = {:jid}',
+        { inst: instanceName, jid: remoteJid },
+      )
+    } catch (_) {}
+
+    var rawName = ''
+    if (crmContact) {
+      rawName = crmContact.getString('contact_name') || crmContact.getString('push_name') || ''
+    }
+    if (!rawName) {
+      rawName = msg.getString('push_name') || ''
+    }
+    var lowerR = rawName.toLowerCase().trim()
+    var isSelf =
+      lowerR === 'você' ||
+      lowerR === 'voce' ||
+      lowerR === 'assistente' ||
+      lowerR === 'dr. caio' ||
+      lowerR === 'dr caio' ||
+      (lowerR.indexOf('fabiana') !== -1 && lowerR.indexOf('assistente') !== -1)
+    var cNameGreeting = !isSelf && rawName.trim() ? ' ' + rawName.trim() : ''
+
     var orientationText =
-      'Olá! Recebemos sua mensagem. Nosso atendimento humano está em pausa de almoço e retornará em breve. Obrigado pela paciência! 🙏'
+      'Olá' +
+      cNameGreeting +
+      '! Recebemos sua mensagem. Nosso atendimento humano está em pausa de almoço e retornará em breve. Obrigado pela paciência! 🙏'
 
     var sendRes = $http.send({
       url: apiUrl + '/message/sendText/' + instanceName,
