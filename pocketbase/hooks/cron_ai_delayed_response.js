@@ -1,4 +1,4 @@
-cronAdd('ai_delayed_response', '* * * * *', () => {
+cronAdd('ai_delayed_response', '*/3 * * * *', () => {
   var now = new Date()
   var brazilMs = now.getTime() - 3 * 60 * 60 * 1000
   var brazilTime = new Date(brazilMs)
@@ -293,7 +293,7 @@ cronAdd('ai_delayed_response', '* * * * *', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: evApiKey },
       body: JSON.stringify({ number: evolutionNumber, text: replyText }),
-      timeout: 30,
+      timeout: 15,
     })
 
     if (sendRes.statusCode < 200 || sendRes.statusCode >= 300) {
@@ -337,7 +337,7 @@ cronAdd('ai_delayed_response', '* * * * *', () => {
           url: docUrl,
           method: 'GET',
           headers: { Authorization: superToken },
-          timeout: 30,
+          timeout: 15,
         })
 
         if (docRes.statusCode === 200 && docRes.body) {
@@ -383,7 +383,7 @@ cronAdd('ai_delayed_response', '* * * * *', () => {
               media: base64,
               fileName: docToSend,
             }),
-            timeout: 30,
+            timeout: 15,
           })
 
           if (mediaRes.statusCode >= 200 && mediaRes.statusCode < 300) {
@@ -453,7 +453,7 @@ cronAdd('ai_delayed_response', '* * * * *', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: evApiKey },
       body: JSON.stringify({ number: evolutionNumber, text: orientationText }),
-      timeout: 30,
+      timeout: 15,
     })
 
     if (sendRes.statusCode < 200 || sendRes.statusCode >= 300) return false

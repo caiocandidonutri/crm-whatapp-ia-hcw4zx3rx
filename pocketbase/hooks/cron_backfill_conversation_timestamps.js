@@ -1,4 +1,4 @@
-// A cada minuto, popula `last_message_timestamp` em conversations que ainda
+// A cada 10 minutos, popula `last_message_timestamp` em conversations que ainda
 // estão zeradas, lendo o MAX(timestamp) das whatsapp_messages associadas.
 //
 // Por que existe: a migration 0017 tentou fazer esse backfill mas pode ter
@@ -7,15 +7,13 @@
 // também não rodou, este cron resolve aos poucos sem mexer em dados já
 // corretos.
 //
-// Processa até 200 conversations por execução. Para uma conta normal,
-// finaliza em 1 ou 2 minutos. Após populadas, o WHERE não retorna nada
-// e o cron vira no-op.
-cronAdd('backfill_conv_timestamps', '* * * * *', () => {
+// Processa até 20 conversations por execução para evitar travas longas no SQLite.
+cronAdd('backfill_conv_timestamps', '*/10 * * * *', () => {
   let records = []
   try {
-    // Busca até 200 conversas para conferir se há mensagens mais recentes
+    // Busca até 20 conversas para conferir se há mensagens mais recentes
     // ordenando pelas mais antigas atualizadas (+updated) para rodar continuamente
-    records = $app.findRecordsByFilter('conversations', 'remote_jid != ""', '+updated', 200, 0, {})
+    records = $app.findRecordsByFilter('conversations', 'remote_jid != ""', '+updated', 20, 0, {})
   } catch (err) {
     $app.logger().error('cron_backfill_conv_timestamps_query_error', 'error', String(err))
     return

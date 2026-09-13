@@ -1,4 +1,4 @@
-cronAdd('enrich_conversations', '* * * * *', () => {
+cronAdd('enrich_conversations', '*/7 * * * *', () => {
   const urlStr = $secrets.get('EVOLUTION_API_URL') || ''
   const apiUrl = urlStr.endsWith('/') ? urlStr.slice(0, -1) : urlStr
   const apiKey = $secrets.get('EVOLUTION_API_KEY') || ''

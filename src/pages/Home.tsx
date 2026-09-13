@@ -448,7 +448,9 @@ export default function Home() {
             className="flex-1 rounded-full min-h-[44px]"
             onClick={async () => {
               try {
-                await silentAuthRefresh()
+                if (pb.authStore.isValid || pb.authStore.token) {
+                  await pb.collection('users').authRefresh()
+                }
               } catch (_) {
                 // se falhar, loadMetrics ainda tentará carregar
               }

@@ -1,5 +1,5 @@
 // Cron para processamento da fila de transcrição de áudios
-// Executa a cada minuto buscando mensagens de áudio elegíveis para transcrição
+// Executa a cada 5 minutos buscando mensagens de áudio elegíveis para transcrição
 // Regras de elegibilidade (enxugamento de custos):
 // 1. NÃO transcrever: contatos no estágio "cliente" (fechados).
 // 2. NÃO transcrever: conversas arquivadas OU sem movimentação há mais de 7 dias.
@@ -7,7 +7,7 @@
 // 4. Limite diário configurável com pausa automática e log ao atingir o teto.
 // 5. Cooldown de 6 horas por contato para reclassificação IA, com prompt enxuto (8 msgs, transcrição max 200 chars).
 
-cronAdd('transcribe_audio_queue', '* * * * *', () => {
+cronAdd('transcribe_audio_queue', '*/5 * * * *', () => {
   const openAiKey = $secrets.get('OPENAI_API_KEY') || $os.getenv('OPENAI_API_KEY')
 
   if (!openAiKey) {
@@ -303,7 +303,7 @@ cronAdd('transcribe_audio_queue', '* * * * *', () => {
             url: fileUrl,
             method: 'GET',
             headers: dlHeaders,
-            timeout: 25,
+            timeout: 15,
           })
           if (
             dlRes.statusCode >= 200 &&
@@ -338,7 +338,7 @@ cronAdd('transcribe_audio_queue', '* * * * *', () => {
               },
               convertToMp4: false,
             }),
-            timeout: 30,
+            timeout: 15,
           })
 
           if (evRes.statusCode === 200 && evRes.json && evRes.json.base64) {
@@ -393,7 +393,7 @@ cronAdd('transcribe_audio_queue', '* * * * *', () => {
             Authorization: 'Bearer ' + openAiKey,
           },
           body: formData,
-          timeout: 60,
+          timeout: 15,
         })
 
         if (whisperRes.statusCode >= 200 && whisperRes.statusCode < 300) {
