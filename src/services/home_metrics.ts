@@ -68,6 +68,32 @@ export interface HomeMetricsData {
   }
 }
 
-export const fetchHomeMetrics = async (): Promise<HomeMetricsData> => {
-  return pb.send<HomeMetricsData>('/backend/v1/home/metrics', { method: 'GET' })
+export const fetchHomeMetrics = async (signal?: AbortSignal): Promise<HomeMetricsData> => {
+  // Timeout de 8s se não houver signal externo fornecido
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  let effectiveSignal = signal
+
+  if (!effectiveSignal) {
+    const controller = new AbortController()
+    timeoutId = setTimeout(() => controller.abort(), 8000)
+    effectiveSignal = controller.signal
+  }
+
+  try {
+    const token = pb.authStore.token
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers.Authorization = token
+    }
+
+    return await pb.send<HomeMetricsData>('/backend/v1/home/metrics', {
+      method: 'GET',
+      headers,
+      signal: effectiveSignal,
+    })
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
+  }
 }

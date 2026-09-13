@@ -91,6 +91,8 @@ export default function Home() {
     }
   }, [instance?.instance_name, instance?.status, checkInstanceStatus])
 
+  const [sessionExpired, setSessionExpired] = useState(false)
+
   const loadMetrics = useCallback(
     async (silent = false) => {
       if (!silent) {
@@ -102,10 +104,19 @@ export default function Home() {
       try {
         const data = await fetchHomeMetrics()
         setMetrics(data)
+        setSessionExpired(false)
       } catch (err: any) {
         console.error('Failed to load aggregated home metrics:', err)
-        setError(err?.message || 'Não foi possível carregar os dados do painel.')
-        if (!silent) {
+        const isAuthErr =
+          err?.status === 401 || err?.message?.includes('401') || err?.message?.includes('token')
+        if (isAuthErr) {
+          setSessionExpired(true)
+          setError('Sua sessão expirou. Entre novamente para visualizar os dados da clínica.')
+        } else {
+          setError(err?.message || 'Não foi possível carregar os dados do painel.')
+        }
+
+        if (!silent && !isAuthErr) {
           toast({
             title: 'Erro ao carregar dados',
             description: 'Não foi possível carregar os dados do painel de gestão.',
@@ -417,6 +428,41 @@ export default function Home() {
   const audiosTranscribed = metrics?.audios?.transcribed ?? 0
   const audiosPending = metrics?.audios?.pending ?? 0
   const followupsRecovered = metrics?.followupsRecovered7d ?? 0
+
+  if (sessionExpired) {
+    return (
+      <div className="max-w-md mx-auto my-12 p-6 bg-white/80 backdrop-blur-md rounded-2xl border border-border shadow-sm text-center flex flex-col items-center gap-4 animate-fade-in">
+        <div className="w-14 h-14 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
+          <AlertCircle className="w-7 h-7" />
+        </div>
+        <div>
+          <h2 className="font-serif text-2xl font-bold text-primary">Sessão expirada</h2>
+          <p className="text-sm text-muted-foreground mt-2">
+            Por segurança e atualização das permissões da clínica, sua sessão encerrou. Entre
+            novamente para carregar o painel.
+          </p>
+        </div>
+        <div className="flex gap-3 mt-2 w-full">
+          <Button
+            variant="outline"
+            className="flex-1 rounded-full min-h-[44px]"
+            onClick={() => loadMetrics(false)}
+          >
+            Tentar reconectar
+          </Button>
+          <Button
+            className="flex-1 rounded-full min-h-[44px]"
+            onClick={() => {
+              pb.authStore.clear()
+              navigate('/')
+            }}
+          >
+            Entrar novamente
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col gap-6 md:gap-8 animate-fade-in pb-12 w-full overflow-x-hidden">

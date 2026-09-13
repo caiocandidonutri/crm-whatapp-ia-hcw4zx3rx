@@ -31,14 +31,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(record)
     })
 
-    if (pb.authStore.isValid) {
+    const handleSessionExpired = () => {
+      setUser(null)
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('auth:session_expired', handleSessionExpired)
+    }
+
+    if (pb.authStore.isValid || pb.authStore.token) {
       pb.collection('users')
         .authRefresh()
         .catch(() => {
-          // Só limpa se o token realmente estiver inválido/expirado
-          if (!pb.authStore.isValid) {
-            pb.authStore.clear()
-          }
+          pb.authStore.clear()
+          setUser(null)
         })
         .finally(() => setLoading(false))
     } else {
@@ -47,6 +53,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     return () => {
       unsubscribe()
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('auth:session_expired', handleSessionExpired)
+      }
     }
   }, [])
 
