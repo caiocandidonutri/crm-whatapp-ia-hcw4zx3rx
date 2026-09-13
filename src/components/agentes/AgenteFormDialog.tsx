@@ -239,13 +239,13 @@ export function AgenteFormDialog({ open, onOpenChange, agent, onSubmit }: Props)
               </Button>
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...
-                  </>
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Salvando...
+                  </span>
                 ) : (
-                  <>
-                    <Save className="w-4 h-4 mr-2" /> Salvar
-                  </>
+                  <span className="inline-flex items-center gap-2">
+                    <Save className="w-4 h-4" /> Salvar
+                  </span>
                 )}
               </Button>
             </DialogFooter>
