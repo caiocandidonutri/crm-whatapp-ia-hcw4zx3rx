@@ -53,12 +53,52 @@ export function AgenteFormDialog({ open, onOpenChange, agent, onSubmit }: Props)
     defaultValues: { name: '', system_prompt: '' },
   })
 
-  const existingDocs: string[] = agent?.documents
-    ? agent.documents
+  const normalizeDocuments = (docs: unknown): string[] => {
+    if (!docs) return []
+    if (Array.isArray(docs)) {
+      return docs
+        .map((d) =>
+          typeof d === 'string'
+            ? d.trim()
+            : typeof d === 'object' && d !== null && 'name' in d
+              ? String((d as any).name).trim()
+              : String(d).trim(),
+        )
+        .filter(Boolean)
+    }
+    if (typeof docs === 'string') {
+      const trimmed = docs.trim()
+      if (!trimmed) return []
+      // Verifica se é uma string JSON (ex: '["doc1.pdf", "doc2.pdf"]')
+      if (
+        (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+        (trimmed.startsWith('{') && trimmed.endsWith('}'))
+      ) {
+        try {
+          const parsed = JSON.parse(trimmed)
+          return normalizeDocuments(parsed)
+        } catch {
+          // não é JSON válido, prossegue com split por vírgula
+        }
+      }
+      return trimmed
         .split(',')
         .map((d) => d.trim())
         .filter(Boolean)
-    : []
+    }
+    if (typeof docs === 'object') {
+      try {
+        return Object.values(docs)
+          .map((d) => String(d).trim())
+          .filter(Boolean)
+      } catch {
+        return []
+      }
+    }
+    return []
+  }
+
+  const existingDocs: string[] = normalizeDocuments(agent?.documents)
 
   useEffect(() => {
     if (open) {

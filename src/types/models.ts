@@ -52,7 +52,7 @@ export interface AiAgent extends RecordModel {
   user_id: string
   name: string
   system_prompt: string
-  documents?: string
+  documents?: string | string[] | any
 }
 
 export interface User extends RecordModel {
