@@ -15,6 +15,9 @@ import {
   AlertCircle,
   X,
   HeartPulse,
+  Wand2,
+  Copy,
+  RotateCcw,
 } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
@@ -33,6 +36,7 @@ import {
   atualizarNomeContato,
   enviarTexto,
   transcreverAudio,
+  sugerirRespostaFabiana,
 } from '@/services/whatsapp_service'
 import { isInvalidContactName } from '@/lib/whatsapp-mappers'
 import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
@@ -125,6 +129,53 @@ export function ChatArea({
   const [selectedMediaType, setSelectedMediaType] = useState<
     'image' | 'video' | 'document' | 'audio' | null
   >(null)
+
+  // Sugestão de Resposta com Fabiana IA
+  const [isSuggestingReply, setIsSuggestingReply] = useState(false)
+  const [suggestedReplyText, setSuggestedReplyText] = useState<string | null>(null)
+  const [copiedSuggestion, setCopiedSuggestion] = useState(false)
+
+  const handleSuggestReply = async () => {
+    if (!chat || isSuggestingReply) return
+    setIsSuggestingReply(true)
+    try {
+      const res = await sugerirRespostaFabiana({
+        conversation_id: chat.id,
+        remote_jid: chat.remote_jid,
+        instance_name: chat.instance_name,
+      })
+      if (res && res.suggestion) {
+        setSuggestedReplyText(res.suggestion)
+        setCopiedSuggestion(false)
+      } else {
+        toast.info('Nenhuma sugestão foi gerada pela Fabiana IA.')
+      }
+    } catch (err: any) {
+      toast.error('Erro ao sugerir resposta: ' + (err?.message || 'tente novamente'))
+    } finally {
+      setIsSuggestingReply(false)
+    }
+  }
+
+  const handleCopySuggestion = async () => {
+    if (!suggestedReplyText) return
+    try {
+      await navigator.clipboard.writeText(suggestedReplyText)
+      setCopiedSuggestion(true)
+      toast.success('Sugestão copiada para a área de transferência!')
+      setTimeout(() => setCopiedSuggestion(false), 2000)
+    } catch (_) {
+      setInputText(suggestedReplyText)
+      toast.success('Sugestão inserida no campo de mensagem!')
+    }
+  }
+
+  const handleApplySuggestionToInput = () => {
+    if (!suggestedReplyText) return
+    setInputText(suggestedReplyText)
+    setSuggestedReplyText(null)
+    toast.success('Sugestão aplicada no campo de texto para envio!')
+  }
 
   const [isTemplateManageOpen, setIsTemplateManageOpen] = useState(false)
 
@@ -714,6 +765,26 @@ export function ChatArea({
             <Button
               variant="outline"
               size="sm"
+              onClick={handleSuggestReply}
+              disabled={isSuggestingReply}
+              title="Sugerir resposta com Fabiana IA"
+              className={cn(
+                'rounded-full text-xs font-semibold border-amber-300 bg-amber-50/60 text-amber-700 hover:bg-amber-100 hover:text-amber-800 transition-colors min-h-[40px]',
+                isMobile ? 'px-2.5 min-w-[40px]' : 'px-3',
+              )}
+            >
+              {isSuggestingReply ? (
+                <Loader2 className="w-4 h-4 animate-spin sm:mr-1.5 text-amber-600" />
+              ) : (
+                <Wand2 className="w-4 h-4 sm:mr-1.5 text-amber-600" />
+              )}
+              <span className="hidden sm:inline">Sugerir</span>
+            </Button>
+          )}
+          {chat?.type !== 'group' && (
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleOpenCareSecretary}
               title="Abrir Secretária de Cuidado deste paciente"
               className={cn(
@@ -963,6 +1034,68 @@ export function ChatArea({
               <X className="h-4 w-4" />
             </button>
           </Alert>
+        </div>
+      )}
+
+      {/* Balão de Revisão da Sugestão com Fabiana IA (Modo Assistente - Revisão Humana) */}
+      {suggestedReplyText && (
+        <div className="bg-amber-50/90 dark:bg-amber-950/40 px-4 py-3 border-t border-amber-200/80 dark:border-amber-800/60 shadow-sm z-10 animate-fade-in-up">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900 dark:text-amber-300">
+                <Wand2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>Sugestão da Fabiana IA (Modo Assistente — revise antes de enviar)</span>
+              </div>
+              <p className="text-sm text-foreground/90 bg-white/80 dark:bg-card/80 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-900/40 whitespace-pre-wrap leading-relaxed shadow-xs">
+                {suggestedReplyText}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground shrink-0"
+              onClick={() => setSuggestedReplyText(null)}
+              title="Descartar sugestão"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+          <div className="flex items-center justify-end gap-2 mt-2 pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleSuggestReply}
+              disabled={isSuggestingReply}
+              className="h-8 rounded-full text-xs text-amber-800 dark:text-amber-300 hover:bg-amber-100/70"
+            >
+              {isSuggestingReply ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              Regenerar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCopySuggestion}
+              className="h-8 rounded-full text-xs border-amber-300 text-amber-900 dark:text-amber-200 hover:bg-amber-100/70"
+            >
+              {copiedSuggestion ? (
+                <Check className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
+              ) : (
+                <Copy className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              {copiedSuggestion ? 'Copiado!' : 'Copiar'}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleApplySuggestionToInput}
+              className="h-8 rounded-full text-xs bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
+            >
+              Usar no chat
+            </Button>
+          </div>
         </div>
       )}
 

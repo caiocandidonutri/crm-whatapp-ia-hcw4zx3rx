@@ -275,3 +275,22 @@ export const enviarMidia = async (
     headers: { 'Content-Type': 'application/json' },
   })
 }
+
+export interface SuggestReplyResult {
+  conversation_id: string
+  contact_name: string
+  suggestion: string
+  ai_conversation_id: string
+}
+
+export const sugerirRespostaFabiana = async (params: {
+  conversation_id?: string
+  remote_jid?: string
+  instance_name?: string
+}): Promise<SuggestReplyResult> => {
+  return pb.send<SuggestReplyResult>('/backend/v1/conversations/suggest-reply', {
+    method: 'POST',
+    body: JSON.stringify(params),
+    headers: { 'Content-Type': 'application/json' },
+  })
+}

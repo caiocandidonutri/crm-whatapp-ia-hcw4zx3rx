@@ -257,7 +257,12 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
     }
     crmContextBlock += '\nOrientacao de tom para esta fase (' + phaseKey + '): ' + toneGuidance
     crmContextBlock +=
-      '\nAo falar de agendamento, considere o local registrado no CRM; se não houver, pergunte educadamente a preferência entre Carmo do Rio Claro (Climed), Alfenas (Instituto Harmoniza) e Monte Belo.'
+      '\nDISCIPLINA DE RESPOSTA E RITMO:\n' +
+      '- Responda APENAS ao que foi perguntado na última mensagem do paciente.\n' +
+      '- NÃO ofereça horários, datas ou disponibilidade de agenda — a agenda real da clínica NÃO é conhecida aqui.\n' +
+      '- Se o paciente pedir agendamento, acolha com carinho e diga que vai confirmar os horários com o Dr. Caio e já retorna ("Deixa eu confirmar aqui os horários com o Dr. Caio e já te retorno, tá bom? 😊").\n' +
+      '- SÓ mencione endereço/local se o paciente perguntou expressamente onde fica. NUNCA envie endereço antes da hora.\n' +
+      '- Uma mensagem = um assunto. Nunca empilhe múltiplos tópicos.'
     crmContextBlock +=
       '\nIMPORTANTE: Este atendimento e EXCLUSIVO para "' +
       contactName +
