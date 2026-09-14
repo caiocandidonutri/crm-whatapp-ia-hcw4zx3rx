@@ -100,7 +100,23 @@ function applyMessageEvent(
   if (e.action === 'delete') {
     return prev.filter((m) => m.id !== rec.id)
   }
-  const map = new Map(prev.map((m) => [m.id, m]))
+  // Remove eventuais mensagens otimistas equivalentes (mesmo remote_jid, from_me, timestamp próximo ou mesmo message_id)
+  const filtered = prev.filter((m) => {
+    if (m.id.startsWith('optimistic_')) {
+      if (rec.message_id && m.message_id === rec.message_id) return false
+      // Se for mensagem enviada por mim nos últimos 30s com mesmo conteúdo, substitui
+      if (
+        m.from_me &&
+        m.content === rec.content &&
+        Math.abs((m.timestamp || 0) - (rec.timestamp || 0)) < 30
+      ) {
+        return false
+      }
+    }
+    return true
+  })
+
+  const map = new Map(filtered.map((m) => [m.id, m]))
   map.set(rec.id, rec)
   return Array.from(map.values()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
 }
@@ -415,6 +431,25 @@ export function useConversas(
     !!accountId && !!instanceName,
   )
 
+  // Resiliência SSE: ao reconectar (PB_CONNECT), recarrega as conversas para
+  // cobrir quaisquer eventos perdidos durante a desconexão temporária.
+  useEffect(() => {
+    if (!accountId || !instanceName) return
+    let isInitialConnect = true
+    const unsub = pb.realtime.subscribe('PB_CONNECT', () => {
+      // Ignora a primeiríssima conexão se o load inicial já foi disparado
+      if (isInitialConnect) {
+        isInitialConnect = false
+        return
+      }
+      reload()
+    })
+
+    return () => {
+      unsub.then((fn) => fn()).catch(() => {})
+    }
+  }, [accountId, instanceName, reload])
+
   return { conversations, setConversations, loading, loadingMore, hasMore, loadMore, reload }
 }
 
@@ -555,8 +590,27 @@ export function useMensagens(
     !!accountId && !!instanceName && !!remoteJid,
   )
 
+  // Resiliência SSE: ao reconectar (PB_CONNECT), recarrega as mensagens da
+  // conversa ativa para cobrir quaisquer mensagens perdidas enquanto esteve offline.
+  useEffect(() => {
+    if (!accountId || !instanceName || !remoteJid) return
+    let isInitialConnect = true
+    const unsub = pb.realtime.subscribe('PB_CONNECT', () => {
+      if (isInitialConnect) {
+        isInitialConnect = false
+        return
+      }
+      load()
+    })
+
+    return () => {
+      unsub.then((fn) => fn()).catch(() => {})
+    }
+  }, [accountId, instanceName, remoteJid, load])
+
   return {
     messages,
+    setMessages,
     loading,
     reload: load,
     hasMoreOlder,

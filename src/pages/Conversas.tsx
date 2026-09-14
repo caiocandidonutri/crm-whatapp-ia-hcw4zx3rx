@@ -56,11 +56,16 @@ import { useHistorySync } from '@/hooks/use-history-sync'
 import { useCrmContatos } from '@/hooks/use-crm'
 import pb from '@/lib/pocketbase/client'
 
+import { useRealtimeStatus } from '@/hooks/use-realtime-status'
+
 export default function Conversas() {
   const isMobile = useIsMobile()
   const { instance, loading: loadingInstance } = useInstanciaAtiva()
   const isImportingHistory = instance?.is_importing_history === true
   const [showArchived, setShowArchived] = useState(false)
+  const realtimeStatus = useRealtimeStatus()
+  const lastRealtimeEventTimeRef = useRef<number>(Date.now())
+
   const {
     conversations,
     setConversations,
@@ -154,7 +159,7 @@ export default function Conversas() {
   const [resetConfirmText, setResetConfirmText] = useState('')
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { signOut } = useAuth()
+  const { user, signOut } = useAuth()
   const { role, accountId } = useCurrentAccount()
 
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null)
@@ -277,14 +282,51 @@ export default function Conversas() {
 
   const {
     messages: rawMessages = [],
+    setMessages: setRawMessages,
     hasMoreOlder: hasMoreOlderMessages,
     loadingOlder: loadingOlderMessages,
     loadOlderMessages: loadOlderMessagesFn,
+    reload: reloadMensagens,
   } = useMensagens(
     instance?.status === 'connected' ? instance.instance_name : undefined,
     activeConversation?.remote_jid,
     isImportingHistory,
   )
+
+  // Escuta qualquer evento de realtime para atualizar a marca de tempo de saúde do SSE
+  useEffect(() => {
+    let cancelled = false
+    const unsub = pb.realtime.subscribe('*', () => {
+      if (!cancelled) {
+        lastRealtimeEventTimeRef.current = Date.now()
+      }
+    })
+    return () => {
+      cancelled = true
+      unsub.then((fn) => fn()).catch(() => {})
+    }
+  }, [])
+
+  // Frente 1: Polling de segurança leve: timer de ~20s que só refetch se a aba
+  // estiver ativa E nenhum evento SSE tenha chegado nos últimos ~30s.
+  useEffect(() => {
+    if (!instance || instance.status !== 'connected') return
+
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      const idle = Date.now() - lastRealtimeEventTimeRef.current
+      if (idle >= 30000) {
+        // SSE inativo há pelo menos 30s: refetch leve
+        reloadChats()
+        if (activeConversation?.remote_jid) {
+          reloadMensagens()
+        }
+        lastRealtimeEventTimeRef.current = Date.now()
+      }
+    }, 20000)
+
+    return () => clearInterval(interval)
+  }, [instance, reloadChats, reloadMensagens, activeConversation?.remote_jid])
 
   const adaptedChats = React.useMemo(
     () =>
@@ -345,22 +387,119 @@ export default function Conversas() {
     if (!instance?.instance_name || !activeConversation?.remote_jid) {
       throw new Error('Instância não conectada ou conversa inválida')
     }
-    await enviarTexto(instance.instance_name, activeConversation.remote_jid, text)
+
+    const optimisticId = `optimistic_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    const nowUnix = Math.floor(Date.now() / 1000)
+
+    // Atualização otimista: insere a mensagem imediatamente na lista do chat
+    const optimisticMessage: any = {
+      id: optimisticId,
+      user_id: user?.id || '',
+      account_id: accountId || '',
+      instance_name: instance.instance_name,
+      remote_jid: activeConversation.remote_jid,
+      from_me: true,
+      content: text,
+      message_type: 'conversation',
+      status: 'pending',
+      timestamp: nowUnix,
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+      collectionId: '',
+      collectionName: 'whatsapp_messages',
+    }
+
+    setRawMessages((prev) => [...prev, optimisticMessage])
+
+    // Atualiza otimista também o snippet da conversa
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === activeConversation.id || c.remote_jid === activeConversation.remote_jid
+          ? { ...c, last_message: text, last_message_timestamp: nowUnix }
+          : c,
+      ),
+    )
+
+    try {
+      const res = await enviarTexto(instance.instance_name, activeConversation.remote_jid, text)
+      // Reconcilia a mensagem otimista com o registro real retornado pelo servidor
+      if (res && res.message) {
+        const savedMsg = res.message
+        setRawMessages((prev) => {
+          // Substitui o otimista pelo real, evitando duplicatas se o SSE já tiver entregue
+          const existsReal = prev.some(
+            (m) =>
+              m.id === savedMsg.id || (savedMsg.message_id && m.message_id === savedMsg.message_id),
+          )
+          if (existsReal) {
+            return prev.filter((m) => m.id !== optimisticId)
+          }
+          return prev.map((m) => (m.id === optimisticId ? savedMsg : m))
+        })
+      }
+    } catch (err) {
+      // Em caso de falha, marca a mensagem otimista como falha
+      setRawMessages((prev) =>
+        prev.map((m) => (m.id === optimisticId ? { ...m, status: 'failed' } : m)),
+      )
+      throw err
+    }
   }
 
   const handleSendMedia = async (file: File, mediatype: string, caption?: string) => {
     if (!instance?.instance_name || !activeConversation?.remote_jid) {
       throw new Error('Instância não conectada ou conversa inválida')
     }
+
+    const optimisticId = `optimistic_media_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    const nowUnix = Math.floor(Date.now() / 1000)
+
+    const optimisticMessage: any = {
+      id: optimisticId,
+      user_id: user?.id || '',
+      account_id: accountId || '',
+      instance_name: instance.instance_name,
+      remote_jid: activeConversation.remote_jid,
+      from_me: true,
+      content: caption || '',
+      message_type: mediatype,
+      status: 'pending',
+      timestamp: nowUnix,
+      media_filename: file.name,
+      media_mimetype: file.type,
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+      collectionId: '',
+      collectionName: 'whatsapp_messages',
+    }
+
+    setRawMessages((prev) => [...prev, optimisticMessage])
+
     try {
-      await enviarMidia(
+      const res = await enviarMidia(
         instance.instance_name,
         activeConversation.remote_jid,
         file,
         mediatype,
         caption,
       )
+      if (res && res.message) {
+        const savedMsg = res.message
+        setRawMessages((prev) => {
+          const existsReal = prev.some(
+            (m) =>
+              m.id === savedMsg.id || (savedMsg.message_id && m.message_id === savedMsg.message_id),
+          )
+          if (existsReal) {
+            return prev.filter((m) => m.id !== optimisticId)
+          }
+          return prev.map((m) => (m.id === optimisticId ? savedMsg : m))
+        })
+      }
     } catch (error: any) {
+      setRawMessages((prev) =>
+        prev.map((m) => (m.id === optimisticId ? { ...m, status: 'failed' } : m)),
+      )
       toast.error('Erro ao enviar mídia: ' + (error.message || 'Erro desconhecido'))
       throw error
     }
@@ -510,6 +649,7 @@ export default function Conversas() {
               onSearchChange={handleSearchChange}
               messageMatchJids={messageMatchJids}
               messageMatchPreviews={messageMatchPreviews}
+              realtimeStatus={realtimeStatus}
             />
           </div>
         </div>

@@ -67,6 +67,7 @@ type ChatListProps = {
   onSearchChange?: (term: string) => void
   messageMatchJids?: Set<string>
   messageMatchPreviews?: Map<string, string>
+  realtimeStatus?: 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
 }
 
 const SKELETON_ROWS = 6
@@ -318,6 +319,7 @@ export function ChatList({
   onSearchChange,
   messageMatchJids,
   messageMatchPreviews,
+  realtimeStatus,
 }: ChatListProps) {
   const safeChats = chats || []
   const [searchTerm, setSearchTerm] = useState('')
@@ -436,8 +438,17 @@ export function ChatList({
 
   const hasOwnerActions = !!(onReimportHistory || onDiagnose || onDisconnect || onFactoryReset)
 
+  const isReconnecting = realtimeStatus === 'connecting' || realtimeStatus === 'reconnecting'
+
   return (
     <div className={cn('flex flex-col h-full bg-white border-r border-border', className)}>
+      {isReconnecting && (
+        <div className="bg-amber-500/15 border-b border-amber-300 text-amber-900 px-3 py-1.5 text-xs flex items-center justify-center gap-2 font-medium animate-pulse shrink-0">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700" />
+          <span>Sincronizando novas mensagens...</span>
+        </div>
+      )}
+
       <div className="p-4 border-b border-border flex flex-col gap-3 bg-background/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">

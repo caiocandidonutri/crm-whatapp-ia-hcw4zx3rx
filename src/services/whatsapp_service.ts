@@ -138,6 +138,8 @@ export const sincronizarConversa = async (
   remoteJid: string,
   /** Paginação: timestamp Unix (segundos). Se passar, retorna até 50 msgs anteriores. */
   before?: number,
+  /** Catch-up incremental: timestamp Unix (segundos). Se passar, retorna mensagens posteriores a este timestamp. */
+  since?: number,
 ) => {
   return pb.send<{
     success: boolean
@@ -153,7 +155,7 @@ export const sincronizarConversa = async (
     has_more?: boolean
   }>('/backend/v1/whatsapp/sync-conversation', {
     method: 'POST',
-    body: JSON.stringify({ instance_name: instanceName, remote_jid: remoteJid, before }),
+    body: JSON.stringify({ instance_name: instanceName, remote_jid: remoteJid, before, since }),
     headers: { 'Content-Type': 'application/json' },
   })
 }

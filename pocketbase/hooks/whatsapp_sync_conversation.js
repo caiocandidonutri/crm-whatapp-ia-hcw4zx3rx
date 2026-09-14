@@ -81,12 +81,12 @@ routerAdd(
       const body = e.requestInfo().body || {}
       const instanceName = body.instance_name
       const remoteJid = body.remote_jid
-      // Paginação: se `before` (Unix segundos) for passado, retorna até 50
-      // mensagens com messageTimestamp < before. Útil para "Carregar mais
-      // antigas". Sem `before`, comporta-se como sync inicial (50 mais
-      // recentes).
+      // Paginação / Filtros temporais:
+      // - `before` (Unix segundos): retorna até 50 mensagens com messageTimestamp < before (histórico antigo).
+      // - `since` (Unix segundos): retorna até 50 mensagens com messageTimestamp > since (catch-up incremental de novas).
+      // Sem `before` e sem `since`, comporta-se como sync inicial (50 mais recentes).
       const beforeTs = typeof body.before === 'number' && body.before > 0 ? body.before : 0
-
+      const sinceTs = typeof body.since === 'number' && body.since > 0 ? body.since : 0
       if (!instanceName || !remoteJid) {
         return e.badRequestError('instance_name e remote_jid são obrigatórios')
       }
@@ -151,9 +151,9 @@ routerAdd(
       }
 
       // Lock idempotente: 60s
-      // Pular o lock quando o caller pede paginação (before > 0) — sync inicial
-      // já rodou, e o user está clicando "carregar mais antigas".
-      if (beforeTs === 0) {
+      // Pular o lock quando o caller pede paginação (before > 0) ou catch-up incremental (since > 0)
+      // pois ambos visam buscar apenas lacunas de mensagens sem bloquear a navegação.
+      if (beforeTs === 0 && sinceTs === 0) {
         const lastSync = convRecord.getString('history_synced_at')
         if (lastSync) {
           const lastSyncTime = new Date(lastSync).getTime()
@@ -162,7 +162,6 @@ routerAdd(
           }
         }
       }
-
       // Config Evolution
       const urlStr = $secrets.get('EVOLUTION_API_URL') || ''
       const apiUrl = urlStr.endsWith('/') ? urlStr.slice(0, -1) : urlStr
@@ -212,24 +211,29 @@ routerAdd(
         allMessages = res.json.messages
       }
 
-      // Ordenar desc por messageTimestamp e pegar 50.
-      // Quando `beforeTs > 0` (paginação), filtra primeiro por
-      // `messageTimestamp < beforeTs` para pegar as 50 imediatamente
-      // anteriores ao mais antigo já carregado localmente.
+      // Paginação / Catch-up:
+      // - beforeTs > 0: busca mensagens com timestamp < beforeTs (mensagens mais antigas)
+      // - sinceTs > 0: busca mensagens com timestamp > sinceTs (mensagens mais novas / catch-up incremental)
+      // - caso padrão (beforeTs === 0 && sinceTs === 0): as 50 mais recentes
       let candidates = allMessages
       if (beforeTs > 0) {
         candidates = allMessages.filter((m) => {
           const ts = tsToUnixSecondsSync(m && m.messageTimestamp)
           return ts > 0 && ts < beforeTs
         })
+      } else if (sinceTs > 0) {
+        candidates = allMessages.filter((m) => {
+          const ts = tsToUnixSecondsSync(m && m.messageTimestamp)
+          return ts > 0 && ts > sinceTs
+        })
       }
+
       candidates.sort((a, b) => {
         const tsA = tsToUnixSecondsSync(a && a.messageTimestamp)
         const tsB = tsToUnixSecondsSync(b && b.messageTimestamp)
         return tsB - tsA
       })
       const top50 = candidates.slice(0, 50)
-
       let inserted = 0
       let skipped = 0
       let oldestTimestamp = 0
@@ -423,17 +427,37 @@ routerAdd(
       // Atualizar conversation
       try {
         // Em paginação (beforeTs > 0), só atualizamos history_oldest_timestamp.
-        // Nem `history_synced_at` nem `last_message_timestamp` são tocados,
-        // pois paginação puxa MENSAGENS MAIS ANTIGAS — não muda a marca de
-        // sync inicial nem o "topo" da conversa.
+        // Em sync inicial ou catch-up (beforeTs === 0):
+        // Atualiza history_synced_at e last_message_timestamp se houver mensagem mais nova.
         if (beforeTs === 0) {
           convRecord.set('history_synced_at', new Date().toISOString().replace('T', ' '))
           const currentLastTs = convRecord.getInt('last_message_timestamp') || 0
           if (newestTimestamp > currentLastTs) {
             convRecord.set('last_message_timestamp', newestTimestamp)
           }
-        }
-        // Se conversation não tem contact_name válido, busca na lista de mensagens syncadas
+          if (newestTimestamp > 0) {
+            // Encontra a mensagem mais recente para atualizar last_message da conversa
+            for (const m of top50) {
+              const ts = tsToUnixSecondsSync(m && m.messageTimestamp)
+              if (ts === newestTimestamp && m.message) {
+                const tk = Object.keys(m.message).find((k) => k !== 'messageContextInfo')
+                let lastTxt = ''
+                if (tk === 'conversation') lastTxt = m.message.conversation || ''
+                else if (tk === 'extendedTextMessage')
+                  lastTxt = m.message.extendedTextMessage?.text || ''
+                else if (tk === 'imageMessage')
+                  lastTxt = m.message.imageMessage?.caption
+                    ? `[Imagem] ${m.message.imageMessage.caption}`
+                    : '[Imagem]'
+                else if (tk === 'audioMessage') lastTxt = '[Áudio]'
+                else if (tk === 'videoMessage') lastTxt = '[Vídeo]'
+                else if (tk === 'documentMessage') lastTxt = '[Documento]'
+                if (lastTxt) convRecord.set('last_message', lastTxt)
+                break
+              }
+            }
+          }
+        } // Se conversation não tem contact_name válido, busca na lista de mensagens syncadas
         const existingConvName = convRecord.getString('contact_name') || ''
         if (!convRecord.getBool('is_group') && isInvalidOrClinicNameSync(existingConvName)) {
           for (const cm of top50) {
