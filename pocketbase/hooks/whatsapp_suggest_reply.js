@@ -16,11 +16,35 @@ routerAdd(
         return e.badRequestError('conversation_id or (remote_jid + instance_name) is required')
       }
 
+      $app
+        .logger()
+        .info(
+          'suggest_reply request received',
+          'conversation_id',
+          conversationId,
+          'remote_jid',
+          remoteJid,
+          'instance_name',
+          instanceName,
+          'user_id',
+          userId,
+        )
+
       var conv = null
       if (conversationId) {
         try {
           conv = $app.findRecordById('conversations', conversationId)
-        } catch (_) {}
+        } catch (errFindId) {
+          $app
+            .logger()
+            .warn(
+              'suggest_reply findRecordById failed',
+              'conversation_id',
+              conversationId,
+              'error',
+              String(errFindId),
+            )
+        }
       }
 
       if (!conv && remoteJid && instanceName) {
@@ -30,10 +54,33 @@ routerAdd(
             'remote_jid = {:jid} && instance_name = {:instance}',
             { jid: remoteJid, instance: instanceName },
           )
-        } catch (_) {}
+        } catch (errFilter) {
+          $app
+            .logger()
+            .warn(
+              'suggest_reply findFirstRecordByFilter failed',
+              'remote_jid',
+              remoteJid,
+              'instance_name',
+              instanceName,
+              'error',
+              String(errFilter),
+            )
+        }
       }
 
       if (!conv) {
+        $app
+          .logger()
+          .warn(
+            'suggest_reply conversation not found',
+            'conversation_id',
+            conversationId,
+            'remote_jid',
+            remoteJid,
+            'instance_name',
+            instanceName,
+          )
         return e.notFoundError('conversation not found')
       }
 
@@ -230,32 +277,93 @@ routerAdd(
 
       // Isolamento de sessão por contato
       var aiConvId = conv.getString('ai_conversation_id') || ''
+      if (aiConvId) {
+        try {
+          var agentConv = $ai.agent('fabiana-ia').getOrCreateConversation({
+            user_id: userId,
+            id: aiConvId,
+            title: 'Sugestão: ' + contactName + ' (' + contactPhone + ')',
+          })
+          if (agentConv && agentConv.id) {
+            aiConvId = agentConv.id
+          }
+        } catch (convErr) {
+          $app
+            .logger()
+            .warn(
+              'suggest_reply: existing conversation lookup failed, resetting conversation_id',
+              'error',
+              String(convErr),
+            )
+          aiConvId = ''
+        }
+      }
+
+      if (!aiConvId) {
+        try {
+          var newAgentConv = $ai.agent('fabiana-ia').getOrCreateConversation({
+            user_id: userId,
+            title: 'Sugestão: ' + contactName + ' (' + contactPhone + ')',
+          })
+          if (newAgentConv && newAgentConv.id) {
+            aiConvId = newAgentConv.id
+            conv.set('ai_conversation_id', aiConvId)
+            try {
+              $app.save(conv)
+            } catch (saveErr) {
+              $app
+                .logger()
+                .warn(
+                  'suggest_reply: failed to persist ai_conversation_id on conv',
+                  'error',
+                  String(saveErr),
+                )
+            }
+          }
+        } catch (newConvErr) {
+          $app
+            .logger()
+            .warn('suggest_reply: create fresh conversation failed', 'error', String(newConvErr))
+          aiConvId = ''
+        }
+      }
+
+      var result = null
       try {
-        var agentConv = $ai.agent('fabiana-ia').getOrCreateConversation({
+        result = $ai.agent('fabiana-ia').chat({
           user_id: userId,
-          id: aiConvId || null,
-          title: 'Sugestão: ' + contactName + ' (' + contactPhone + ')',
+          conversation_id: aiConvId || null,
+          message: finalMessage,
         })
-        if (agentConv && agentConv.id) {
-          aiConvId = agentConv.id
-          if (conv.getString('ai_conversation_id') !== aiConvId) {
+      } catch (chatErr) {
+        // Se falhar com "conversation not found" (ex.: ai_conversation_id pertence a outro user_id ou ficou corrompida), tenta chat sem conversation_id
+        if (
+          aiConvId &&
+          (chatErr instanceof SkipAiAgentsError || String(chatErr).indexOf('conversation') !== -1)
+        ) {
+          $app
+            .logger()
+            .warn(
+              'suggest_reply: retry chat without conversation_id after error',
+              'error',
+              String(chatErr),
+            )
+          result = $ai.agent('fabiana-ia').chat({
+            user_id: userId,
+            conversation_id: null,
+            message: finalMessage,
+          })
+          if (result && result.conversation_id) {
+            aiConvId = result.conversation_id
             conv.set('ai_conversation_id', aiConvId)
             try {
               $app.save(conv)
             } catch (_) {}
           }
+        } else {
+          throw chatErr
         }
-      } catch (convErr) {
-        $app
-          .logger()
-          .warn('suggest_reply: getOrCreateConversation fallback', 'error', String(convErr))
       }
-
-      var result = $ai.agent('fabiana-ia').chat({
-        user_id: userId,
-        conversation_id: aiConvId || null,
-        message: finalMessage,
-      })
 
       var suggestedReply = (result && result.content ? result.content : '').trim()
 
@@ -271,11 +379,21 @@ routerAdd(
         ai_conversation_id: aiConvId,
       })
     } catch (err) {
+      $app
+        .logger()
+        .error(
+          'suggest_reply caught error in handler',
+          'error',
+          String(err),
+          'stack',
+          err?.stack || '',
+        )
       if (err instanceof SkipAiConfigError) {
         return e.json(503, { error: 'IA temporariamente indisponível' })
       }
       if (err instanceof SkipAiAgentsError) {
         const status = err.status || 500
+        // Se for 404 de dentro do agente (ex: conversation/user miss), retornar mensagem explicativa
         return e.json(status, { error: status >= 500 ? 'Falha no agente Fabiana IA' : err.message })
       }
       if (err instanceof SkipAiError) {
