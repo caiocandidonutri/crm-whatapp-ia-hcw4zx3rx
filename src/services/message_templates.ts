@@ -7,6 +7,7 @@ export async function getMessageTemplates(accountId: string): Promise<MessageTem
   return pb.collection('message_templates').getFullList({
     filter: `account_id="${accountId}"`,
     sort: 'created',
+    requestKey: null,
   })
 }
 

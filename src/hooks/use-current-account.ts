@@ -18,11 +18,16 @@ export function useCurrentAccount() {
       return
     }
     try {
-      const record = await pb.collection('account_members').getFirstListItem(`user_id="${user.id}"`)
+      const record = await pb
+        .collection('account_members')
+        .getFirstListItem(`user_id="${user.id}"`, {
+          requestKey: null,
+        })
       setAccountId(record.account_id)
       setRole(record.role as 'owner' | 'member')
       setMembershipId(record.id)
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.isAbort) return
       setAccountId(null)
       setRole(null)
       setMembershipId(null)

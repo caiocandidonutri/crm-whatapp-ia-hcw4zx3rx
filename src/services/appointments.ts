@@ -100,6 +100,7 @@ export async function listAppointments(options?: {
   return pb.collection('appointments').getFullList<Appointment>({
     filter: filterStr || undefined,
     sort: 'starts_at',
+    requestKey: null,
   })
 }
 
@@ -121,7 +122,9 @@ export async function createAppointment(data: CreateAppointmentInput): Promise<A
         if (!payload.conversation_id) {
           const conv = await pb
             .collection('conversations')
-            .getFirstListItem(`remote_jid ~ "${suffix}" || contact_phone ~ "${suffix}"`)
+            .getFirstListItem(`remote_jid ~ "${suffix}" || contact_phone ~ "${suffix}"`, {
+              requestKey: null,
+            })
           if (conv) {
             payload.conversation_id = conv.id
             if (!payload.account_id && conv.account_id) {
@@ -137,7 +140,9 @@ export async function createAppointment(data: CreateAppointmentInput): Promise<A
         if (!payload.patient_id) {
           const contact = await pb
             .collection('crm_contacts')
-            .getFirstListItem(`phone ~ "${suffix}" || jid ~ "${suffix}"`)
+            .getFirstListItem(`phone ~ "${suffix}" || jid ~ "${suffix}"`, {
+              requestKey: null,
+            })
           if (contact) {
             payload.patient_id = contact.id
             if (!payload.account_id && contact.account_id) {

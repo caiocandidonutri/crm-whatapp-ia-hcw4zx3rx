@@ -29,6 +29,7 @@ export async function getFollowupThresholds(accountId: string): Promise<CareFoll
   return pb.collection('care_followup_thresholds').getFullList({
     filter: `account_id="${accountId}"`,
     sort: 'category',
+    requestKey: null,
   })
 }
 

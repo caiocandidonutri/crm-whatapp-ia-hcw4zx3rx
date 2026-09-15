@@ -94,7 +94,7 @@ export default function Home() {
   const [sessionExpired, setSessionExpired] = useState(false)
 
   const loadMetrics = useCallback(
-    async (silent = false) => {
+    async (silent = false, signal?: AbortSignal) => {
       if (!silent) {
         setLoading(true)
       } else {
@@ -102,10 +102,15 @@ export default function Home() {
       }
       setError(null)
       try {
-        const data = await fetchHomeMetrics()
+        const data = await fetchHomeMetrics(signal, metrics || undefined)
+        if (signal?.aborted) return
         setMetrics(data)
         setSessionExpired(false)
       } catch (err: any) {
+        if (err?.isAbort || err?.name === 'AbortError' || signal?.aborted) {
+          // Ignora cancelamentos por desmontagem silenciosamente
+          return
+        }
         console.error('Failed to load aggregated home metrics:', err)
         const isAuthErr =
           err?.status === 401 || err?.message?.includes('401') || err?.message?.includes('token')
@@ -124,16 +129,22 @@ export default function Home() {
           })
         }
       } finally {
-        if (!silent) setLoading(false)
-        setIsRefreshing(false)
+        if (!signal?.aborted) {
+          if (!silent) setLoading(false)
+          setIsRefreshing(false)
+        }
       }
     },
-    [toast],
+    [toast, metrics],
   )
 
   useEffect(() => {
-    loadMetrics()
-  }, [loadMetrics])
+    const controller = new AbortController()
+    loadMetrics(false, controller.signal)
+    return () => {
+      controller.abort()
+    }
+  }, [])
 
   // Atualização em tempo real das mensagens, conversas, contatos e tarefas
   useRealtime('whatsapp_messages', () => {

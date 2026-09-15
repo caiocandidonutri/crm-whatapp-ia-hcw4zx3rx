@@ -26,7 +26,9 @@ async function resolveAccountId(): Promise<string | undefined> {
   const uid = pb.authStore.record?.id
   if (!uid) return undefined
   try {
-    const m = await pb.collection('account_members').getFirstListItem(`user_id="${uid}"`)
+    const m = await pb.collection('account_members').getFirstListItem(`user_id="${uid}"`, {
+      requestKey: null,
+    })
     return m.account_id as string
   } catch {
     return undefined
@@ -49,6 +51,7 @@ export async function listCrmStages(accountId: string): Promise<CrmStage[]> {
   return pb.collection('crm_stages').getFullList<CrmStage>({
     filter: `account_id = "${accountId}"`,
     sort: 'position',
+    requestKey: null,
   })
 }
 
@@ -76,6 +79,7 @@ export async function reorderCrmStages(orderedIds: string[]): Promise<void> {
 export async function countContactsInStage(stageKey: string): Promise<number> {
   const res = await pb.collection('crm_contacts').getList(1, 1, {
     filter: `stage = "${stageKey}"`,
+    requestKey: null,
   })
   return res.totalItems
 }
@@ -84,6 +88,7 @@ export async function countContactsInStage(stageKey: string): Promise<number> {
 export async function reassignContactsStage(fromKey: string, toKey: string): Promise<void> {
   const contacts = await pb.collection('crm_contacts').getFullList({
     filter: `stage = "${fromKey}"`,
+    requestKey: null,
   })
   for (const c of contacts) {
     await pb.collection('crm_contacts').update(c.id, { stage: toKey }, { requestKey: null })

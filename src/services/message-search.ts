@@ -16,6 +16,7 @@ export async function searchMessageContent(
       filter: `account_id = "${accountId}" && instance_name = "${instanceName}" && content ~ "${safeQuery}"`,
       sort: '-timestamp',
       fields: 'id,remote_jid,content',
+      requestKey: null,
     })
     const jids = new Set<string>()
     const previewByJid = new Map<string, string>()

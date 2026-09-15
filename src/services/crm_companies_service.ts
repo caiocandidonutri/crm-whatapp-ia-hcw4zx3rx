@@ -12,7 +12,9 @@ async function resolveAccountId(userId: string): Promise<string | undefined> {
   try {
     const membership = await pb
       .collection('account_members')
-      .getFirstListItem(`user_id="${userId}"`)
+      .getFirstListItem(`user_id="${userId}"`, {
+        requestKey: null,
+      })
     return membership.account_id as string
   } catch {
     return undefined
@@ -27,6 +29,7 @@ async function resolveAccountId(userId: string): Promise<string | undefined> {
 export async function listCrmCompanies(): Promise<CrmCompany[]> {
   return pb.collection('crm_companies').getFullList<CrmCompany>({
     sort: 'name',
+    requestKey: null,
   })
 }
 
@@ -42,6 +45,7 @@ export async function searchCrmCompanies(query: string): Promise<CrmCompany[]> {
   const res = await pb.collection('crm_companies').getList<CrmCompany>(1, 10, {
     filter: `name ~ "${safe}"`,
     sort: 'name',
+    requestKey: null,
   })
   return res.items
 }
@@ -78,6 +82,7 @@ export async function listContactsByCompany(companyId: string): Promise<CrmConta
   return pb.collection('crm_contacts').getFullList<CrmContact>({
     filter: `company_id = "${companyId}"`,
     sort: '-updated',
+    requestKey: null,
   })
 }
 

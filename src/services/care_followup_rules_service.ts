@@ -5,6 +5,7 @@ export async function getFollowupRules(accountId: string): Promise<CareFollowupR
   return pb.collection('care_followup_rules').getFullList({
     filter: `account_id="${accountId}"`,
     sort: 'created',
+    requestKey: null,
   })
 }
 

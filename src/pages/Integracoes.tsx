@@ -51,7 +51,8 @@ export default function Integracoes() {
       if (data.contact_email) {
         setContactEmailInput(data.contact_email)
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.isAbort || err?.name === 'AbortError') return
       console.error('Erro ao carregar status de integrações:', err)
       if (!silent) {
         toast.error('Não foi possível carregar as configurações de integrações.')

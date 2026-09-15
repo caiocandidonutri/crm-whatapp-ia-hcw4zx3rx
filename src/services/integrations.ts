@@ -11,5 +11,8 @@ export interface VapidConfigStatus {
 }
 
 export const getVapidStatus = async (): Promise<VapidConfigStatus> => {
-  return pb.send<VapidConfigStatus>('/backend/v1/integrations/vapid', { method: 'GET' })
+  return pb.send<VapidConfigStatus>('/backend/v1/integrations/vapid', {
+    method: 'GET',
+    requestKey: null,
+  })
 }

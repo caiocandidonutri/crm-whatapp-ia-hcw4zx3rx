@@ -5,7 +5,11 @@ export type CareAlertWithContact = CareAlert
 
 export async function getCareAlertSettings(accountId: string): Promise<CareAlertSettings | null> {
   try {
-    return await pb.collection('care_alert_settings').getFirstListItem(`account_id="${accountId}"`)
+    return await pb
+      .collection('care_alert_settings')
+      .getFirstListItem(`account_id="${accountId}"`, {
+        requestKey: null,
+      })
   } catch {
     return null
   }
@@ -36,6 +40,7 @@ export async function getCareAlerts(
     filter: `account_id="${accountId}"`,
     sort: '-created',
     expand: 'crm_contact_id',
+    requestKey: null,
   })
   return res.items as CareAlertWithContact[]
 }

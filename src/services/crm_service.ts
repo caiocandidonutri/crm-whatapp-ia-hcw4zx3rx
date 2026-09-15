@@ -42,6 +42,7 @@ export const getCrmContacts = async (instance_name: string) => {
     filter: `instance_name = '${instance_name}'`,
     sort: '-created',
     expand: 'assigned_to,company_id',
+    requestKey: null,
   })
 }
 
@@ -60,6 +61,7 @@ export const getCrmContactsPage = async (
     filter,
     sort: '-ai_priority,-created',
     expand: 'assigned_to,company_id',
+    requestKey: null,
   })
 }
 

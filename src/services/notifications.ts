@@ -4,6 +4,7 @@ import { Notification } from '@/types/models'
 export const getNotifications = async (page = 1, perPage = 30) => {
   return pb.collection('notifications').getList<Notification>(page, perPage, {
     sort: '-created',
+    requestKey: null,
   })
 }
 
@@ -11,6 +12,7 @@ export const getUnreadNotificationCount = async () => {
   try {
     const result = await pb.collection('notifications').getList(1, 1, {
       filter: 'read = false',
+      requestKey: null,
     })
     return result.totalItems
   } catch {
@@ -19,10 +21,19 @@ export const getUnreadNotificationCount = async () => {
 }
 
 export const markNotificationAsRead = async (id: string) => {
-  return pb.collection('notifications').update<Notification>(id, { read: true })
+  return pb
+    .collection('notifications')
+    .update<Notification>(id, { read: true }, { requestKey: null })
 }
 
 export const markAllNotificationsAsRead = async () => {
-  const unread = await pb.collection('notifications').getFullList({ filter: 'read = false' })
-  await Promise.all(unread.map((n) => pb.collection('notifications').update(n.id, { read: true })))
+  const unread = await pb.collection('notifications').getFullList({
+    filter: 'read = false',
+    requestKey: null,
+  })
+  await Promise.all(
+    unread.map((n) =>
+      pb.collection('notifications').update(n.id, { read: true }, { requestKey: null }),
+    ),
+  )
 }

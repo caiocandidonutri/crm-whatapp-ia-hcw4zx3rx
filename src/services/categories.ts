@@ -9,7 +9,9 @@ async function resolveAccountId(): Promise<string | undefined> {
   const uid = pb.authStore.record?.id
   if (!uid) return undefined
   try {
-    const m = await pb.collection('account_members').getFirstListItem(`user_id="${uid}"`)
+    const m = await pb.collection('account_members').getFirstListItem(`user_id="${uid}"`, {
+      requestKey: null,
+    })
     return m.account_id as string
   } catch {
     return undefined
@@ -20,6 +22,7 @@ export const listCategories = async (accountId: string) => {
   return pb.collection('categories').getFullList<Category>({
     filter: `account_id = "${accountId}"`,
     sort: '-created',
+    requestKey: null,
   })
 }
 

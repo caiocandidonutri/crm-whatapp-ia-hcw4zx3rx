@@ -37,6 +37,7 @@ export async function getCareSilencePeriods(accountId: string): Promise<CareSile
   return pb.collection('care_silence_periods').getFullList({
     filter: `account_id="${accountId}"`,
     sort: 'created',
+    requestKey: null,
   })
 }
 
