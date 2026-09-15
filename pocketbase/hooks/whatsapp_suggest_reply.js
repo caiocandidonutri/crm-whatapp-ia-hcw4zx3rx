@@ -184,8 +184,6 @@ routerAdd(
       crmContextBlock +=
         '\nDISCIPLINA DE RESPOSTA E RITMO:\n' +
         '- Responda APENAS ao que foi perguntado na última mensagem do paciente.\n' +
-        '- NÃO ofereça horários, datas ou disponibilidade de agenda — a agenda real da clínica NÃO é conhecida aqui.\n' +
-        '- Se o paciente pedir agendamento, acolha com carinho e diga que vai confirmar os horários com o Dr. Caio e já retorna ("Deixa eu confirmar aqui os horários com o Dr. Caio e já te retorno, tá bom? 😊").\n' +
         '- SÓ mencione endereço/local se o paciente perguntou expressamente onde fica. NUNCA envie endereço antes da hora.\n' +
         '- Uma mensagem = um assunto. Nunca empilhe múltiplos tópicos.'
       crmContextBlock +=
@@ -195,6 +193,108 @@ routerAdd(
         contactPhone +
         '). NUNCA use nomes de outras pessoas, pacientes anteriores ou assuntos de outros atendimentos. Use apenas o historico real abaixo.'
       crmContextBlock += '\n[ FIM DO CONTEXTO DO CONTATO ]'
+
+      // Contexto da Agenda Real (próximos agendamentos do paciente e slots ocupados do Dr. Caio)
+      var agendaContextBlock = '\n\n[CONTEXTO DE AGENDA REAL]'
+      try {
+        var nowIso = new Date().toISOString()
+        var sevenDaysLaterIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
+        // 1. Agendamentos do paciente atual
+        var patientAppointments = []
+        var phoneDigits = contactPhone ? contactPhone.replace(/\D/g, '') : ''
+        var phoneSuffix = phoneDigits && phoneDigits.length >= 8 ? phoneDigits.slice(-8) : ''
+
+        var patientFilter = 'status != "cancelado" && starts_at >= {:now}'
+        var patientParams = { now: nowIso }
+        if (crmContact && crmContact.id) {
+          patientFilter += ' && (patient_id = {:pid} || patient_phone ~ {:suf})'
+          patientParams.pid = crmContact.id
+          patientParams.suf = phoneSuffix || contactPhone
+        } else if (phoneSuffix) {
+          patientFilter += ' && patient_phone ~ {:suf}'
+          patientParams.suf = phoneSuffix
+        } else {
+          patientFilter += ' && patient_name ~ {:name}'
+          patientParams.name = contactName
+        }
+
+        try {
+          patientAppointments = $app.findRecordsByFilter(
+            'appointments',
+            patientFilter,
+            '+starts_at',
+            5,
+            0,
+            patientParams,
+          )
+        } catch (_) {}
+
+        if (patientAppointments && patientAppointments.length > 0) {
+          agendaContextBlock += '\nAgendamentos futuros deste paciente:'
+          for (var pa = 0; pa < patientAppointments.length; pa++) {
+            var pApp = patientAppointments[pa]
+            agendaContextBlock +=
+              '\n- ' +
+              pApp.getString('starts_at') +
+              ' | ' +
+              pApp.getString('city') +
+              ' (' +
+              (pApp.getString('location') || 'Clínica') +
+              ') | Tipo: ' +
+              (pApp.getString('appointment_type') || 'Consulta') +
+              ' | Status: ' +
+              pApp.getString('status')
+          }
+        } else {
+          agendaContextBlock +=
+            '\nAgendamentos futuros deste paciente: Nenhum agendamento futuro encontrado.'
+        }
+
+        // 2. Slots ocupados do Dr. Caio nos próximos 7 dias por cidade
+        var busySlots = []
+        try {
+          busySlots = $app.findRecordsByFilter(
+            'appointments',
+            'status != "cancelado" && starts_at >= {:now} && starts_at <= {:limit}',
+            '+starts_at',
+            30,
+            0,
+            { now: nowIso, limit: sevenDaysLaterIso },
+          )
+        } catch (_) {}
+
+        if (busySlots && busySlots.length > 0) {
+          agendaContextBlock += '\nAgenda do Dr. Caio nos próximos 7 dias (horários já OCUPADOS):'
+          for (var bs = 0; bs < busySlots.length; bs++) {
+            var bApp = busySlots[bs]
+            agendaContextBlock +=
+              '\n- Ocupado: ' +
+              bApp.getString('starts_at') +
+              ' até ' +
+              bApp.getString('ends_at') +
+              ' em ' +
+              bApp.getString('city') +
+              ' (' +
+              (bApp.getString('location') || '') +
+              ')'
+          }
+        } else {
+          agendaContextBlock +=
+            '\nAgenda do Dr. Caio nos próximos 7 dias: Nenhum agendamento sincronizado ou agenda ainda vazia.'
+        }
+
+        agendaContextBlock +=
+          '\nDIRETRIZ DE AGENDAMENTO COM A AGENDA REAL:\n' +
+          '- NUNCA invente horários ou dias do nada.\n' +
+          '- Se a agenda estiver vazia ou sem horários sincronizados: mantenha a postura segura clássica: "Deixa eu confirmar aqui certinho com o Dr. Caio os horários disponíveis e já te passo, tá bom? 😊".\n' +
+          '- Se houver agenda real sincronizada e o paciente solicitar agendamento em uma cidade específica, você pode oferecer 2 opções REAIS disponíveis baseadas nos dias/turnos em que o Dr. Caio atende naquela cidade (Carmo: Climed; Alfenas: terças e sextas à tarde no Instituto Harmoniza; Monte Belo: quartas-feiras), respeitando estritamente os horários já OCUPADOS acima (não marcar em horário ocupado).\n' +
+          '- Se o paciente já tiver consulta marcada, reconheça o agendamento existente ao responder.'
+      } catch (agendaErr) {
+        agendaContextBlock +=
+          '\nAgenda: consulta indisponível momentaneamente. Confirme com o Dr. Caio.'
+      }
+      agendaContextBlock += '\n[FIM DO CONTEXTO DE AGENDA]'
 
       // Histórico das 15 mensagens mais recentes
       var historyBlock = ''
@@ -268,6 +368,7 @@ routerAdd(
         userAgentPrompt +
         '\n</system_instruction>' +
         crmContextBlock +
+        agendaContextBlock +
         historyBlock +
         '\n\n[NOVA MENSAGEM RECEBIDA DO PACIENTE ' +
         contactName.toUpperCase() +

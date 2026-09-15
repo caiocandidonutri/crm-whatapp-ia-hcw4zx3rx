@@ -274,3 +274,44 @@ export interface Notification extends RecordModel {
   task_id?: string
   read?: boolean
 }
+
+export type AppointmentCity = 'Carmo do Rio Claro' | 'Alfenas' | 'Monte Belo' | 'Online'
+
+export type AppointmentStatus =
+  | 'agendado'
+  | 'confirmado'
+  | 'realizado'
+  | 'faltou'
+  | 'remarcado'
+  | 'cancelado'
+
+export type AppointmentSource = 'agenda_externa' | 'crm'
+
+export interface Appointment extends RecordModel {
+  account_id?: string
+  patient_name: string
+  patient_phone?: string
+  patient_id?: string
+  conversation_id?: string
+  doctor?: string
+  city: AppointmentCity
+  location?: string
+  starts_at: string
+  ends_at: string
+  status: AppointmentStatus
+  appointment_type?: string
+  source: AppointmentSource
+  external_id?: string
+  notes?: string
+  sync_hash?: string
+  last_synced_at?: string
+  sync_error?: string
+}
+
+export interface SyncState extends RecordModel {
+  key: string
+  last_sync?: string
+  last_status?: string
+  last_error?: string
+  details?: Record<string, unknown>
+}

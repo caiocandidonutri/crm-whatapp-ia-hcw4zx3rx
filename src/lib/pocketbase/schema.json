@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-14T00:57:20.730Z",
+  "generatedAt": "2026-09-15T21:08:44.143Z",
   "collections": [
     {
       "name": "users",
@@ -1971,6 +1971,219 @@
       ],
       "indexes": [
         "CREATE UNIQUE INDEX idx_daily_usage_day_acc ON app_daily_usage (day_key, account_id)"
+      ]
+    },
+    {
+      "name": "sync_state",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "key",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "last_sync",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_error",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "details",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": ["CREATE UNIQUE INDEX idx_sync_state_key ON sync_state (key)"]
+    },
+    {
+      "name": "appointments",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "patient_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "patient_phone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "patient_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "crm_contacts"
+        },
+        {
+          "name": "conversation_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "conversations"
+        },
+        {
+          "name": "doctor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "city",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Carmo do Rio Claro", "Alfenas", "Monte Belo", "Online"]
+        },
+        {
+          "name": "location",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "starts_at",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "ends_at",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "agendado",
+            "confirmado",
+            "realizado",
+            "faltou",
+            "remarcado",
+            "cancelado"
+          ]
+        },
+        {
+          "name": "appointment_type",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "source",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["agenda_externa", "crm"]
+        },
+        {
+          "name": "external_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sync_hash",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_synced_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sync_error",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_appointments_source_external ON appointments (source, external_id) WHERE external_id != \"\" AND external_id IS NOT NULL",
+        "CREATE INDEX idx_appointments_starts_at ON appointments (starts_at)",
+        "CREATE INDEX idx_appointments_patient_phone ON appointments (patient_phone)",
+        "CREATE INDEX idx_appointments_city ON appointments (city)",
+        "CREATE INDEX idx_appointments_status ON appointments (status)"
       ]
     }
   ]

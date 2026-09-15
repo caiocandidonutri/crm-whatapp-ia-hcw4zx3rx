@@ -191,15 +191,36 @@ export default function Conversas() {
 
   useEffect(() => {
     const chatParam = searchParams.get('chat')
+    const convParam = searchParams.get('conversation_id')
+    const phoneParam = searchParams.get('phone')
     const msgParam = searchParams.get('msg')
-    if (chatParam) {
-      setActiveChatId(chatParam)
+
+    const targetChat = chatParam || convParam
+    if (targetChat) {
+      setActiveChatId(targetChat)
       if (msgParam) {
         setHighlightMsgId(msgParam)
       }
       setSearchParams({}, { replace: true })
+      return
     }
-  }, [searchParams, setSearchParams])
+
+    if (phoneParam && conversations.length > 0) {
+      const cleanTargetPhone = phoneParam.replace(/\D/g, '')
+      const matched = conversations.find((c) => {
+        const cPhone = (
+          c.contact_phone || (c.remote_jid ? c.remote_jid.split('@')[0] : '')
+        ).replace(/\D/g, '')
+        return (
+          cPhone.endsWith(cleanTargetPhone.slice(-8)) || cleanTargetPhone.endsWith(cPhone.slice(-8))
+        )
+      })
+      if (matched) {
+        setActiveChatId(matched.id)
+        setSearchParams({}, { replace: true })
+      }
+    }
+  }, [searchParams, setSearchParams, conversations])
 
   useEffect(() => {
     if (connectingSince) {

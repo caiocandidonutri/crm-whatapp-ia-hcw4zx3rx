@@ -18,6 +18,7 @@ import Chat from './pages/Chat'
 import Tarefas from './pages/Tarefas'
 import Equipe from './pages/Equipe'
 import Integracoes from './pages/Integracoes'
+import Agenda from './pages/Agenda'
 import NotFound from './pages/NotFound'
 
 const ProtectedRoute = () => {
@@ -40,11 +41,12 @@ function AppRoutes() {
             <Route path="/home" element={<Home />} />
             <Route path="/conversas" element={<Conversas />} />
             <Route path="/crm" element={<CRM />} />
+            <Route path="/agenda" element={<Agenda />} />
             <Route path="/agentes" element={<Agentes />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/tarefas" element={<Tarefas />} />
             <Route path="/equipe" element={<Equipe />} />
-            <Route path="/integracoes" element={<Integracoes />} />
+            <Route path="/integracoes" element={<Integracoes />} />{' '}
           </Route>
         </Route>
         <Route path="*" element={<NotFound />} />
