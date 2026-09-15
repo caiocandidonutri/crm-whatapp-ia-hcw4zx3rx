@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T21:13:13.381Z",
+  "generatedAt": "2026-09-15T21:50:56.452Z",
   "collections": [
     {
       "name": "users",
@@ -809,6 +809,18 @@
           "type": "date",
           "required": false,
           "system": false
+        },
+        {
+          "name": "last_recall_sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "recall_count",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -1476,6 +1488,30 @@
         },
         {
           "name": "confirmation_hours_before",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reminders_enabled",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "recall_enabled",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "recall_days_inactive",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "recall_daily_limit",
           "type": "number",
           "required": false,
           "system": false
@@ -2176,6 +2212,36 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "confirmation_sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reminder_day_sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "followup_sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "task_created_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_interaction_type",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
