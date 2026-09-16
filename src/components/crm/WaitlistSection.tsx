@@ -93,11 +93,25 @@ export function WaitlistSection({ accountId, onOpenChat }: WaitlistSectionProps)
   // Realtime
   useEffect(() => {
     if (!accountId) return
-    const unsubPromise = pb.collection('waitlist').subscribe('*', () => {
-      reload()
-    })
+    let unsubPromise: Promise<() => Promise<void>> | undefined
+    try {
+      unsubPromise = pb.collection('waitlist').subscribe('*', () => {
+        reload()
+      })
+      unsubPromise?.catch((err) => {
+        console.warn('[WaitlistSection] Falha ao assinar waitlist:', err?.message || err)
+      })
+    } catch (err: any) {
+      console.warn('[WaitlistSection] Exceção ao assinar waitlist:', err?.message || err)
+    }
     return () => {
-      unsubPromise.then((unsub) => unsub()).catch(() => {})
+      if (unsubPromise) {
+        unsubPromise
+          .then((unsub) => {
+            if (typeof unsub === 'function') return unsub()
+          })
+          .catch(() => {})
+      }
     }
   }, [accountId, reload])
 

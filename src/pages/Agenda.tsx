@@ -357,32 +357,76 @@ export default function Agenda() {
     loadSyncStatus()
   }, [loadAppointments, loadSyncStatus])
 
-  // Realtime subscription para appointments com debounce de 2 segundos para evitar tempestades
+  // Realtime subscription para appointments com debounce e ciclo resiliente com backoff
   useEffect(() => {
     let isMounted = true
-    const unsubscribe = pb
-      .collection('appointments')
-      .subscribe('*', () => {
-        if (!isMounted) return
-        if (debounceTimerRef.current) {
-          clearTimeout(debounceTimerRef.current)
-        }
-        debounceTimerRef.current = setTimeout(() => {
-          if (isMounted) {
-            loadAppointments(true)
+    let unsubscribeFn: (() => Promise<void>) | undefined
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let reconnectDelay = 2000 // 2s, 5s, 10s, 30s, máx 60s
+
+    const getNextBackoff = (current: number) => {
+      if (current < 5000) return 5000
+      if (current < 10000) return 10000
+      if (current < 30000) return 30000
+      return 60000
+    }
+
+    const setupSubscription = async () => {
+      if (!isMounted) return
+      try {
+        const unsub = await pb.collection('appointments').subscribe('*', () => {
+          if (!isMounted) return
+          if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current)
           }
-        }, 2000)
-      })
-      .catch(() => {})
+          debounceTimerRef.current = setTimeout(() => {
+            if (isMounted) {
+              loadAppointments(true)
+            }
+          }, 2000)
+        })
+
+        if (!isMounted) {
+          if (typeof unsub === 'function') {
+            unsub().catch(() => {})
+          }
+          return
+        }
+
+        unsubscribeFn = unsub
+        // Reset do backoff em caso de subscrição bem-sucedida
+        reconnectDelay = 2000
+      } catch (err: any) {
+        console.warn(
+          '[Agenda Realtime] Falha ao assinar appointments, operando offline com dados em memória:',
+          err?.message || err,
+        )
+        // Se falhou e continua montado, agenda reconexão com backoff progressivo mantendo os dados da tela intactos
+        if (isMounted) {
+          const delay = reconnectDelay
+          reconnectDelay = getNextBackoff(delay)
+          reconnectTimer = setTimeout(() => {
+            setupSubscription().catch(() => {})
+          }, delay)
+        }
+      }
+    }
+
+    setupSubscription()
 
     return () => {
       isMounted = false
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
+        debounceTimerRef.current = null
       }
-      unsubscribe.then((unsub) => {
-        if (typeof unsub === 'function') unsub()
-      })
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
+      if (unsubscribeFn) {
+        unsubscribeFn().catch(() => {})
+      }
     }
   }, [loadAppointments])
 

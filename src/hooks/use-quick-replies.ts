@@ -28,11 +28,25 @@ export function useQuickReplies(accountId?: string) {
   // Realtime subscription
   useEffect(() => {
     if (!accountId) return
-    const unsubscribe = pb.collection('quick_replies').subscribe('*', () => {
-      reload()
-    })
+    let unsubPromise: Promise<() => Promise<void>> | undefined
+    try {
+      unsubPromise = pb.collection('quick_replies').subscribe('*', () => {
+        reload()
+      })
+      unsubPromise?.catch((err) => {
+        console.warn('[useQuickReplies] Falha ao assinar quick_replies:', err?.message || err)
+      })
+    } catch (err: any) {
+      console.warn('[useQuickReplies] Exceção ao assinar quick_replies:', err?.message || err)
+    }
     return () => {
-      unsubscribe.then((unsub) => unsub()).catch(() => {})
+      if (unsubPromise) {
+        unsubPromise
+          .then((unsub) => {
+            if (typeof unsub === 'function') return unsub()
+          })
+          .catch(() => {})
+      }
     }
   }, [accountId, reload])
 

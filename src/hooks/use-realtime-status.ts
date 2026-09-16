@@ -28,10 +28,18 @@ export function useRealtimeStatus(): RealtimeStatus {
 
     // Marca como conectado sempre que o SDK dispara PB_CONNECT (conexão
     // inicial + reconexões automáticas).
-    const unsub = pb.realtime.subscribe('PB_CONNECT', () => {
-      if (cancelled) return
-      setStatus('connected')
-    })
+    let unsubPromise: Promise<() => Promise<void>> | undefined
+    try {
+      unsubPromise = pb.realtime.subscribe('PB_CONNECT', () => {
+        if (cancelled) return
+        setStatus('connected')
+      })
+      unsubPromise?.catch((err) => {
+        console.warn('[useRealtimeStatus] Falha ao assinar PB_CONNECT:', err?.message || err)
+      })
+    } catch (err: any) {
+      console.warn('[useRealtimeStatus] Exceção ao assinar PB_CONNECT:', err?.message || err)
+    }
 
     // Heartbeat leve: confere `isConnected` a cada 2s. Se caiu e o SDK
     // ainda está tentando reconectar, marcamos `reconnecting`; se demorar
@@ -59,8 +67,16 @@ export function useRealtimeStatus(): RealtimeStatus {
     return () => {
       cancelled = true
       clearInterval(interval)
-      // unsub é uma Promise<UnsubscribeFunc> — resolve e chama.
-      unsub.then((fn) => fn()).catch(() => {})
+      // unsubPromise é uma Promise<UnsubscribeFunc> — resolve e chama com segurança.
+      if (unsubPromise) {
+        unsubPromise
+          .then((fn) => {
+            if (typeof fn === 'function') {
+              return fn()
+            }
+          })
+          .catch(() => {})
+      }
     }
   }, [])
 

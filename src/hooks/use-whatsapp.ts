@@ -436,17 +436,34 @@ export function useConversas(
   useEffect(() => {
     if (!accountId || !instanceName) return
     let isInitialConnect = true
-    const unsub = pb.realtime.subscribe('PB_CONNECT', () => {
-      // Ignora a primeiríssima conexão se o load inicial já foi disparado
-      if (isInitialConnect) {
-        isInitialConnect = false
-        return
-      }
-      reload()
-    })
+    let unsubPromise: Promise<() => Promise<void>> | undefined
+
+    try {
+      unsubPromise = pb.realtime.subscribe('PB_CONNECT', () => {
+        // Ignora a primeiríssima conexão se o load inicial já foi disparado
+        if (isInitialConnect) {
+          isInitialConnect = false
+          return
+        }
+        reload()
+      })
+      unsubPromise?.catch((err) => {
+        console.warn('[useConversas] Falha ao assinar PB_CONNECT:', err?.message || err)
+      })
+    } catch (err: any) {
+      console.warn('[useConversas] Exceção ao assinar PB_CONNECT:', err?.message || err)
+    }
 
     return () => {
-      unsub.then((fn) => fn()).catch(() => {})
+      if (unsubPromise) {
+        unsubPromise
+          .then((fn) => {
+            if (typeof fn === 'function') {
+              return fn()
+            }
+          })
+          .catch(() => {})
+      }
     }
   }, [accountId, instanceName, reload])
 
@@ -595,16 +612,33 @@ export function useMensagens(
   useEffect(() => {
     if (!accountId || !instanceName || !remoteJid) return
     let isInitialConnect = true
-    const unsub = pb.realtime.subscribe('PB_CONNECT', () => {
-      if (isInitialConnect) {
-        isInitialConnect = false
-        return
-      }
-      load()
-    })
+    let unsubPromise: Promise<() => Promise<void>> | undefined
+
+    try {
+      unsubPromise = pb.realtime.subscribe('PB_CONNECT', () => {
+        if (isInitialConnect) {
+          isInitialConnect = false
+          return
+        }
+        load()
+      })
+      unsubPromise?.catch((err) => {
+        console.warn('[useMensagens] Falha ao assinar PB_CONNECT:', err?.message || err)
+      })
+    } catch (err: any) {
+      console.warn('[useMensagens] Exceção ao assinar PB_CONNECT:', err?.message || err)
+    }
 
     return () => {
-      unsub.then((fn) => fn()).catch(() => {})
+      if (unsubPromise) {
+        unsubPromise
+          .then((fn) => {
+            if (typeof fn === 'function') {
+              return fn()
+            }
+          })
+          .catch(() => {})
+      }
     }
   }, [accountId, instanceName, remoteJid, load])
 

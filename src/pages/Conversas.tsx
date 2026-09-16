@@ -317,14 +317,30 @@ export default function Conversas() {
   // Escuta qualquer evento de realtime para atualizar a marca de tempo de saúde do SSE
   useEffect(() => {
     let cancelled = false
-    const unsub = pb.realtime.subscribe('*', () => {
-      if (!cancelled) {
-        lastRealtimeEventTimeRef.current = Date.now()
-      }
-    })
+    let unsubPromise: Promise<() => Promise<void>> | undefined
+    try {
+      unsubPromise = pb.realtime.subscribe('*', () => {
+        if (!cancelled) {
+          lastRealtimeEventTimeRef.current = Date.now()
+        }
+      })
+      unsubPromise?.catch((err) => {
+        console.warn('[Conversas] Falha ao assinar realtime wildcard:', err?.message || err)
+      })
+    } catch (err: any) {
+      console.warn('[Conversas] Exceção ao assinar realtime wildcard:', err?.message || err)
+    }
     return () => {
       cancelled = true
-      unsub.then((fn) => fn()).catch(() => {})
+      if (unsubPromise) {
+        unsubPromise
+          .then((fn) => {
+            if (typeof fn === 'function') {
+              return fn()
+            }
+          })
+          .catch(() => {})
+      }
     }
   }, [])
 
