@@ -38,7 +38,7 @@ import { BusinessHoursManager } from '@/components/crm/BusinessHoursManager'
 import { SurveySettingsManager } from '@/components/crm/SurveySettingsManager'
 
 export default function Integracoes() {
-  const { role, loading: accountLoading } = useCurrentAccount()
+  const { accountId, role, loading: accountLoading } = useCurrentAccount()
   const isOwner = role === 'owner'
 
   const [statusData, setStatusData] = useState<VapidConfigStatus | null>(null)
@@ -810,13 +810,13 @@ export default function Integracoes() {
       </div>
 
       {/* 1. Respostas Rápidas (Templates da Fabiana) */}
-      {account?.id && <QuickRepliesManager accountId={account.id} />}
+      {accountId && <QuickRepliesManager accountId={accountId} />}
 
       {/* 2. Horário de Atendimento e Resposta Fora do Horário */}
-      {account?.id && <BusinessHoursManager accountId={account.id} />}
+      {accountId && <BusinessHoursManager accountId={accountId} />}
 
       {/* 3. Pesquisa de Satisfação Pós-Consulta */}
-      {account?.id && <SurveySettingsManager accountId={account.id} />}
+      {accountId && <SurveySettingsManager accountId={accountId} />}
     </div>
   )
 }

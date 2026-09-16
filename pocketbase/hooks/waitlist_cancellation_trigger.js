@@ -111,17 +111,23 @@ onRecordUpdate((e) => {
               ').'
 
             // Criar a tarefa na Central de Tarefas para a Fabiana
-            var tasksCol = $app.findCollectionByNameOrId('crm_tasks')
+            var tasksCol = $app.findCollectionByNameOrId('tasks')
             var taskRec = new Record(tasksCol)
             if (accountId) taskRec.set('account_id', accountId)
             taskRec.set('title', taskTitle)
             taskRec.set('description', taskDesc)
-            taskRec.set('status', 'todo')
-            taskRec.set('priority', 'high')
-            taskRec.set('care_category', 'geral')
+            taskRec.set('status', 'pendente')
+            taskRec.set('priority', 'alta')
+            taskRec.set('care_category', 'sem_categoria')
             if (bestCandidate.getString('contact_id')) {
-              taskRec.set('contact_id', bestCandidate.getString('contact_id'))
+              taskRec.set('crm_contact_id', bestCandidate.getString('contact_id'))
             }
+            try {
+              var mem = $app.findFirstRecordByFilter('account_members', 'account_id = {:aid}', {
+                aid: accountId,
+              })
+              if (mem) taskRec.set('user_id', mem.getString('user_id'))
+            } catch (_) {}
             $app.save(taskRec)
 
             $app

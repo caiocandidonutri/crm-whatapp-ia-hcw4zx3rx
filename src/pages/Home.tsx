@@ -24,6 +24,7 @@ import {
   Activity,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
+import { useCurrentAccount } from '@/hooks/use-current-account'
 import { useTeamMembers } from '@/hooks/use-team-members'
 import { useInstanciaAtiva, useConversas } from '@/hooks/use-whatsapp'
 import { useRealtime } from '@/hooks/use-realtime'
@@ -56,6 +57,7 @@ export default function Home() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { accountId } = useCurrentAccount()
   const { instance } = useInstanciaAtiva()
   const { conversations } = useConversas(instance?.instance_name)
   const { tasks } = useTasks()
@@ -106,7 +108,7 @@ export default function Home() {
       try {
         const [data, sStats] = await Promise.all([
           fetchHomeMetrics(signal, metrics || undefined),
-          account?.id ? getSatisfactionSummary(account.id) : Promise.resolve(null),
+          accountId ? getSatisfactionSummary(accountId) : Promise.resolve(null),
         ])
         if (signal?.aborted) return
         setMetrics(data)

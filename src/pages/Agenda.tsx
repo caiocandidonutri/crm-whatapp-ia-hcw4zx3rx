@@ -21,6 +21,7 @@ import {
   HelpCircle,
   Building,
   User,
+  Users,
   Phone,
   FileText,
   CalendarDays,
@@ -1194,9 +1195,9 @@ export default function Agenda() {
 
       {/* Conteúdo Principal: Visão Dia, Semana, Painel dos Últimos 2 meses ou Lista de Espera */}
       {viewMode === 'waitlist' ? (
-        account?.id ? (
+        accountId ? (
           <WaitlistSection
-            accountId={account.id}
+            accountId={accountId}
             onOpenChat={(jid) => navigate(`/conversas?chat=${jid}`)}
           />
         ) : null

@@ -156,7 +156,7 @@ cronAdd('cron_monthly_satisfaction_summary', '23 12 1 * *', () => {
       // Criar a tarefa na Central de Tarefas se ainda não foi gerada para este mês
       try {
         var existingTasks = $app.findRecordsByFilter(
-          'crm_tasks',
+          'tasks',
           'account_id = {:aid} && title = {:title}',
           '-created',
           1,
@@ -164,14 +164,20 @@ cronAdd('cron_monthly_satisfaction_summary', '23 12 1 * *', () => {
           { aid: accId, title: taskTitle },
         )
         if (!existingTasks || existingTasks.length === 0) {
-          var taskCol = $app.findCollectionByNameOrId('crm_tasks')
+          var taskCol = $app.findCollectionByNameOrId('tasks')
           var tRec = new Record(taskCol)
           tRec.set('account_id', accId)
           tRec.set('title', taskTitle)
           tRec.set('description', taskDesc)
-          tRec.set('status', 'todo')
-          tRec.set('priority', 'high')
-          tRec.set('care_category', 'geral')
+          tRec.set('status', 'pendente')
+          tRec.set('priority', 'alta')
+          tRec.set('care_category', 'sem_categoria')
+          try {
+            var mem = $app.findFirstRecordByFilter('account_members', 'account_id = {:aid}', {
+              aid: accId,
+            })
+            if (mem) tRec.set('user_id', mem.getString('user_id'))
+          } catch (_) {}
           $app.save(tRec)
           $app
             .logger()
