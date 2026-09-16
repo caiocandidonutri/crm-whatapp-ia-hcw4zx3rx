@@ -36,12 +36,31 @@ export interface AgendaSyncDiagnostic {
   status: 'ok' | 'invalid_token' | 'wrong_url' | 'connection_error' | 'http_error'
   message: string
   status_code?: number
+  content_type_hint?: string
+}
+
+export interface RecommendedUrlCheck {
+  url: string
+  status: 'ok' | 'invalid_token' | 'wrong_url' | 'connection_error' | 'http_error'
+  status_code?: number
+  appointments_found: number
+  contacts_found: number
+  sample?: {
+    id: string
+    patient_name: string
+    city: string
+    starts_at: string | null
+    status: string
+  } | null
+  message: string
 }
 
 export interface AgendaSyncStatus {
   configured: boolean
   external_url: string | null
   base_url?: string | null
+  recommended_url?: string | null
+  recommended_url_check?: RecommendedUrlCheck | null
   has_token?: boolean
   token_preview?: string | null
   last_sync: string | null
@@ -49,6 +68,7 @@ export interface AgendaSyncStatus {
     | 'success'
     | 'partial'
     | 'error'
+    | 'wrong_url'
     | 'missing_credentials'
     | 'auth_failed'
     | 'connection_error'
@@ -57,12 +77,17 @@ export interface AgendaSyncStatus {
   last_error: string | null
   details?: {
     pull_url?: string
+    configured_url?: string
+    used_fallback?: boolean
     pulled?: number
     pulled_contacts?: number
     pushed?: number
     errors?: string[]
     synced_at?: string
     missing_envs?: string[]
+    status?: number
+    content_type_hint?: string
+    raw?: string
   } | null
   diagnostic?: AgendaSyncDiagnostic | null
   total_appointments: number
@@ -79,9 +104,12 @@ export interface AgendaSyncResult {
   status: string
   pulled: number
   pushed: number
+  pulled_contacts?: number
   errors?: string[]
   message?: string
   last_sync?: string
+  used_fallback?: boolean
+  effective_url?: string
 }
 
 export const CITY_DEFAULT_LOCATIONS: Record<AppointmentCity, string> = {

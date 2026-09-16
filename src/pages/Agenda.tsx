@@ -11,6 +11,7 @@ import {
   Search,
   MessageCircle,
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   XCircle,
   HelpCircle,
@@ -598,6 +599,17 @@ export default function Agenda() {
       }
     }
 
+    if (syncStatus.last_status === 'wrong_url') {
+      return {
+        label: 'URL da agenda incorreta',
+        variant: 'destructive' as const,
+        icon: AlertTriangle,
+        tooltip:
+          syncStatus.last_error ||
+          'A URL aponta para o site ao invés do backend da agenda. Atualize em Integrações.',
+      }
+    }
+
     if (
       syncStatus.last_status === 'auth_failed' ||
       syncStatus.last_status === 'connection_error' ||
@@ -607,7 +619,7 @@ export default function Agenda() {
         label: 'Erro na sincronização',
         variant: 'destructive' as const,
         icon: AlertCircle,
-        tooltip: syncStatus.last_error || 'Falha ao comunicar com o PocketBase da agenda externa.',
+        tooltip: syncStatus.last_error || 'Falha ao comunicar com o backend da agenda externa.',
       }
     }
 

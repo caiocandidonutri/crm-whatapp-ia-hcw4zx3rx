@@ -16,6 +16,8 @@ onRecordAfterCreateSuccess((e) => {
     var record = e.record
     if (!record || record.getString('source') !== 'crm') return e.next()
 
+    var RECOMMENDED_BASE_URL = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
+
     function getPushConfig() {
       var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
       var rawToken = (
@@ -24,7 +26,13 @@ onRecordAfterCreateSuccess((e) => {
         ''
       ).trim()
       if (!rawToken) rawToken = 'crm_agenda_token_dr_caio_2026'
-      if (!rawUrl) return { configured: false, baseUrl: '', token: rawToken }
+      if (!rawUrl) {
+        return {
+          configured: Boolean(RECOMMENDED_BASE_URL && rawToken),
+          baseUrl: RECOMMENDED_BASE_URL,
+          token: rawToken,
+        }
+      }
 
       var normalized = rawUrl
       if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
@@ -41,6 +49,11 @@ onRecordAfterCreateSuccess((e) => {
       var crmDadosIdx = pathAndOrigin.indexOf('/backend/v1/crm-dados')
       if (crmDadosIdx !== -1) {
         baseUrl = pathAndOrigin.slice(0, crmDadosIdx)
+      }
+
+      // Se a URL aponta para o site público agendanutri.goskip.app (SPA frontend), usar o backend recomendado
+      if (baseUrl.indexOf('agendanutri.goskip.app') !== -1) {
+        baseUrl = RECOMMENDED_BASE_URL
       }
 
       return {
@@ -134,6 +147,8 @@ onRecordAfterUpdateSuccess((e) => {
       return e.next()
     }
 
+    var RECOMMENDED_BASE_URL = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
+
     function getPushConfig() {
       var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
       var rawToken = (
@@ -142,7 +157,13 @@ onRecordAfterUpdateSuccess((e) => {
         ''
       ).trim()
       if (!rawToken) rawToken = 'crm_agenda_token_dr_caio_2026'
-      if (!rawUrl) return { configured: false, baseUrl: '', token: rawToken }
+      if (!rawUrl) {
+        return {
+          configured: Boolean(RECOMMENDED_BASE_URL && rawToken),
+          baseUrl: RECOMMENDED_BASE_URL,
+          token: rawToken,
+        }
+      }
 
       var normalized = rawUrl
       if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
@@ -159,6 +180,11 @@ onRecordAfterUpdateSuccess((e) => {
       var crmDadosIdx = pathAndOrigin.indexOf('/backend/v1/crm-dados')
       if (crmDadosIdx !== -1) {
         baseUrl = pathAndOrigin.slice(0, crmDadosIdx)
+      }
+
+      // Se a URL aponta para o site público agendanutri.goskip.app (SPA frontend), usar o backend recomendado
+      if (baseUrl.indexOf('agendanutri.goskip.app') !== -1) {
+        baseUrl = RECOMMENDED_BASE_URL
       }
 
       return {

@@ -20,6 +20,17 @@
 cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () => {
   $app.logger().info('agenda_external_sync cron started')
 
+  var RECOMMENDED_URL =
+    'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev/backend/v1/crm-dados?tipo=tudo'
+
+  function isHtmlContent(raw) {
+    if (!raw) return false
+    var trimmed = String(raw).trim()
+    if (trimmed.startsWith('<')) return true
+    var lower = trimmed.toLowerCase()
+    return lower.indexOf('<!doctype') !== -1 || lower.indexOf('<html') !== -1
+  }
+
   function getAgendaConfig() {
     var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
     var rawToken = ($secrets.get('AGENDA_CRM_TOKEN') || $os.getenv('AGENDA_CRM_TOKEN') || '').trim()
@@ -35,6 +46,7 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
         pullUrl: '',
         token: rawToken,
         missing: ['AGENDA_SYNC_URL'],
+        isFallbackRecommended: false,
       }
     }
 
@@ -78,6 +90,8 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
       pullUrl: pullUrl,
       token: rawToken,
       missing: [],
+      rawConfiguredUrl: rawUrl,
+      isFallbackRecommended: false,
     }
   }
 
@@ -203,16 +217,20 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
   var syncErrors = []
   var pulledContactsCount = 0
 
+  var effectivePullUrl = cfg.pullUrl
+  var effectiveBaseUrl = cfg.baseUrl
+  var usedFallback = false
   var pullRes = null
+
   try {
     pullRes = $http.send({
-      url: cfg.pullUrl,
+      url: effectivePullUrl,
       method: 'GET',
       headers: headers,
       timeout: 20,
     })
   } catch (netErr) {
-    var conMsg = 'Erro de conexão ao chamar ' + cfg.pullUrl + ': ' + String(netErr)
+    var conMsg = 'Erro de conexão ao chamar ' + effectivePullUrl + ': ' + String(netErr)
     if (syncStateRec) {
       try {
         syncStateRec.set('last_status', 'connection_error')
@@ -220,7 +238,7 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
         syncStateRec.set(
           'details',
           JSON.stringify({
-            url: cfg.pullUrl,
+            url: effectivePullUrl,
             error: String(netErr),
             checked_at: new Date().toISOString(),
           }),
@@ -229,6 +247,44 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
       } catch (_) {}
     }
     return
+  }
+
+  // Se a URL configurada retornou HTML (SPA / site frontend) ou 404/405, tentar fallback na URL recomendada
+  var isHtml = isHtmlContent(pullRes.raw)
+  if (isHtml || pullRes.statusCode === 404 || pullRes.statusCode === 405) {
+    if (RECOMMENDED_URL && effectivePullUrl !== RECOMMENDED_URL) {
+      $app
+        .logger()
+        .warn(
+          'agenda_sync cron: configured URL returned HTML or 404 (' +
+            pullRes.statusCode +
+            '). Trying fallback to RECOMMENDED_URL.',
+          'url',
+          effectivePullUrl,
+        )
+      try {
+        var fbRes = $http.send({
+          url: RECOMMENDED_URL,
+          method: 'GET',
+          headers: headers,
+          timeout: 20,
+        })
+        if (fbRes.statusCode === 200 && !isHtmlContent(fbRes.raw)) {
+          pullRes = fbRes
+          effectivePullUrl = RECOMMENDED_URL
+          effectiveBaseUrl = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
+          usedFallback = true
+          isHtml = false
+          $app
+            .logger()
+            .info(
+              'agenda_sync cron: fallback to RECOMMENDED_URL succeeded! Continuing sync with recommended backend.',
+            )
+        }
+      } catch (fbErr) {
+        $app.logger().warn('agenda_sync cron: fallback to RECOMMENDED_URL failed: ' + String(fbErr))
+      }
+    }
   }
 
   if (pullRes.statusCode === 401 || pullRes.statusCode === 403) {
@@ -241,7 +297,7 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
         syncStateRec.set(
           'details',
           JSON.stringify({
-            url: cfg.pullUrl,
+            url: effectivePullUrl,
             status: pullRes.statusCode,
             raw: (pullRes.raw || '').slice(0, 500),
           }),
@@ -252,20 +308,52 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
     return
   }
 
-  if (pullRes.statusCode !== 200) {
-    var httpErrMsg =
-      'Resposta inesperada do endpoint crm-dados (HTTP ' +
-      pullRes.statusCode +
-      '): ' +
-      (pullRes.raw || '').slice(0, 300)
+  if (isHtml) {
+    var wrongUrlMsg =
+      'A URL configurada (' +
+      (cfg.rawConfiguredUrl || cfg.pullUrl) +
+      ') aponta para o SITE da agenda, não para o BACKEND dela. Troque o secret AGENDA_SYNC_URL para ' +
+      RECOMMENDED_URL
     if (syncStateRec) {
       try {
-        syncStateRec.set('last_status', 'error')
-        syncStateRec.set('last_error', httpErrMsg)
+        syncStateRec.set('last_status', 'wrong_url')
+        syncStateRec.set('last_error', wrongUrlMsg)
         syncStateRec.set(
           'details',
           JSON.stringify({
             url: cfg.pullUrl,
+            recommended_url: RECOMMENDED_URL,
+            status: pullRes.statusCode,
+            content_type_hint: 'HTML_DETECTED',
+            raw: (pullRes.raw || '').slice(0, 300),
+          }),
+        )
+        $app.save(syncStateRec)
+      } catch (_) {}
+    }
+    return
+  }
+
+  if (pullRes.statusCode !== 200) {
+    var httpErrMsg =
+      pullRes.statusCode === 404 || pullRes.statusCode === 405
+        ? 'URL incorreta ou rota inexistente na agenda externa (HTTP ' +
+          pullRes.statusCode +
+          '). Troque o secret AGENDA_SYNC_URL para ' +
+          RECOMMENDED_URL
+        : 'Resposta inesperada do endpoint crm-dados (HTTP ' +
+          pullRes.statusCode +
+          '): ' +
+          (pullRes.raw || '').slice(0, 300)
+    var st = pullRes.statusCode === 404 || pullRes.statusCode === 405 ? 'wrong_url' : 'error'
+    if (syncStateRec) {
+      try {
+        syncStateRec.set('last_status', st)
+        syncStateRec.set('last_error', httpErrMsg)
+        syncStateRec.set(
+          'details',
+          JSON.stringify({
+            url: effectivePullUrl,
             status: pullRes.statusCode,
             raw: (pullRes.raw || '').slice(0, 500),
           }),
@@ -281,7 +369,16 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
     try {
       body = JSON.parse(pullRes.raw)
     } catch (parseErr) {
-      syncErrors.push('Falha no parse do JSON da agenda externa: ' + String(parseErr))
+      if (isHtmlContent(pullRes.raw)) {
+        syncErrors.push(
+          'A URL configurada (' +
+            (cfg.rawConfiguredUrl || cfg.pullUrl) +
+            ') aponta para o SITE da agenda, não para o BACKEND dela. Troque o secret AGENDA_SYNC_URL para ' +
+            RECOMMENDED_URL,
+        )
+      } else {
+        syncErrors.push('Falha no parse do JSON da agenda externa: ' + String(parseErr))
+      }
     }
   }
 
@@ -461,7 +558,7 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
       0,
     )
 
-    if (pendingPush.length > 0 && cfg.baseUrl) {
+    if (pendingPush.length > 0 && effectiveBaseUrl) {
       for (var p = 0; p < pendingPush.length; p++) {
         var localItem = pendingPush[p]
         var extIdForPush = localItem.getString('external_id')
@@ -485,7 +582,7 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
           Authorization: 'Bearer ' + cfg.token,
         }
 
-        var pushUrl = cfg.baseUrl + '/backend/v1/agenda/agendamentos'
+        var pushUrl = effectiveBaseUrl + '/backend/v1/agenda/agendamentos'
         var pushMethod = 'POST'
         if (extIdForPush) {
           pushUrl += '/' + extIdForPush
@@ -544,7 +641,9 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
       syncStateRec.set(
         'details',
         JSON.stringify({
-          pull_url: cfg.pullUrl,
+          pull_url: effectivePullUrl,
+          configured_url: cfg.pullUrl,
+          used_fallback: usedFallback,
           pulled: pulledCount,
           pulled_contacts: pulledContactsCount,
           pushed: pushedCount,
@@ -575,6 +674,17 @@ routerAdd(
   '/backend/v1/agenda/sync',
   (e) => {
     try {
+      var RECOMMENDED_URL =
+        'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev/backend/v1/crm-dados?tipo=tudo'
+
+      function isHtmlContent(raw) {
+        if (!raw) return false
+        var trimmed = String(raw).trim()
+        if (trimmed.startsWith('<')) return true
+        var lower = trimmed.toLowerCase()
+        return lower.indexOf('<!doctype') !== -1 || lower.indexOf('<html') !== -1
+      }
+
       function getAgendaConfig() {
         var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
         var rawToken = (
@@ -594,6 +704,7 @@ routerAdd(
             pullUrl: '',
             token: rawToken,
             missing: ['AGENDA_SYNC_URL'],
+            isFallbackRecommended: false,
           }
         }
 
@@ -637,6 +748,8 @@ routerAdd(
           pullUrl: pullUrl,
           token: rawToken,
           missing: [],
+          rawConfiguredUrl: rawUrl,
+          isFallbackRecommended: false,
         }
       }
 
@@ -779,16 +892,20 @@ routerAdd(
       var syncErrors = []
       var pulledContactsCount = 0
 
+      var effectivePullUrl = cfg.pullUrl
+      var effectiveBaseUrl = cfg.baseUrl
+      var usedFallback = false
       var pullRes = null
+
       try {
         pullRes = $http.send({
-          url: cfg.pullUrl,
+          url: effectivePullUrl,
           method: 'GET',
           headers: headers,
           timeout: 20,
         })
       } catch (netErr) {
-        var conMsg = 'Erro de conexão ao chamar ' + cfg.pullUrl + ': ' + String(netErr)
+        var conMsg = 'Erro de conexão ao chamar ' + effectivePullUrl + ': ' + String(netErr)
         if (syncStateRec) {
           try {
             syncStateRec.set('last_status', 'connection_error')
@@ -796,7 +913,7 @@ routerAdd(
             syncStateRec.set(
               'details',
               JSON.stringify({
-                url: cfg.pullUrl,
+                url: effectivePullUrl,
                 error: String(netErr),
                 checked_at: new Date().toISOString(),
               }),
@@ -814,6 +931,45 @@ routerAdd(
         })
       }
 
+      var isHtml = isHtmlContent(pullRes.raw)
+      if (isHtml || pullRes.statusCode === 404 || pullRes.statusCode === 405) {
+        if (RECOMMENDED_URL && effectivePullUrl !== RECOMMENDED_URL) {
+          $app
+            .logger()
+            .warn(
+              'agenda_sync POST: configured URL returned HTML or 404 (' +
+                pullRes.statusCode +
+                '). Trying fallback to RECOMMENDED_URL.',
+              'url',
+              effectivePullUrl,
+            )
+          try {
+            var fbRes = $http.send({
+              url: RECOMMENDED_URL,
+              method: 'GET',
+              headers: headers,
+              timeout: 20,
+            })
+            if (fbRes.statusCode === 200 && !isHtmlContent(fbRes.raw)) {
+              pullRes = fbRes
+              effectivePullUrl = RECOMMENDED_URL
+              effectiveBaseUrl = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
+              usedFallback = true
+              isHtml = false
+              $app
+                .logger()
+                .info(
+                  'agenda_sync POST: fallback to RECOMMENDED_URL succeeded! Continuing sync with recommended backend.',
+                )
+            }
+          } catch (fbErr) {
+            $app
+              .logger()
+              .warn('agenda_sync POST: fallback to RECOMMENDED_URL failed: ' + String(fbErr))
+          }
+        }
+      }
+
       if (pullRes.statusCode === 401 || pullRes.statusCode === 403) {
         var authErrMsg =
           'Token de acesso rejeitado (HTTP ' + pullRes.statusCode + '). Verifique AGENDA_CRM_TOKEN.'
@@ -824,7 +980,7 @@ routerAdd(
             syncStateRec.set(
               'details',
               JSON.stringify({
-                url: cfg.pullUrl,
+                url: effectivePullUrl,
                 status: pullRes.statusCode,
                 raw: (pullRes.raw || '').slice(0, 500),
               }),
@@ -842,20 +998,59 @@ routerAdd(
         })
       }
 
-      if (pullRes.statusCode !== 200) {
-        var httpErrMsg =
-          'Resposta inesperada do endpoint crm-dados (HTTP ' +
-          pullRes.statusCode +
-          '): ' +
-          (pullRes.raw || '').slice(0, 300)
+      if (isHtml) {
+        var wrongUrlMsg =
+          'A URL configurada (' +
+          (cfg.rawConfiguredUrl || cfg.pullUrl) +
+          ') aponta para o SITE da agenda, não para o BACKEND dela. Troque o secret AGENDA_SYNC_URL para ' +
+          RECOMMENDED_URL
         if (syncStateRec) {
           try {
-            syncStateRec.set('last_status', 'error')
-            syncStateRec.set('last_error', httpErrMsg)
+            syncStateRec.set('last_status', 'wrong_url')
+            syncStateRec.set('last_error', wrongUrlMsg)
             syncStateRec.set(
               'details',
               JSON.stringify({
                 url: cfg.pullUrl,
+                recommended_url: RECOMMENDED_URL,
+                status: pullRes.statusCode,
+                content_type_hint: 'HTML_DETECTED',
+                raw: (pullRes.raw || '').slice(0, 300),
+              }),
+            )
+            $app.save(syncStateRec)
+          } catch (_) {}
+        }
+        return e.json(200, {
+          success: false,
+          status: 'wrong_url',
+          message: wrongUrlMsg,
+          pulled: 0,
+          pushed: 0,
+          errors: [wrongUrlMsg],
+        })
+      }
+
+      if (pullRes.statusCode !== 200) {
+        var is404or405 = pullRes.statusCode === 404 || pullRes.statusCode === 405
+        var httpErrMsg = is404or405
+          ? 'URL incorreta ou rota inexistente na agenda externa (HTTP ' +
+            pullRes.statusCode +
+            '). Troque o secret AGENDA_SYNC_URL para ' +
+            RECOMMENDED_URL
+          : 'Resposta inesperada do endpoint crm-dados (HTTP ' +
+            pullRes.statusCode +
+            '): ' +
+            (pullRes.raw || '').slice(0, 300)
+        var st = is404or405 ? 'wrong_url' : 'error'
+        if (syncStateRec) {
+          try {
+            syncStateRec.set('last_status', st)
+            syncStateRec.set('last_error', httpErrMsg)
+            syncStateRec.set(
+              'details',
+              JSON.stringify({
+                url: effectivePullUrl,
                 status: pullRes.statusCode,
                 raw: (pullRes.raw || '').slice(0, 500),
               }),
@@ -865,7 +1060,7 @@ routerAdd(
         }
         return e.json(200, {
           success: false,
-          status: 'error',
+          status: st,
           message: httpErrMsg,
           pulled: 0,
           pushed: 0,
@@ -878,7 +1073,16 @@ routerAdd(
         try {
           body = JSON.parse(pullRes.raw)
         } catch (parseErr) {
-          syncErrors.push('Falha no parse do JSON da agenda externa: ' + String(parseErr))
+          if (isHtmlContent(pullRes.raw)) {
+            syncErrors.push(
+              'A URL configurada (' +
+                (cfg.rawConfiguredUrl || cfg.pullUrl) +
+                ') aponta para o SITE da agenda, não para o BACKEND dela. Troque o secret AGENDA_SYNC_URL para ' +
+                RECOMMENDED_URL,
+            )
+          } else {
+            syncErrors.push('Falha no parse do JSON da agenda externa: ' + String(parseErr))
+          }
         }
       }
 
@@ -1061,7 +1265,7 @@ routerAdd(
           0,
         )
 
-        if (pendingPush.length > 0 && cfg.baseUrl) {
+        if (pendingPush.length > 0 && effectiveBaseUrl) {
           for (var p = 0; p < pendingPush.length; p++) {
             var localItem = pendingPush[p]
             var extIdForPush = localItem.getString('external_id')
@@ -1085,7 +1289,7 @@ routerAdd(
               Authorization: 'Bearer ' + cfg.token,
             }
 
-            var pushUrl = cfg.baseUrl + '/backend/v1/agenda/agendamentos'
+            var pushUrl = effectiveBaseUrl + '/backend/v1/agenda/agendamentos'
             var pushMethod = 'POST'
             if (extIdForPush) {
               pushUrl += '/' + extIdForPush
@@ -1148,7 +1352,9 @@ routerAdd(
           syncStateRec.set(
             'details',
             JSON.stringify({
-              pull_url: cfg.pullUrl,
+              pull_url: effectivePullUrl,
+              configured_url: cfg.pullUrl,
+              used_fallback: usedFallback,
               pulled: pulledCount,
               pulled_contacts: pulledContactsCount,
               pushed: pushedCount,
@@ -1168,9 +1374,14 @@ routerAdd(
         pushed: pushedCount,
         errors: syncErrors,
         last_sync: new Date().toISOString(),
+        used_fallback: usedFallback,
+        effective_url: effectivePullUrl,
         message:
           finalStatus === 'success'
-            ? 'Sincronização concluída com sucesso (' + pulledCount + ' agendamentos importados).'
+            ? 'Sincronização concluída com sucesso (' +
+              pulledCount +
+              ' agendamentos importados)' +
+              (usedFallback ? ' via fallback na URL recomendada.' : '.')
             : 'Sincronização com avisos/pendências (' + syncErrors.length + ' erro(s)).',
       })
     } catch (err) {
@@ -1191,6 +1402,17 @@ routerAdd(
   '/backend/v1/agenda/sync-status',
   (e) => {
     try {
+      var RECOMMENDED_URL =
+        'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev/backend/v1/crm-dados?tipo=tudo'
+
+      function isHtmlContent(raw) {
+        if (!raw) return false
+        var trimmed = String(raw).trim()
+        if (trimmed.startsWith('<')) return true
+        var lower = trimmed.toLowerCase()
+        return lower.indexOf('<!doctype') !== -1 || lower.indexOf('<html') !== -1
+      }
+
       function getAgendaConfig() {
         var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
         var rawToken = (
@@ -1210,6 +1432,7 @@ routerAdd(
             pullUrl: '',
             token: rawToken,
             missing: ['AGENDA_SYNC_URL'],
+            rawConfiguredUrl: '',
           }
         }
 
@@ -1253,6 +1476,7 @@ routerAdd(
           pullUrl: pullUrl,
           token: rawToken,
           missing: [],
+          rawConfiguredUrl: rawUrl,
         }
       }
 
@@ -1292,6 +1516,7 @@ routerAdd(
         )
       } catch (_) {}
 
+      // 1. Teste da URL configurada
       var liveTest = null
       if (cfg.configured) {
         try {
@@ -1306,7 +1531,20 @@ routerAdd(
             timeout: 8,
           })
 
-          if (testRes.statusCode === 200) {
+          var isHtml = isHtmlContent(testRes.raw)
+
+          if (isHtml) {
+            liveTest = {
+              status: 'wrong_url',
+              message:
+                'A URL configurada (' +
+                (cfg.rawConfiguredUrl || cfg.pullUrl) +
+                ') aponta para o SITE da agenda, não para o BACKEND dela. Troque o secret AGENDA_SYNC_URL para ' +
+                RECOMMENDED_URL,
+              status_code: testRes.statusCode,
+              content_type_hint: 'HTML_DETECTED',
+            }
+          } else if (testRes.statusCode === 200) {
             liveTest = {
               status: 'ok',
               message: 'Conexão ok (HTTP 200). Endpoint acessível com token.',
@@ -1324,7 +1562,8 @@ routerAdd(
               message:
                 'URL incorreta ou rota inexistente na agenda externa (HTTP ' +
                 testRes.statusCode +
-                ').',
+                '). Troque o secret AGENDA_SYNC_URL para ' +
+                RECOMMENDED_URL,
               status_code: testRes.statusCode,
             }
           } else {
@@ -1342,6 +1581,139 @@ routerAdd(
         }
       }
 
+      // 2. PROVA DA URL CORRETA (recommended_url_check)
+      var recommendedCheck = null
+      try {
+        var recRes = $http.send({
+          url: RECOMMENDED_URL,
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            'X-CRM-Token': cfg.token,
+            Authorization: 'Bearer ' + cfg.token,
+          },
+          timeout: 10,
+        })
+
+        var recIsHtml = isHtmlContent(recRes.raw)
+
+        if (recIsHtml) {
+          recommendedCheck = {
+            url: RECOMMENDED_URL,
+            status: 'wrong_url',
+            status_code: recRes.statusCode,
+            appointments_found: 0,
+            contacts_found: 0,
+            sample: null,
+            message: 'A URL recomendada retornou HTML ao invés de JSON.',
+          }
+        } else if (recRes.statusCode === 200) {
+          var recBody = recRes.json
+          if (!recBody && recRes.raw) {
+            try {
+              recBody = JSON.parse(recRes.raw)
+            } catch (_) {}
+          }
+
+          var foundAppts = 0
+          var foundContacts = 0
+          var sampleSummary = null
+
+          if (recBody) {
+            var apptsList = []
+            var contsList = []
+            if (Array.isArray(recBody)) {
+              apptsList = recBody
+            } else if (typeof recBody === 'object') {
+              if (Array.isArray(recBody.appointments)) apptsList = recBody.appointments
+              else if (Array.isArray(recBody.agendamentos)) apptsList = recBody.agendamentos
+              else if (Array.isArray(recBody.items)) apptsList = recBody.items
+              else if (Array.isArray(recBody.consultas)) apptsList = recBody.consultas
+              else if (recBody.data && Array.isArray(recBody.data)) apptsList = recBody.data
+              else if (recBody.data && typeof recBody.data === 'object') {
+                if (Array.isArray(recBody.data.appointments)) apptsList = recBody.data.appointments
+                if (Array.isArray(recBody.data.agendamentos)) apptsList = recBody.data.agendamentos
+                if (Array.isArray(recBody.data.contatos)) contsList = recBody.data.contatos
+                if (Array.isArray(recBody.data.contacts)) contsList = recBody.data.contacts
+              }
+
+              if (Array.isArray(recBody.contatos)) contsList = recBody.contatos
+              else if (Array.isArray(recBody.contacts)) contsList = recBody.contacts
+              else if (Array.isArray(recBody.pacientes)) contsList = recBody.pacientes
+            }
+
+            foundAppts = apptsList.length
+            foundContacts = contsList.length
+
+            if (apptsList.length > 0) {
+              var s = apptsList[0]
+              sampleSummary = {
+                id: s.id || s.external_id || s._id || s.codigo || 'id_oculto',
+                patient_name: s.patient_name || s.paciente_nome || s.name || s.nome || 'Paciente',
+                city: s.city || s.cidade || s.location || 'Carmo do Rio Claro',
+                starts_at: s.starts_at || s.start_time || s.data_inicio || s.data_hora || null,
+                status: s.status || s.situacao || 'agendado',
+              }
+            }
+          }
+
+          recommendedCheck = {
+            url: RECOMMENDED_URL,
+            status: 'ok',
+            status_code: 200,
+            appointments_found: foundAppts,
+            contacts_found: foundContacts,
+            sample: sampleSummary,
+            message:
+              'A URL recomendada respondeu com sucesso (HTTP 200). ' +
+              foundAppts +
+              ' agendamentos e ' +
+              foundContacts +
+              ' contatos encontrados.',
+          }
+        } else if (recRes.statusCode === 401 || recRes.statusCode === 403) {
+          recommendedCheck = {
+            url: RECOMMENDED_URL,
+            status: 'invalid_token',
+            status_code: recRes.statusCode,
+            appointments_found: 0,
+            contacts_found: 0,
+            sample: null,
+            message: 'Token rejeitado na URL recomendada (HTTP ' + recRes.statusCode + ').',
+          }
+        } else if (recRes.statusCode === 404 || recRes.statusCode === 405) {
+          recommendedCheck = {
+            url: RECOMMENDED_URL,
+            status: 'wrong_url',
+            status_code: recRes.statusCode,
+            appointments_found: 0,
+            contacts_found: 0,
+            sample: null,
+            message: 'Rota não encontrada na URL recomendada (HTTP ' + recRes.statusCode + ').',
+          }
+        } else {
+          recommendedCheck = {
+            url: RECOMMENDED_URL,
+            status: 'http_error',
+            status_code: recRes.statusCode,
+            appointments_found: 0,
+            contacts_found: 0,
+            sample: null,
+            message: 'URL recomendada retornou HTTP ' + recRes.statusCode,
+          }
+        }
+      } catch (recErr) {
+        recommendedCheck = {
+          url: RECOMMENDED_URL,
+          status: 'connection_error',
+          status_code: 0,
+          appointments_found: 0,
+          contacts_found: 0,
+          sample: null,
+          message: 'Falha de conexão com a URL recomendada: ' + String(recErr).slice(0, 150),
+        }
+      }
+
       var lastStatus = syncState
         ? syncState.getString('last_status')
         : cfg.configured
@@ -1352,6 +1724,8 @@ routerAdd(
         configured: cfg.configured,
         external_url: cfg.pullUrl || null,
         base_url: cfg.baseUrl || null,
+        recommended_url: RECOMMENDED_URL,
+        recommended_url_check: recommendedCheck,
         has_token: Boolean(cfg.token),
         token_preview: cfg.token ? cfg.token.slice(0, 4) + '...' + cfg.token.slice(-4) : null,
         last_sync: syncState ? syncState.getString('last_sync') : null,

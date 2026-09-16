@@ -97,12 +97,21 @@ export default function Integracoes() {
     }
   }
 
+  const [copiedRecommendedUrl, setCopiedRecommendedUrl] = useState(false)
+
   const handleCopyPublicKey = () => {
     if (!publicKeyInput) return
     navigator.clipboard.writeText(publicKeyInput)
     setCopiedKey(true)
     setTimeout(() => setCopiedKey(false), 2000)
     toast.success('Chave pública copiada!')
+  }
+
+  const handleCopyRecommendedUrl = (url: string) => {
+    navigator.clipboard.writeText(url)
+    setCopiedRecommendedUrl(true)
+    setTimeout(() => setCopiedRecommendedUrl(false), 2000)
+    toast.success('URL recomendada copiada!')
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -492,7 +501,53 @@ export default function Integracoes() {
             </div>
           </div>
 
-          {/* Diagnóstico em linguagem simples */}
+          {/* Banner de Ação Clara: URL configurada falhou mas a recomendada passou */}
+          {agendaSync?.diagnostic?.status !== 'ok' &&
+            agendaSync?.recommended_url_check?.status === 'ok' && (
+              <Alert className="border-amber-300 bg-amber-50/90 text-amber-900">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <div className="space-y-1">
+                  <AlertTitle className="text-amber-950 font-semibold text-xs sm:text-sm">
+                    Ação necessária: Atualize o secret AGENDA_SYNC_URL
+                  </AlertTitle>
+                  <AlertDescription className="text-xs text-amber-900 leading-relaxed">
+                    A URL atual configurada não responde como backend de API, mas o novo backend
+                    recomendado respondeu com sucesso (
+                    <strong>
+                      {agendaSync.recommended_url_check.appointments_found} agendamentos
+                    </strong>{' '}
+                    e <strong>{agendaSync.recommended_url_check.contacts_found} contatos</strong>).
+                    O motor de sincronização está aplicando fallback provisório para não interromper
+                    o funcionamento. Assim que possível, atualize o segredo{' '}
+                    <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[11px]">
+                      AGENDA_SYNC_URL
+                    </code>{' '}
+                    com a nova URL e clique em &quot;Sincronizar Agora&quot;.
+                  </AlertDescription>
+                </div>
+              </Alert>
+            )}
+
+          {/* Banner de Alerta Crítico: Ambas as URLs falharam */}
+          {agendaSync?.diagnostic?.status !== 'ok' &&
+            agendaSync?.recommended_url_check &&
+            agendaSync.recommended_url_check.status !== 'ok' && (
+              <Alert className="border-rose-300 bg-rose-50/90 text-rose-900">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <div className="space-y-1">
+                  <AlertTitle className="text-rose-950 font-semibold text-xs sm:text-sm">
+                    Atenção: Ambas as URLs apresentaram pendências
+                  </AlertTitle>
+                  <AlertDescription className="text-xs text-rose-900 leading-relaxed">
+                    Tanto a URL configurada quanto a URL recomendada retornaram erro de conexão ou
+                    token. Verifique se o backend remoto está online e se o segredo AGENDA_CRM_TOKEN
+                    possui permissão válida.
+                  </AlertDescription>
+                </div>
+              </Alert>
+            )}
+
+          {/* Diagnóstico da URL configurada */}
           {agendaSync?.diagnostic && (
             <div
               className={cn(
@@ -513,22 +568,108 @@ export default function Integracoes() {
               ) : (
                 <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
               )}
-              <div className="space-y-0.5">
+              <div className="space-y-1 flex-1">
                 <span className="font-semibold block">
                   {agendaSync.diagnostic.status === 'ok'
-                    ? 'Conexão com a Agenda Externa OK'
+                    ? 'URL Configurada: Conexão OK'
                     : agendaSync.diagnostic.status === 'invalid_token'
-                      ? 'Token Inválido ou Não Autorizado'
+                      ? 'URL Configurada: Token Inválido ou Não Autorizado'
                       : agendaSync.diagnostic.status === 'wrong_url'
-                        ? 'URL Incorreta ou Rota Não Encontrada'
-                        : 'Status do Diagnóstico da Agenda'}
+                        ? 'URL Configurada: Aponta para Site / Rota Incorreta'
+                        : 'Status da URL Configurada'}
                 </span>
-                <p className="opacity-90">{agendaSync.diagnostic.message}</p>
+                <p className="opacity-90 leading-relaxed">{agendaSync.diagnostic.message}</p>
                 {agendaSync.external_url && (
-                  <p className="text-[11px] font-mono opacity-75 truncate pt-0.5">
-                    Endpoint: {agendaSync.external_url}
+                  <p className="text-[11px] font-mono opacity-80 break-all pt-0.5">
+                    URL avaliada: {agendaSync.external_url}
                   </p>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Painel: Teste da URL recomendada (novo backend) */}
+          {agendaSync?.recommended_url_check && (
+            <div
+              className={cn(
+                'p-3.5 rounded-xl border text-xs space-y-2.5 transition-all',
+                agendaSync.recommended_url_check.status === 'ok'
+                  ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950 dark:bg-emerald-950/30 dark:border-emerald-700 dark:text-emerald-200'
+                  : 'bg-muted/40 border-border/80 text-foreground',
+              )}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {agendaSync.recommended_url_check.status === 'ok' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  )}
+                  <span className="font-semibold text-xs sm:text-sm">
+                    Teste da URL recomendada (novo backend)
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'text-[10px] h-4.5 font-medium',
+                      agendaSync.recommended_url_check.status === 'ok'
+                        ? 'border-emerald-500 bg-emerald-100/70 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
+                        : 'border-amber-400 bg-amber-100/70 text-amber-800',
+                    )}
+                  >
+                    {agendaSync.recommended_url_check.status === 'ok'
+                      ? 'Disponível & Válida'
+                      : 'Falhou'}
+                  </Badge>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs px-2.5 bg-background/80 hover:bg-background"
+                  onClick={() => handleCopyRecommendedUrl(agendaSync.recommended_url_check!.url)}
+                >
+                  {copiedRecommendedUrl ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" /> URL Copiada
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 mr-1" /> Copiar URL Recomendada
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {agendaSync.recommended_url_check.status === 'ok' ? (
+                <div className="space-y-1.5 leading-relaxed">
+                  <p className="font-medium text-emerald-900 dark:text-emerald-300">
+                    A URL nova funciona (
+                    <strong>{agendaSync.recommended_url_check.appointments_found}</strong>{' '}
+                    agendamentos, <strong>{agendaSync.recommended_url_check.contacts_found}</strong>{' '}
+                    contatos encontrados). Atualize o secret AGENDA_SYNC_URL para este endereço e
+                    clique em Sincronizar.
+                  </p>
+                  {agendaSync.recommended_url_check.sample && (
+                    <div className="p-2 rounded-lg bg-emerald-100/50 dark:bg-emerald-900/30 text-[11px] font-mono text-emerald-950 dark:text-emerald-200">
+                      Exemplo importável: Paciente &quot;
+                      {agendaSync.recommended_url_check.sample.patient_name}&quot; (
+                      {agendaSync.recommended_url_check.sample.city} -{' '}
+                      {agendaSync.recommended_url_check.sample.status})
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-muted-foreground leading-relaxed">
+                  {agendaSync.recommended_url_check.message}
+                </p>
+              )}
+
+              <div className="pt-1 border-t border-border/30">
+                <span className="text-[11px] font-mono text-muted-foreground break-all select-all block">
+                  {agendaSync.recommended_url_check.url}
+                </span>
               </div>
             </div>
           )}
