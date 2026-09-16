@@ -774,24 +774,202 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
   extAppointments = extracted.appointments
   extContacts = extracted.contacts
 
+  // Log detalhado das chaves e primeiro item para diagnóstico
+  if (extAppointments && extAppointments.length > 0) {
+    $app
+      .logger()
+      .info('agenda_sync sample item keys: ' + Object.keys(extAppointments[0]).join(', '))
+    $app.logger().info('agenda_sync sample item: ' + JSON.stringify(extAppointments[0]))
+  }
+
   var appointmentsCol = $app.findCollectionByNameOrId('appointments')
 
   for (var i = 0; i < extAppointments.length; i++) {
     var item = extAppointments[i]
     if (!item || typeof item !== 'object') continue
 
-    var extId = String(
-      item.id ||
-        item.external_id ||
-        item._id ||
-        item.codigo ||
-        item.agendamento_id ||
-        (item.patient_name || item.paciente_nome || item.paciente || '') +
-          '_' +
-          (item.starts_at || item.data || item.data_hora || ''),
-    ).trim()
-    if (!extId) continue
+    function pad2(n) {
+      return (n < 10 ? '0' : '') + n
+    }
 
+    // Helper rigoroso para parsing de datas de agendamento no fuso de Brasília (-03:00)
+    // Retorna ISO UTC ("yyyy-MM-ddTHH:mm:ss.000Z") ou null se ausente/inválido
+    function parseAppointmentDateUtc(rawDate, rawTime, isEndDate) {
+      if (!rawDate) return null
+      var s = String(rawDate).trim()
+      if (!s) return null
+
+      // Formato brasileiro: dd/MM/yyyy ou dd/MM/yyyy HH:mm[:ss]
+      var brMatch = s.match(
+        /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
+      )
+      if (brMatch) {
+        var day = parseInt(brMatch[1], 10)
+        var month = parseInt(brMatch[2], 10) - 1
+        var year = parseInt(brMatch[3], 10)
+        var hour = brMatch[4] ? parseInt(brMatch[4], 10) : isEndDate ? 23 : 0
+        var min = brMatch[5] ? parseInt(brMatch[5], 10) : isEndDate && !brMatch[4] ? 59 : 0
+        var sec = brMatch[6] ? parseInt(brMatch[6], 10) : isEndDate && !brMatch[4] ? 59 : 0
+
+        if (rawTime && !brMatch[4]) {
+          var tmMatch = String(rawTime)
+            .trim()
+            .match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/)
+          if (tmMatch) {
+            hour = parseInt(tmMatch[1], 10)
+            min = parseInt(tmMatch[2], 10)
+            sec = tmMatch[3] ? parseInt(tmMatch[3], 10) : 0
+          }
+        }
+
+        // Brasília é UTC-3 (sem horário de verão atual no Brasil)
+        // Timestamp UTC = Date.UTC(year, month, day, hour + 3, min, sec)
+        var utcMs = Date.UTC(year, month, day, hour + 3, min, sec)
+        return new Date(utcMs).toISOString()
+      }
+
+      // Formato ISO estrito: yyyy-MM-dd ou yyyy-MM-dd HH:mm[:ss] ou yyyy-MM-ddTHH:mm[:ss]
+      var isoMatch = s.match(
+        /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
+      )
+      if (isoMatch) {
+        var iYear = parseInt(isoMatch[1], 10)
+        var iMonth = parseInt(isoMatch[2], 10) - 1
+        var iDay = parseInt(isoMatch[3], 10)
+        var hasTimeInString = isoMatch[4] !== undefined
+
+        var iHour = hasTimeInString ? parseInt(isoMatch[4], 10) : isEndDate ? 23 : 0
+        var iMin = hasTimeInString
+          ? parseInt(isoMatch[5], 10)
+          : isEndDate && !hasTimeInString
+            ? 59
+            : 0
+        var iSec =
+          hasTimeInString && isoMatch[6]
+            ? parseInt(isoMatch[6], 10)
+            : isEndDate && !hasTimeInString
+              ? 59
+              : 0
+
+        if (rawTime && !hasTimeInString) {
+          var itmMatch = String(rawTime)
+            .trim()
+            .match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/)
+          if (itmMatch) {
+            iHour = parseInt(itmMatch[1], 10)
+            iMin = parseInt(itmMatch[2], 10)
+            iSec = itmMatch[3] ? parseInt(itmMatch[3], 10) : 0
+            hasTimeInString = true
+          }
+        }
+
+        // Se a string já tinha sufixo 'Z' ou offset explícito (+/-HH:mm)
+        if (s.endsWith('Z') || s.match(/[+-]\d{2}:?\d{2}$/)) {
+          var parsedWithTz = new Date(s)
+          if (!isNaN(parsedWithTz.getTime())) {
+            return parsedWithTz.toISOString()
+          }
+        }
+
+        // Caso sem timezone explícito: interpreta como horário civil de Brasília (UTC-3)
+        var iUtcMs = Date.UTC(iYear, iMonth, iDay, iHour + 3, iMin, iSec)
+        return new Date(iUtcMs).toISOString()
+      }
+
+      // Tenta fallback com Date parse convencional apenas se string contiver data reconhecível
+      try {
+        var genericD = new Date(s)
+        if (!isNaN(genericD.getTime())) {
+          return genericD.toISOString()
+        }
+      } catch (_) {}
+
+      return null
+    }
+
+    // 1. Extração prioritária da data de início da consulta
+    // Prioridade máxima aos campos explícitos de data de agendamento da agenda externa
+    var rawStartVal =
+      item.data_inicio ||
+      item.data_consulta ||
+      item.data_atendimento ||
+      item.data_agendamento ||
+      item.data_hora ||
+      item.dataHora ||
+      item.starts_at ||
+      item.start_time ||
+      item.horario_inicio ||
+      item.data ||
+      ''
+
+    var rawTimeVal =
+      item.hora || item.horario || item.time || item.hora_inicio || item.start_time || ''
+
+    var startsAtIso = parseAppointmentDateUtc(rawStartVal, rawTimeVal, false)
+
+    // NUNCA usar updated, created ou momento da sync como data da consulta!
+    // Se data_inicio for ausente ou ilegível, pula este registro para evitar poluir a agenda
+    if (!startsAtIso) {
+      $app
+        .logger()
+        .warn(
+          'agenda_sync: ignorando registro sem data de agendamento válida',
+          'id',
+          item.id || item.external_id || '',
+          'paciente',
+          item.paciente_nome || item.patient_name || '',
+          'raw_data',
+          String(rawStartVal).slice(0, 50),
+        )
+      continue
+    }
+
+    // 2. Extração da data de fim
+    var rawEndVal =
+      item.data_fim ||
+      item.dataHoraFim ||
+      item.ends_at ||
+      item.end_time ||
+      item.horario_fim ||
+      item.data_fim_consulta ||
+      ''
+    var rawEndTimeVal = item.hora_fim || item.horario_fim || item.end_time || ''
+
+    var endsAtIso = parseAppointmentDateUtc(rawEndVal, rawEndTimeVal, true)
+    if (!endsAtIso) {
+      // Se tiver duração informada em minutos (ex: duracaoMin = 45 ou 60)
+      var duracaoMin = parseInt(item.duracaoMin || item.duracao || item.duration || '0', 10)
+      if (duracaoMin > 0) {
+        var startD = new Date(startsAtIso)
+        endsAtIso = new Date(startD.getTime() + duracaoMin * 60 * 1000).toISOString()
+      } else {
+        // Padrão de consulta nutricional: 45 minutos após o início
+        var defaultStartD = new Date(startsAtIso)
+        endsAtIso = new Date(defaultStartD.getTime() + 45 * 60 * 1000).toISOString()
+      }
+    }
+
+    // 3. ID externo determinístico
+    var extId = String(
+      item.id || item.external_id || item._id || item.codigo || item.agendamento_id || '',
+    ).trim()
+
+    var patientNameVal = (
+      item.patient_name ||
+      item.paciente_nome ||
+      item.patient ||
+      item.paciente ||
+      item.name ||
+      item.nome ||
+      'Paciente sem nome'
+    ).trim()
+
+    if (!extId) {
+      // Cria ID estável usando paciente + data/hora início
+      extId = patientNameVal + '_' + startsAtIso.slice(0, 16)
+    }
+
+    // Buscar agendamento existente por external_id
     var existing = null
     try {
       existing = $app.findFirstRecordByFilter(
@@ -801,10 +979,27 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
       )
     } catch (_) {}
 
+    // Fallback de busca caso o external_id prévio tenha sido criado no formato paciente_data_inicio
+    if (!existing) {
+      try {
+        var legacyExtIdPrefix = patientNameVal + '_'
+        existing = $app.findFirstRecordByFilter(
+          'appointments',
+          'external_id ~ {:legacyPref} && source = "agenda_externa"',
+          { legacyPref: legacyExtIdPrefix },
+        )
+      } catch (_) {}
+    }
+
     if (existing) {
       var localUpdated = existing.getString('updated')
       var remoteUpdated = item.updated || item.updated_at || item.data_modificacao || ''
-      if (localUpdated && remoteUpdated && localUpdated > remoteUpdated) {
+      // A data real da consulta SEMPRE vem da agenda externa.
+      // Se a data já gravada for diferente de startsAtIso, sobrescrevemos a data!
+      var existingStartsAt = existing.getString('starts_at')
+      var hasDateMismatch =
+        !existingStartsAt || existingStartsAt.slice(0, 16) !== startsAtIso.slice(0, 16)
+      if (!hasDateMismatch && localUpdated && remoteUpdated && localUpdated > remoteUpdated) {
         continue
       }
     }
@@ -812,16 +1007,7 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
     var rec = existing || new Record(appointmentsCol)
     rec.set('source', 'agenda_externa')
     rec.set('external_id', extId)
-    rec.set(
-      'patient_name',
-      item.patient_name ||
-        item.paciente_nome ||
-        item.patient ||
-        item.paciente ||
-        item.name ||
-        item.nome ||
-        'Paciente sem nome',
-    )
+    rec.set('patient_name', patientNameVal)
     rec.set(
       'patient_phone',
       item.patient_phone ||
@@ -833,121 +1019,18 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
     )
     rec.set(
       'doctor',
-      item.doctor || item.medico || item.nutricionista || item.profissional || 'Dr. Caio',
+      item.doctor ||
+        item.medico ||
+        item.nutricionista ||
+        (item.profissional && item.profissional.nome ? item.profissional.nome : '') ||
+        'Dr. Caio',
     )
     rec.set('city', normalizeCity(item.city || item.cidade || item.location || item.local))
     rec.set('location', item.location || item.local || item.clinica || 'Climed')
 
-    function parseDateToIso(rawDate, rawTime) {
-      if (!rawDate) return new Date().toISOString()
-      var s = String(rawDate).trim()
-      // Se for formato dd/MM/yyyy ou dd/MM/yyyy HH:mm
-      var brMatch = s.match(
-        /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
-      )
-      if (brMatch) {
-        var day = parseInt(brMatch[1], 10)
-        var month = parseInt(brMatch[2], 10) - 1
-        var year = parseInt(brMatch[3], 10)
-        var hour = brMatch[4] ? parseInt(brMatch[4], 10) : 0
-        var min = brMatch[5] ? parseInt(brMatch[5], 10) : 0
-        var sec = brMatch[6] ? parseInt(brMatch[6], 10) : 0
-
-        if (rawTime && !brMatch[4]) {
-          var timeStr = String(rawTime).trim()
-          var tmMatch = timeStr.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/)
-          if (tmMatch) {
-            hour = parseInt(tmMatch[1], 10)
-            min = parseInt(tmMatch[2], 10)
-            sec = tmMatch[3] ? parseInt(tmMatch[3], 10) : 0
-          }
-        }
-
-        // Criar date considerando fuso horário de SP (-03:00)
-        var pad = function (n) {
-          return (n < 10 ? '0' : '') + n
-        }
-        return (
-          year +
-          '-' +
-          pad(month + 1) +
-          '-' +
-          pad(day) +
-          ' ' +
-          pad(hour) +
-          ':' +
-          pad(min) +
-          ':' +
-          pad(sec)
-        )
-      }
-
-      // Se for ISO yyyy-MM-dd
-      var isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-      if (isoMatch) {
-        if (s.indexOf('T') !== -1 || s.indexOf(' ') !== -1) {
-          return s.replace('T', ' ').slice(0, 19)
-        }
-        var isoHour = 0
-        var isoMin = 0
-        if (rawTime) {
-          var tMatch = String(rawTime)
-            .trim()
-            .match(/^(\d{1,2}):(\d{1,2})/)
-          if (tMatch) {
-            isoHour = parseInt(tMatch[1], 10)
-            isoMin = parseInt(tMatch[2], 10)
-          }
-        }
-        var pad2 = function (n) {
-          return (n < 10 ? '0' : '') + n
-        }
-        return s.slice(0, 10) + ' ' + pad2(isoHour) + ':' + pad2(isoMin) + ':00'
-      }
-
-      try {
-        var parsedD = new Date(s)
-        if (!isNaN(parsedD.getTime())) {
-          return parsedD.toISOString().replace('T', ' ').slice(0, 19)
-        }
-      } catch (_) {}
-
-      return new Date().toISOString().replace('T', ' ').slice(0, 19)
-    }
-
-    var rawStartVal =
-      item.starts_at ||
-      item.start_time ||
-      item.data_inicio ||
-      item.data_hora ||
-      item.data_atendimento ||
-      item.data_consulta ||
-      item.data_agendamento ||
-      item.horario_inicio ||
-      item.data
-    var rawTimeVal =
-      item.hora || item.horario || item.time || item.hora_inicio || item.start_time || ''
-
-    var startsAt = parseDateToIso(rawStartVal, rawTimeVal)
-
-    var rawEndVal = item.ends_at || item.end_time || item.data_fim || item.horario_fim || ''
-    var rawEndTimeVal = item.hora_fim || item.horario_fim || item.end_time || ''
-    var endsAt = rawEndVal ? parseDateToIso(rawEndVal, rawEndTimeVal) : startsAt
-
-    // Garantir que starts_at e ends_at sejam válidos para DateField do PocketBase (formato UTC ISO ou "yyyy-MM-dd HH:mm:ss.000Z")
-    function sanitizeDateForPB(val) {
-      if (!val) return new Date().toISOString()
-      try {
-        var d = new Date(val)
-        if (!isNaN(d.getTime())) {
-          return d.toISOString()
-        }
-      } catch (_) {}
-      return new Date().toISOString()
-    }
-
-    rec.set('starts_at', sanitizeDateForPB(startsAt))
-    rec.set('ends_at', sanitizeDateForPB(endsAt))
+    // A data da consulta SEMPRE vem da agenda externa: sobrescreve starts_at e ends_at
+    rec.set('starts_at', startsAtIso)
+    rec.set('ends_at', endsAtIso)
     rec.set('status', normalizeStatus(item.status || item.situacao || item.estado || 'agendado'))
     var normalizedType = normalizeAppointmentType(item)
     rec.set('appointment_type', normalizedType)
@@ -1119,42 +1202,23 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
       ? JSON.stringify(extAppointments[0]).slice(0, 500)
       : 'none'
 
-  console.log(
-    '[agenda_sync] PULL CONCLUÍDO | Status:',
-    finalStatus,
-    '| Total puxado:',
-    pulledCount,
-    '| Total salvo:',
-    pulledCount,
-    '| Itens brutos encontrados:',
-    extAppointments ? extAppointments.length : 0,
-    '| PrimeirAmostra:',
-    firstSampleItem,
-  )
-
   if (syncStateRec) {
     try {
       syncStateRec.set('last_sync', new Date().toISOString())
       syncStateRec.set('last_status', finalStatus)
-      var firstRawKeys = ''
-      if (body && body.dados && body.dados.agendamentos && body.dados.agendamentos.length > 0) {
-        firstRawKeys = JSON.stringify(body.dados.agendamentos[0]).slice(0, 240)
-      } else if (body && body.agendamentos && body.agendamentos.length > 0) {
-        firstRawKeys = JSON.stringify(body.agendamentos[0]).slice(0, 240)
-      } else if (rawBodySample) {
-        firstRawKeys = rawBodySample.slice(0, 240)
-      }
 
+      // DIAGNOSTICO TEMPORARIO: Gravar chaves e campos de amostras no last_error para inspeção imediata
+      var sampleA =
+        extAppointments && extAppointments[0]
+          ? JSON.stringify(extAppointments[0]).slice(0, 200)
+          : ''
+      var sampleB =
+        extAppointments && extAppointments[1]
+          ? JSON.stringify(extAppointments[1]).slice(0, 200)
+          : ''
       syncStateRec.set(
         'last_error',
-        'FOUND=' +
-          (extAppointments ? extAppointments.length : 0) +
-          ' PULLED=' +
-          pulledCount +
-          ' ERRORS=' +
-          (syncErrors.length > 0 ? syncErrors[0] : 'none') +
-          ' FIRST=' +
-          firstRawKeys,
+        'KEYS=' + bodyKeys.join(',') + ' | S0=' + sampleA + ' | S1=' + sampleB,
       )
       syncStateRec.set(
         'details',
@@ -1978,6 +2042,13 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
     extAppointments = extracted.appointments
     extContacts = extracted.contacts
 
+    if (extAppointments && extAppointments.length > 0) {
+      $app
+        .logger()
+        .info('agenda_sync POST sample item keys: ' + Object.keys(extAppointments[0]).join(', '))
+      $app.logger().info('agenda_sync POST sample item: ' + JSON.stringify(extAppointments[0]))
+    }
+
     var appointmentsCol = $app.findCollectionByNameOrId('appointments')
 
     for (var i = 0; i < extAppointments.length; i++) {
@@ -2008,11 +2079,16 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       if (existing) {
         var localUpdated = existing.getString('updated')
         var remoteUpdated = item.updated || item.updated_at || item.data_modificacao || ''
-        if (localUpdated && remoteUpdated && localUpdated > remoteUpdated) {
+        // Regra de "registro mais recentemente editado vence" para campos locais (ex: notas, status editado manualmente),
+        // MAS a data real da consulta SEMPRE vem da agenda externa.
+        // Portanto, NÃO pulamos o registro existente se a data gravada for diferente de startsAtIso.
+        var existingStartsAt = existing.getString('starts_at')
+        var hasDateMismatch =
+          !existingStartsAt || existingStartsAt.slice(0, 16) !== startsAtIso.slice(0, 16)
+        if (!hasDateMismatch && localUpdated && remoteUpdated && localUpdated > remoteUpdated) {
           continue
         }
       }
-
       var rec = existing || new Record(appointmentsCol)
       rec.set('source', 'agenda_externa')
       rec.set('external_id', extId)
@@ -2042,9 +2118,12 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       rec.set('city', normalizeCity(item.city || item.cidade || item.location || item.local))
       rec.set('location', item.location || item.local || item.clinica || 'Climed')
 
-      function parseDateToIso(rawDate, rawTime) {
-        if (!rawDate) return new Date().toISOString()
+      // Helper rigoroso para parsing de datas de agendamento no fuso de Brasília (-03:00)
+      function parseAppointmentDateUtc(rawDate, rawTime, isEndDate) {
+        if (!rawDate) return null
         var s = String(rawDate).trim()
+        if (!s) return null
+
         var brMatch = s.match(
           /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
         )
@@ -2052,13 +2131,14 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
           var day = parseInt(brMatch[1], 10)
           var month = parseInt(brMatch[2], 10) - 1
           var year = parseInt(brMatch[3], 10)
-          var hour = brMatch[4] ? parseInt(brMatch[4], 10) : 0
-          var min = brMatch[5] ? parseInt(brMatch[5], 10) : 0
-          var sec = brMatch[6] ? parseInt(brMatch[6], 10) : 0
+          var hour = brMatch[4] ? parseInt(brMatch[4], 10) : isEndDate ? 23 : 0
+          var min = brMatch[5] ? parseInt(brMatch[5], 10) : isEndDate && !brMatch[4] ? 59 : 0
+          var sec = brMatch[6] ? parseInt(brMatch[6], 10) : isEndDate && !brMatch[4] ? 59 : 0
 
           if (rawTime && !brMatch[4]) {
-            var timeStr = String(rawTime).trim()
-            var tmMatch = timeStr.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/)
+            var tmMatch = String(rawTime)
+              .trim()
+              .match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/)
             if (tmMatch) {
               hour = parseInt(tmMatch[1], 10)
               min = parseInt(tmMatch[2], 10)
@@ -2066,88 +2146,122 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
             }
           }
 
-          var pad = function (n) {
-            return (n < 10 ? '0' : '') + n
-          }
-          return (
-            year +
-            '-' +
-            pad(month + 1) +
-            '-' +
-            pad(day) +
-            ' ' +
-            pad(hour) +
-            ':' +
-            pad(min) +
-            ':' +
-            pad(sec)
-          )
+          var utcMs = Date.UTC(year, month, day, hour + 3, min, sec)
+          return new Date(utcMs).toISOString()
         }
 
-        var isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+        var isoMatch = s.match(
+          /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
+        )
         if (isoMatch) {
-          if (s.indexOf('T') !== -1 || s.indexOf(' ') !== -1) {
-            return s.replace('T', ' ').slice(0, 19)
-          }
-          var isoHour = 0
-          var isoMin = 0
-          if (rawTime) {
-            var tMatch = String(rawTime)
+          var iYear = parseInt(isoMatch[1], 10)
+          var iMonth = parseInt(isoMatch[2], 10) - 1
+          var iDay = parseInt(isoMatch[3], 10)
+          var hasTimeInString = isoMatch[4] !== undefined
+
+          var iHour = hasTimeInString ? parseInt(isoMatch[4], 10) : isEndDate ? 23 : 0
+          var iMin = hasTimeInString
+            ? parseInt(isoMatch[5], 10)
+            : isEndDate && !hasTimeInString
+              ? 59
+              : 0
+          var iSec =
+            hasTimeInString && isoMatch[6]
+              ? parseInt(isoMatch[6], 10)
+              : isEndDate && !hasTimeInString
+                ? 59
+                : 0
+
+          if (rawTime && !hasTimeInString) {
+            var itmMatch = String(rawTime)
               .trim()
-              .match(/^(\d{1,2}):(\d{1,2})/)
-            if (tMatch) {
-              isoHour = parseInt(tMatch[1], 10)
-              isoMin = parseInt(tMatch[2], 10)
+              .match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/)
+            if (itmMatch) {
+              iHour = parseInt(itmMatch[1], 10)
+              iMin = parseInt(itmMatch[2], 10)
+              iSec = itmMatch[3] ? parseInt(itmMatch[3], 10) : 0
+              hasTimeInString = true
             }
           }
-          var pad2 = function (n) {
-            return (n < 10 ? '0' : '') + n
+
+          if (s.endsWith('Z') || s.match(/[+-]\d{2}:?\d{2}$/)) {
+            var parsedWithTz = new Date(s)
+            if (!isNaN(parsedWithTz.getTime())) {
+              return parsedWithTz.toISOString()
+            }
           }
-          return s.slice(0, 10) + ' ' + pad2(isoHour) + ':' + pad2(isoMin) + ':00'
+
+          var iUtcMs = Date.UTC(iYear, iMonth, iDay, iHour + 3, iMin, iSec)
+          return new Date(iUtcMs).toISOString()
         }
 
         try {
-          var parsedD = new Date(s)
-          if (!isNaN(parsedD.getTime())) {
-            return parsedD.toISOString().replace('T', ' ').slice(0, 19)
+          var genericD = new Date(s)
+          if (!isNaN(genericD.getTime())) {
+            return genericD.toISOString()
           }
         } catch (_) {}
 
-        return new Date().toISOString().replace('T', ' ').slice(0, 19)
+        return null
       }
 
       var rawStartVal =
+        item.data_inicio ||
+        item.data_consulta ||
+        item.data_atendimento ||
+        item.data_agendamento ||
+        item.data_hora ||
+        item.dataHora ||
         item.starts_at ||
         item.start_time ||
-        item.data_inicio ||
-        item.data_hora ||
-        item.data_atendimento ||
-        item.data_consulta ||
-        item.data_agendamento ||
         item.horario_inicio ||
-        item.data
+        item.data ||
+        ''
+
       var rawTimeVal =
         item.hora || item.horario || item.time || item.hora_inicio || item.start_time || ''
 
-      var startsAt = parseDateToIso(rawStartVal, rawTimeVal)
+      var startsAtIso = parseAppointmentDateUtc(rawStartVal, rawTimeVal, false)
 
-      var rawEndVal = item.ends_at || item.end_time || item.data_fim || item.horario_fim || ''
-      var rawEndTimeVal = item.hora_fim || item.horario_fim || item.end_time || ''
-      var endsAt = rawEndVal ? parseDateToIso(rawEndVal, rawEndTimeVal) : startsAt
-
-      function sanitizeDateForPB(val) {
-        if (!val) return new Date().toISOString()
-        try {
-          var d = new Date(val)
-          if (!isNaN(d.getTime())) {
-            return d.toISOString()
-          }
-        } catch (_) {}
-        return new Date().toISOString()
+      // NUNCA usar updated, created ou momento da sync como data da consulta!
+      if (!startsAtIso) {
+        $app
+          .logger()
+          .warn(
+            'agenda_sync (manual): ignorando registro sem data de agendamento válida',
+            'id',
+            item.id || item.external_id || '',
+            'paciente',
+            item.paciente_nome || item.patient_name || '',
+          )
+        continue
       }
 
-      rec.set('starts_at', sanitizeDateForPB(startsAt))
-      rec.set('ends_at', sanitizeDateForPB(endsAt))
+      var rawEndVal =
+        item.data_fim ||
+        item.dataHoraFim ||
+        item.ends_at ||
+        item.end_time ||
+        item.horario_fim ||
+        item.data_fim_consulta ||
+        ''
+      var rawEndTimeVal = item.hora_fim || item.horario_fim || item.end_time || ''
+
+      var endsAtIso = parseAppointmentDateUtc(rawEndVal, rawEndTimeVal, true)
+      if (!endsAtIso) {
+        var duracaoMin = parseInt(item.duracaoMin || item.duracao || item.duration || '0', 10)
+        if (duracaoMin > 0) {
+          var startD = new Date(startsAtIso)
+          endsAtIso = new Date(startD.getTime() + duracaoMin * 60 * 1000).toISOString()
+        } else {
+          var defaultStartD = new Date(startsAtIso)
+          endsAtIso = new Date(defaultStartD.getTime() + 45 * 60 * 1000).toISOString()
+        }
+      }
+
+      // A data da consulta SEMPRE vem da agenda externa
+      rec.set('starts_at', startsAtIso)
+      rec.set('ends_at', endsAtIso)
       rec.set('status', normalizeStatus(item.status || item.situacao || item.estado || 'agendado'))
       var normalizedType = normalizeAppointmentType(item)
       rec.set('appointment_type', normalizedType)
