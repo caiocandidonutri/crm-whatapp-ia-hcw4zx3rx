@@ -32,9 +32,18 @@ export interface UpdateAppointmentInput {
   notes?: string
 }
 
+export interface AgendaSyncDiagnostic {
+  status: 'ok' | 'invalid_token' | 'wrong_url' | 'connection_error' | 'http_error'
+  message: string
+  status_code?: number
+}
+
 export interface AgendaSyncStatus {
   configured: boolean
   external_url: string | null
+  base_url?: string | null
+  has_token?: boolean
+  token_preview?: string | null
   last_sync: string | null
   last_status:
     | 'success'
@@ -47,12 +56,15 @@ export interface AgendaSyncStatus {
     | string
   last_error: string | null
   details?: {
+    pull_url?: string
     pulled?: number
+    pulled_contacts?: number
     pushed?: number
     errors?: string[]
     synced_at?: string
     missing_envs?: string[]
   } | null
+  diagnostic?: AgendaSyncDiagnostic | null
   total_appointments: number
   pending_push: number
   reminders_stats?: {

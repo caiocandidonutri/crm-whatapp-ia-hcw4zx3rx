@@ -4,12 +4,11 @@
  * PUSH IMEDIATO DE AGENDAMENTOS CRIADOS/EDITADOS LOCALMENTE (source="crm")
  *
  * Sempre que um agendamento for criado ou atualizado no CRM:
- * - Se source === 'crm', tenta fazer o push imediato para o PocketBase externo do Dr. Caio
- * - Se sucesso, grava external_id retornado, last_synced_at = now e limpa sync_error
- * - Se falhar, registra sync_error detalhado para ser reprocessado no cron a cada 5 min
+ * - Se source === 'crm', tenta fazer o push imediato para a agenda externa
+ * - Autenticação direta via header X-CRM-Token e Authorization: Bearer
+ * - Registra sync_error em caso de falha para fila de reprocessamento
  *
- * NOTA: Toda a lógica de execução fica ESTRITAMENTE dentro dos callbacks registrados,
- * pois a plataforma rejeita execução de funções/variáveis em escopo de módulo.
+ * ATENÇÃO: Todas as declarações de funções devem ficar estritamente DENTRO dos callbacks.
  */
 
 onRecordAfterCreateSuccess((e) => {
@@ -17,80 +16,47 @@ onRecordAfterCreateSuccess((e) => {
     var record = e.record
     if (!record || record.getString('source') !== 'crm') return e.next()
 
-    function sanitizeUrl(raw) {
-      if (!raw) return ''
-      var trimmed = String(raw).trim()
-      if (!trimmed) return ''
-      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-        trimmed = 'https://' + trimmed
+    function getPushConfig() {
+      var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
+      var rawToken = (
+        $secrets.get('AGENDA_CRM_TOKEN') ||
+        $os.getenv('AGENDA_CRM_TOKEN') ||
+        ''
+      ).trim()
+      if (!rawToken) rawToken = 'crm_agenda_token_dr_caio_2026'
+      if (!rawUrl) return { configured: false, baseUrl: '', token: rawToken }
+
+      var normalized = rawUrl
+      if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+        normalized = 'https://' + normalized
       }
-      return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
+
+      var qIdx = normalized.indexOf('?')
+      var pathAndOrigin = qIdx !== -1 ? normalized.slice(0, qIdx) : normalized
+      if (pathAndOrigin.endsWith('/')) {
+        pathAndOrigin = pathAndOrigin.slice(0, -1)
+      }
+
+      var baseUrl = pathAndOrigin
+      var crmDadosIdx = pathAndOrigin.indexOf('/backend/v1/crm-dados')
+      if (crmDadosIdx !== -1) {
+        baseUrl = pathAndOrigin.slice(0, crmDadosIdx)
+      }
+
+      return {
+        configured: Boolean(baseUrl && rawToken),
+        baseUrl: baseUrl,
+        token: rawToken,
+      }
     }
 
-    var extUrl = sanitizeUrl($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '')
-    var extEmail = (
-      $secrets.get('AGENDA_SYNC_EMAIL') ||
-      $os.getenv('AGENDA_SYNC_EMAIL') ||
-      ''
-    ).trim()
-    var extPass = (
-      $secrets.get('AGENDA_SYNC_PASSWORD') ||
-      $os.getenv('AGENDA_SYNC_PASSWORD') ||
-      ''
-    ).trim()
-
-    if (!extUrl || !extEmail || !extPass) {
-      record.set('sync_error', 'Sincronia não configurada (faltam credenciais AGENDA_SYNC_*)')
+    var cfg = getPushConfig()
+    if (!cfg.configured) {
+      record.set('sync_error', 'Sincronia não configurada (AGENDA_SYNC_URL ausente)')
       $app.saveNoValidate(record)
       return e.next()
     }
 
-    // 1. Auth no PB externo
-    var extToken = ''
-    try {
-      var authRes = $http.send({
-        url: extUrl + '/api/collections/users/auth-with-password',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: extEmail, password: extPass }),
-        timeout: 10,
-      })
-
-      if (authRes.statusCode !== 200 || !authRes.json || !authRes.json.token) {
-        record.set('sync_error', 'Falha de auth PB externo (HTTP ' + authRes.statusCode + ')')
-        $app.saveNoValidate(record)
-        return e.next()
-      }
-
-      extToken = authRes.json.token
-    } catch (authErr) {
-      record.set('sync_error', 'Conexão falhou: ' + String(authErr).substring(0, 150))
-      $app.saveNoValidate(record)
-      return e.next()
-    }
-
-    var authHeaders = {
-      'Content-Type': 'application/json',
-      Authorization: extToken,
-    }
-
-    // 2. Descobrir coleção remota
-    var targetExtCollection = 'appointments'
-    try {
-      var testReq = $http.send({
-        url: extUrl + '/api/collections/appointments/records?perPage=1',
-        method: 'GET',
-        headers: authHeaders,
-        timeout: 5,
-      })
-      if (testReq.statusCode === 404) {
-        targetExtCollection = 'agendamentos'
-      }
-    } catch (_) {
-      targetExtCollection = 'appointments'
-    }
-
-    // 3. Montar payload
     var extIdForPush = record.getString('external_id')
     var payload = {
       patient_name: record.getString('patient_name'),
@@ -106,7 +72,14 @@ onRecordAfterCreateSuccess((e) => {
       source: 'crm',
     }
 
-    var pushUrl = extUrl + '/api/collections/' + targetExtCollection + '/records'
+    var pushHeaders = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'X-CRM-Token': cfg.token,
+      Authorization: 'Bearer ' + cfg.token,
+    }
+
+    var pushUrl = cfg.baseUrl + '/backend/v1/agenda/agendamentos'
     var pushMethod = 'POST'
     if (extIdForPush) {
       pushUrl += '/' + extIdForPush
@@ -117,7 +90,7 @@ onRecordAfterCreateSuccess((e) => {
       var pushRes = $http.send({
         url: pushUrl,
         method: pushMethod,
-        headers: authHeaders,
+        headers: pushHeaders,
         body: JSON.stringify(payload),
         timeout: 10,
       })
@@ -131,14 +104,16 @@ onRecordAfterCreateSuccess((e) => {
         $app.saveNoValidate(record)
         $app.logger().info('agenda_push_appointment (create): success', 'id', record.id)
       } else {
-        var pushErr = 'Push HTTP ' + pushRes.statusCode + ': ' + (pushRes.raw || '')
-        record.set('sync_error', pushErr.slice(0, 300))
+        var pushErr = 'Push HTTP ' + pushRes.statusCode + ': ' + (pushRes.raw || '').slice(0, 200)
+        record.set('sync_error', pushErr)
         $app.saveNoValidate(record)
       }
     } catch (pushErrEx) {
-      var exString = 'Push falhou: ' + String(pushErrEx)
-      record.set('sync_error', exString.slice(0, 300))
-      $app.saveNoValidate(record)
+      var exString = 'Push falhou: ' + String(pushErrEx).slice(0, 200)
+      record.set('sync_error', exString)
+      try {
+        $app.saveNoValidate(record)
+      } catch (_) {}
     }
   } catch (err) {
     $app.logger().error('onRecordAfterCreate appointments error', 'error', String(err))
@@ -151,7 +126,6 @@ onRecordAfterUpdateSuccess((e) => {
     var record = e.record
     if (!record || record.getString('source') !== 'crm') return e.next()
 
-    // Evita loop infinito se a própria função alterou apenas last_synced_at, external_id ou sync_error
     var origUpdated = record.original().getString('updated')
     var curUpdated = record.getString('updated')
     var origSync = record.original().getString('last_synced_at')
@@ -160,80 +134,47 @@ onRecordAfterUpdateSuccess((e) => {
       return e.next()
     }
 
-    function sanitizeUrl(raw) {
-      if (!raw) return ''
-      var trimmed = String(raw).trim()
-      if (!trimmed) return ''
-      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-        trimmed = 'https://' + trimmed
+    function getPushConfig() {
+      var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
+      var rawToken = (
+        $secrets.get('AGENDA_CRM_TOKEN') ||
+        $os.getenv('AGENDA_CRM_TOKEN') ||
+        ''
+      ).trim()
+      if (!rawToken) rawToken = 'crm_agenda_token_dr_caio_2026'
+      if (!rawUrl) return { configured: false, baseUrl: '', token: rawToken }
+
+      var normalized = rawUrl
+      if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+        normalized = 'https://' + normalized
       }
-      return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
+
+      var qIdx = normalized.indexOf('?')
+      var pathAndOrigin = qIdx !== -1 ? normalized.slice(0, qIdx) : normalized
+      if (pathAndOrigin.endsWith('/')) {
+        pathAndOrigin = pathAndOrigin.slice(0, -1)
+      }
+
+      var baseUrl = pathAndOrigin
+      var crmDadosIdx = pathAndOrigin.indexOf('/backend/v1/crm-dados')
+      if (crmDadosIdx !== -1) {
+        baseUrl = pathAndOrigin.slice(0, crmDadosIdx)
+      }
+
+      return {
+        configured: Boolean(baseUrl && rawToken),
+        baseUrl: baseUrl,
+        token: rawToken,
+      }
     }
 
-    var extUrl = sanitizeUrl($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '')
-    var extEmail = (
-      $secrets.get('AGENDA_SYNC_EMAIL') ||
-      $os.getenv('AGENDA_SYNC_EMAIL') ||
-      ''
-    ).trim()
-    var extPass = (
-      $secrets.get('AGENDA_SYNC_PASSWORD') ||
-      $os.getenv('AGENDA_SYNC_PASSWORD') ||
-      ''
-    ).trim()
-
-    if (!extUrl || !extEmail || !extPass) {
-      record.set('sync_error', 'Sincronia não configurada (faltam credenciais AGENDA_SYNC_*)')
+    var cfg = getPushConfig()
+    if (!cfg.configured) {
+      record.set('sync_error', 'Sincronia não configurada (AGENDA_SYNC_URL ausente)')
       $app.saveNoValidate(record)
       return e.next()
     }
 
-    // 1. Auth no PB externo
-    var extToken = ''
-    try {
-      var authRes = $http.send({
-        url: extUrl + '/api/collections/users/auth-with-password',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: extEmail, password: extPass }),
-        timeout: 10,
-      })
-
-      if (authRes.statusCode !== 200 || !authRes.json || !authRes.json.token) {
-        record.set('sync_error', 'Falha de auth PB externo (HTTP ' + authRes.statusCode + ')')
-        $app.saveNoValidate(record)
-        return e.next()
-      }
-
-      extToken = authRes.json.token
-    } catch (authErr) {
-      record.set('sync_error', 'Conexão falhou: ' + String(authErr).substring(0, 150))
-      $app.saveNoValidate(record)
-      return e.next()
-    }
-
-    var authHeaders = {
-      'Content-Type': 'application/json',
-      Authorization: extToken,
-    }
-
-    // 2. Descobrir coleção remota
-    var targetExtCollection = 'appointments'
-    try {
-      var testReq = $http.send({
-        url: extUrl + '/api/collections/appointments/records?perPage=1',
-        method: 'GET',
-        headers: authHeaders,
-        timeout: 5,
-      })
-      if (testReq.statusCode === 404) {
-        targetExtCollection = 'agendamentos'
-      }
-    } catch (_) {
-      targetExtCollection = 'appointments'
-    }
-
-    // 3. Montar payload
     var extIdForPush = record.getString('external_id')
     var payload = {
       patient_name: record.getString('patient_name'),
@@ -249,7 +190,14 @@ onRecordAfterUpdateSuccess((e) => {
       source: 'crm',
     }
 
-    var pushUrl = extUrl + '/api/collections/' + targetExtCollection + '/records'
+    var pushHeaders = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'X-CRM-Token': cfg.token,
+      Authorization: 'Bearer ' + cfg.token,
+    }
+
+    var pushUrl = cfg.baseUrl + '/backend/v1/agenda/agendamentos'
     var pushMethod = 'POST'
     if (extIdForPush) {
       pushUrl += '/' + extIdForPush
@@ -260,7 +208,7 @@ onRecordAfterUpdateSuccess((e) => {
       var pushRes = $http.send({
         url: pushUrl,
         method: pushMethod,
-        headers: authHeaders,
+        headers: pushHeaders,
         body: JSON.stringify(payload),
         timeout: 10,
       })
@@ -274,14 +222,16 @@ onRecordAfterUpdateSuccess((e) => {
         $app.saveNoValidate(record)
         $app.logger().info('agenda_push_appointment (update): success', 'id', record.id)
       } else {
-        var pushErr = 'Push HTTP ' + pushRes.statusCode + ': ' + (pushRes.raw || '')
-        record.set('sync_error', pushErr.slice(0, 300))
+        var pushErr = 'Push HTTP ' + pushRes.statusCode + ': ' + (pushRes.raw || '').slice(0, 200)
+        record.set('sync_error', pushErr)
         $app.saveNoValidate(record)
       }
     } catch (pushErrEx) {
-      var exString = 'Push falhou: ' + String(pushErrEx)
-      record.set('sync_error', exString.slice(0, 300))
-      $app.saveNoValidate(record)
+      var exString = 'Push falhou: ' + String(pushErrEx).slice(0, 200)
+      record.set('sync_error', exString)
+      try {
+        $app.saveNoValidate(record)
+      } catch (_) {}
     }
   } catch (err) {
     $app.logger().error('onRecordAfterUpdate appointments error', 'error', String(err))

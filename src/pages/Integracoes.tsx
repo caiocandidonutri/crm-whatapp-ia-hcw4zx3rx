@@ -433,16 +433,33 @@ export default function Integracoes() {
             <div className="p-3 rounded-xl border bg-card/60 space-y-1">
               <span className="text-[11px] text-muted-foreground block">Status do Motor</span>
               <span className="font-semibold text-xs flex items-center gap-1 text-foreground">
-                {agendaSync?.last_status === 'success' ? (
+                {agendaSync?.diagnostic?.status === 'ok' ||
+                agendaSync?.last_status === 'success' ? (
                   <span className="text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Ativo & Conectado
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Conexão Ok (Token Válido)
+                  </span>
+                ) : agendaSync?.diagnostic?.status === 'invalid_token' ||
+                  agendaSync?.last_status === 'auth_failed' ? (
+                  <span className="text-rose-600 flex items-center gap-1">
+                    <XCircle className="w-3.5 h-3.5" /> Token Inválido (401/403)
+                  </span>
+                ) : agendaSync?.diagnostic?.status === 'wrong_url' ? (
+                  <span className="text-amber-600 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" /> URL Errada (404/405)
+                  </span>
+                ) : agendaSync?.diagnostic?.status === 'connection_error' ||
+                  agendaSync?.last_status === 'connection_error' ? (
+                  <span className="text-rose-600 flex items-center gap-1">
+                    <XCircle className="w-3.5 h-3.5" /> Falha de Conexão
                   </span>
                 ) : agendaSync?.last_status === 'missing_credentials' ? (
                   <span className="text-amber-600 flex items-center gap-1">
-                    <AlertCircle className="w-3.5 h-3.5" /> Aguardando AGENDA_SYNC_*
+                    <AlertCircle className="w-3.5 h-3.5" /> Aguardando AGENDA_SYNC_URL
                   </span>
                 ) : (
-                  <span className="text-foreground">{agendaSync?.last_status || 'Em standby'}</span>
+                  <span className="text-foreground">
+                    {agendaSync?.last_status || 'Configurado / Em standby'}
+                  </span>
                 )}
               </span>
             </div>
@@ -474,6 +491,47 @@ export default function Integracoes() {
               </span>
             </div>
           </div>
+
+          {/* Diagnóstico em linguagem simples */}
+          {agendaSync?.diagnostic && (
+            <div
+              className={cn(
+                'p-3 rounded-xl border text-xs flex items-start gap-2.5',
+                agendaSync.diagnostic.status === 'ok'
+                  ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900 dark:bg-emerald-950/20 dark:border-emerald-800 dark:text-emerald-300'
+                  : agendaSync.diagnostic.status === 'invalid_token'
+                    ? 'bg-rose-50/70 border-rose-200 text-rose-900 dark:bg-rose-950/20 dark:border-rose-800 dark:text-rose-300'
+                    : agendaSync.diagnostic.status === 'wrong_url'
+                      ? 'bg-amber-50/70 border-amber-200 text-amber-900 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-300'
+                      : 'bg-muted/50 border-border text-foreground',
+              )}
+            >
+              {agendaSync.diagnostic.status === 'ok' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              ) : agendaSync.diagnostic.status === 'invalid_token' ? (
+                <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              )}
+              <div className="space-y-0.5">
+                <span className="font-semibold block">
+                  {agendaSync.diagnostic.status === 'ok'
+                    ? 'Conexão com a Agenda Externa OK'
+                    : agendaSync.diagnostic.status === 'invalid_token'
+                      ? 'Token Inválido ou Não Autorizado'
+                      : agendaSync.diagnostic.status === 'wrong_url'
+                        ? 'URL Incorreta ou Rota Não Encontrada'
+                        : 'Status do Diagnóstico da Agenda'}
+                </span>
+                <p className="opacity-90">{agendaSync.diagnostic.message}</p>
+                {agendaSync.external_url && (
+                  <p className="text-[11px] font-mono opacity-75 truncate pt-0.5">
+                    Endpoint: {agendaSync.external_url}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {agendaSync?.reminders_stats && (
             <div className="p-3 rounded-xl bg-muted/30 border text-xs flex flex-wrap items-center justify-between gap-2">

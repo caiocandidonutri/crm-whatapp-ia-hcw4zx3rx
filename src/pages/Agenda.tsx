@@ -591,10 +591,10 @@ export default function Agenda() {
 
     if (syncStatus.last_status === 'missing_credentials') {
       return {
-        label: 'Aguardando credenciais da agenda',
+        label: 'Aguardando configuração da agenda',
         variant: 'outline' as const,
         icon: AlertCircle,
-        tooltip: 'Cadastre AGENDA_SYNC_URL, AGENDA_SYNC_EMAIL e AGENDA_SYNC_PASSWORD nos segredos.',
+        tooltip: 'Cadastre AGENDA_SYNC_URL e AGENDA_CRM_TOKEN nos segredos.',
       }
     }
 
@@ -803,25 +803,27 @@ export default function Agenda() {
           <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
             <p className="font-medium text-amber-900 dark:text-amber-200">
-              Sincronização com o projeto de Agenda externa aguardando credenciais
+              Sincronização com a Agenda Médica aguardando parâmetros
             </p>
             <p className="text-amber-800/90 dark:text-amber-300/80 text-xs leading-relaxed">
-              A estrutura da agenda e o motor de sincronia estão 100% prontos neste CRM. Para
-              conectar ao seu outro projeto Skip e sincronizar nos 2 lados, defina as variáveis de
-              ambiente:{' '}
+              O motor de sincronia deste CRM conecta diretamente ao endpoint com token estático no
+              header{' '}
+              <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded text-amber-900 font-mono text-[11px]">
+                X-CRM-Token
+              </code>
+              . Certifique-se de definir a variável de ambiente{' '}
               <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded text-amber-900 font-mono text-[11px]">
                 AGENDA_SYNC_URL
-              </code>
-              ,{' '}
-              <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded text-amber-900 font-mono text-[11px]">
-                AGENDA_SYNC_EMAIL
               </code>{' '}
-              e{' '}
+              (ex:{' '}
+              <span className="font-mono text-[10px]">
+                https://&lt;sua-agenda&gt;/backend/v1/crm-dados?tipo=tudo
+              </span>
+              ) e opcionalmente{' '}
               <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded text-amber-900 font-mono text-[11px]">
-                AGENDA_SYNC_PASSWORD
+                AGENDA_CRM_TOKEN
               </code>
-              . Enquanto isso, agendamentos criados aqui funcionam perfeitamente e serão enviados
-              assim que as chaves forem configuradas.
+              .
             </p>
           </div>
         </div>
