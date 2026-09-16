@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Heart, MessageCircle, Calendar, Activity, Clock, CheckCircle2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { PatientBirthDateBadge } from '@/components/PatientBirthDateBadge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import pb from '@/lib/pocketbase/client'
@@ -222,6 +223,12 @@ export function PatientCareInfo({ contact }: PatientCareInfoProps) {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Aniversário do paciente */}
+      <div className="p-2.5 rounded-lg border bg-muted/20 flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">Data de Aniversário:</span>
+        <PatientBirthDateBadge birthDate={contact.birth_date} />
       </div>
       {contact.ai_suggested_action && (
         <div className="flex items-start gap-2 bg-primary/5 text-primary rounded-lg px-3 py-2.5">

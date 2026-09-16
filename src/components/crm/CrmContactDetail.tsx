@@ -55,6 +55,7 @@ import { CrmContact, CrmCompany } from '@/types/models'
 import { CompanyAutocomplete } from './CompanyAutocomplete'
 import { PatientCareInfo } from './PatientCareInfo'
 import { linkContactToCompany } from '@/services/crm_companies_service'
+import { PatientBirthDateBadge } from '@/components/PatientBirthDateBadge'
 import { useTeamMembers } from '@/hooks/use-team-members'
 import { CategoryPicker } from '@/components/categories/CategoryPicker'
 import { useCategories } from '@/hooks/use-categories'
@@ -342,6 +343,13 @@ export function CrmContactDetail({
                       {contact?.jid?.split('@')[0]}
                     </div>
                   </div>
+                </div>
+
+                <div className="p-3 rounded-lg border bg-muted/20 flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Data de Aniversário:
+                  </span>
+                  <PatientBirthDateBadge birthDate={contact?.birth_date} />
                 </div>
               </div>
             </div>

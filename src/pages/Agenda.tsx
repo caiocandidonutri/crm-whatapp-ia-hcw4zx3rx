@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AgendaLogisticsReport } from '@/components/AgendaLogisticsReport'
+import { buildPatientAppointmentsMap, getAppointmentHistoryInfo } from '@/lib/appointment-history'
+import { PatientBirthDateBadge } from '@/components/PatientBirthDateBadge'
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -158,6 +160,8 @@ export default function Agenda() {
   const [newDialogOpen, setNewDialogOpen] = useState(false)
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
+  const [selectedContactBirthDate, setSelectedContactBirthDate] = useState<string | null>(null)
+  const [loadingContactBirthDate, setLoadingContactBirthDate] = useState(false)
   const [configDialogOpen, setConfigDialogOpen] = useState(false)
 
   // Estados dos toggles de automação da clínica (care_alert_settings)
@@ -663,6 +667,62 @@ export default function Agenda() {
       )
     })
   }, [appointmentsForCurrentView, searchQuery])
+
+  // Mapa de histórico consolidado de atendimentos por paciente indexado na memória (useMemo)
+  // Construído uma única vez a partir da janela ampla já carregada (sem queries adicionais)
+  const patientAppointmentsMap = useMemo(() => {
+    return buildPatientAppointmentsMap(allAppointments)
+  }, [allAppointments])
+
+  // Carregar data de aniversário do contato quando abrir modal de detalhes
+  useEffect(() => {
+    if (!detailsDialogOpen || !selectedAppointment) {
+      setSelectedContactBirthDate(null)
+      return
+    }
+
+    let isCurrent = true
+    const fetchContactBirthDate = async () => {
+      setLoadingContactBirthDate(true)
+      try {
+        let contact: any = null
+        if (selectedAppointment.patient_id) {
+          try {
+            contact = await pb.collection('crm_contacts').getOne(selectedAppointment.patient_id)
+          } catch {
+            /* ignore */
+          }
+        }
+
+        if (!contact && selectedAppointment.patient_phone) {
+          const digits = selectedAppointment.patient_phone.replace(/\D/g, '')
+          const suffix = digits.slice(-8)
+          if (suffix.length >= 8) {
+            try {
+              contact = await pb
+                .collection('crm_contacts')
+                .getFirstListItem(`phone ~ "${suffix}" || jid ~ "${suffix}"`, { requestKey: null })
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+
+        if (isCurrent) {
+          setSelectedContactBirthDate(contact?.birth_date || null)
+        }
+      } catch {
+        if (isCurrent) setSelectedContactBirthDate(null)
+      } finally {
+        if (isCurrent) setLoadingContactBirthDate(false)
+      }
+    }
+
+    fetchContactBirthDate()
+    return () => {
+      isCurrent = false
+    }
+  }, [detailsDialogOpen, selectedAppointment])
 
   // Agrupamento por dia na visão semanal
   const weekDays = useMemo(() => {
@@ -1186,21 +1246,46 @@ export default function Agenda() {
                         {app.patient_name}
                       </h4>
                       <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                        {app.appointment_type && (
-                          <Badge
-                            variant="secondary"
-                            className={cn(
-                              'text-[10px] font-medium py-0 px-1.5 border',
-                              app.appointment_type.toLowerCase().includes('retorno')
-                                ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300'
-                                : app.appointment_type.toLowerCase().includes('consultoria')
-                                  ? 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300'
-                                  : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300',
-                            )}
-                          >
-                            {app.appointment_type}
-                          </Badge>
-                        )}
+                        {(() => {
+                          const historyInfo = getAppointmentHistoryInfo(app, patientAppointmentsMap)
+                          const displayType = historyInfo.inferredType
+                          const isFirst = historyInfo.isFirstConsultation
+
+                          return (
+                            <>
+                              <Badge
+                                variant="secondary"
+                                className={cn(
+                                  'text-[10px] font-medium py-0 px-1.5 border',
+                                  displayType.toLowerCase().includes('retorno')
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300'
+                                    : displayType.toLowerCase().includes('consultoria')
+                                      ? 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300'
+                                      : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300',
+                                )}
+                              >
+                                {displayType}
+                              </Badge>
+                              {isFirst ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] font-semibold py-0 px-1.5 bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                                >
+                                  1ª consulta
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] font-normal py-0 px-1.5 bg-slate-50 text-slate-600 border-slate-300 dark:bg-slate-900/40 dark:text-slate-400"
+                                >
+                                  {historyInfo.priorVisitsCount > 1
+                                    ? `${historyInfo.priorVisitsCount + 1}º atendimento`
+                                    : 'Retorno'}
+                                </Badge>
+                              )}
+                            </>
+                          )
+                        })()}
                       </div>
                     </div>
                     <Badge
@@ -1424,20 +1509,36 @@ export default function Agenda() {
                           <p className="text-xs font-medium text-foreground truncate">
                             {app.patient_name}
                           </p>
-                          {app.appointment_type && (
-                            <span
-                              className={cn(
-                                'inline-block text-[9px] px-1 py-0.2 rounded border font-medium',
-                                app.appointment_type.toLowerCase().includes('retorno')
-                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                  : app.appointment_type.toLowerCase().includes('consultoria')
-                                    ? 'bg-purple-50 text-purple-800 border-purple-200'
-                                    : 'bg-blue-50 text-blue-800 border-blue-200',
-                              )}
-                            >
-                              {app.appointment_type}
-                            </span>
-                          )}
+                          {(() => {
+                            const historyInfo = getAppointmentHistoryInfo(
+                              app,
+                              patientAppointmentsMap,
+                            )
+                            const displayType = historyInfo.inferredType
+                            const isFirst = historyInfo.isFirstConsultation
+
+                            return (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <span
+                                  className={cn(
+                                    'inline-block text-[9px] px-1 py-0.2 rounded border font-medium',
+                                    displayType.toLowerCase().includes('retorno')
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                      : displayType.toLowerCase().includes('consultoria')
+                                        ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                        : 'bg-blue-50 text-blue-800 border-blue-200',
+                                  )}
+                                >
+                                  {displayType}
+                                </span>
+                                {isFirst && (
+                                  <span className="inline-block text-[9px] px-1 py-0.2 rounded border font-semibold bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    1ª consulta
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })()}
                           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                             <span className="truncate">{app.city}</span>
                             <span className="font-mono text-[9px] shrink-0">
@@ -1704,6 +1805,14 @@ export default function Agenda() {
                   <span className="font-medium text-foreground">
                     {selectedAppointment.appointment_type || 'Consulta'}
                   </span>
+                </div>
+                <div className="col-span-2 pt-1 border-t border-border/40 flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Aniversário do Paciente:</span>
+                  {loadingContactBirthDate ? (
+                    <span className="text-xs text-muted-foreground animate-pulse">Buscando...</span>
+                  ) : (
+                    <PatientBirthDateBadge birthDate={selectedContactBirthDate} />
+                  )}
                 </div>
               </div>
 

@@ -25,6 +25,7 @@ import { format } from 'date-fns'
 import { listAppointments } from '@/services/appointments'
 import { ptBR } from 'date-fns/locale'
 import { formatBrazilianDate, formatTimeSaoPaulo } from '@/lib/datetime'
+import { PatientBirthDateBadge } from '@/components/PatientBirthDateBadge'
 
 interface PatientContextPanelProps {
   open: boolean
@@ -256,6 +257,9 @@ export function PatientContextPanel({
                   <Phone className="w-3 h-3" />
                   {displayPhone}
                 </p>
+                <div className="mt-1.5">
+                  <PatientBirthDateBadge birthDate={contact.birth_date} />
+                </div>
               </div>
             </div>
 
