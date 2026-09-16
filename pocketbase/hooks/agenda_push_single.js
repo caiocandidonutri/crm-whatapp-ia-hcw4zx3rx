@@ -300,3 +300,89 @@ onRecordAfterUpdateSuccess((e) => {
   }
   return e.next()
 }, 'appointments')
+
+/**
+ * PUSH DE CANCELAMENTO / EXCLUSÃO DE AGENDAMENTO PARA A AGENDA EXTERNA
+ *
+ * Palavra do usuário: "e, caso ocorra o cancelamento, ocorre a exclusão do nome na agenda"
+ * Quando um agendamento for excluído da coleção 'appointments':
+ * - Se tiver external_id, envia DELETE para o backend externo
+ * - Se o DELETE falhar ou não for suportado pelo backend externo, tenta PATCH status="cancelado"
+ */
+onRecordAfterDeleteSuccess((e) => {
+  try {
+    var record = e.record
+    if (!record) return e.next()
+
+    var extId = record.getString('external_id')
+    if (!extId) return e.next()
+
+    var RECOMMENDED_BASE_URL = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
+    var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
+    var rawToken =
+      ($secrets.get('AGENDA_CRM_TOKEN') || $os.getenv('AGENDA_CRM_TOKEN') || '').trim() ||
+      'crm_agenda_token_dr_caio_2026'
+
+    var baseUrl = rawUrl
+    if (!baseUrl) {
+      baseUrl = RECOMMENDED_BASE_URL
+    } else {
+      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+        baseUrl = 'https://' + baseUrl
+      }
+      var qIdx = baseUrl.indexOf('?')
+      if (qIdx !== -1) baseUrl = baseUrl.slice(0, qIdx)
+      if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1)
+      if (baseUrl.indexOf('/backend/v1/crm-dados') !== -1) {
+        baseUrl = baseUrl.slice(0, baseUrl.indexOf('/backend/v1/crm-dados'))
+      }
+      if (baseUrl.indexOf('agendanutri.goskip.app') !== -1) {
+        baseUrl = RECOMMENDED_BASE_URL
+      }
+    }
+
+    var delUrl = baseUrl + '/backend/v1/agenda/agendamentos/' + extId
+    try {
+      var delRes = $http.send({
+        url: delUrl,
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+          'X-CRM-Token': rawToken,
+          Authorization: 'Bearer ' + rawToken,
+        },
+        timeout: 10,
+      })
+
+      if (delRes.statusCode < 200 || delRes.statusCode >= 300) {
+        // Fallback: se DELETE retornar erro (ex.: 404, 405 ou 500), tenta PATCH com status="cancelado"
+        $http.send({
+          url: delUrl,
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CRM-Token': rawToken,
+            Authorization: 'Bearer ' + rawToken,
+          },
+          body: JSON.stringify({ status: 'cancelado' }),
+          timeout: 10,
+        })
+      }
+      $app.logger().info('agenda_push_cancellation (delete): success', 'extId', extId)
+    } catch (delHttpErr) {
+      $app
+        .logger()
+        .warn(
+          'agenda_push_cancellation (delete): http error',
+          'extId',
+          extId,
+          'error',
+          String(delHttpErr),
+        )
+    }
+  } catch (err) {
+    $app.logger().error('onRecordAfterDelete appointments error', 'error', String(err))
+  }
+  return e.next()
+}, 'appointments')

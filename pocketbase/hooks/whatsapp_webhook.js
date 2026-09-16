@@ -889,9 +889,14 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         }
       }
 
-      // DETECÇÃO AUTOMÁTICA DE RESPOSTAS A AGENDAMENTOS (Anti-atropelamento: não dispara mensagens)
-      // Se mensagem recebida do paciente (fromMe = false, !isGroup, texto não vazio),
-      // verifica se há agendamento futuro para este paciente (pelo telefone/remote_jid).
+      // DETECÇÃO AUTOMÁTICA DE CONFIRMAÇÃO / CANCELAMENTO DE AGENDAMENTOS NA CONVERSA
+      // Regras pedidas pelo usuário (Dr. Caio / Fabiana CRM):
+      // 1. Ao paciente confirmar horário + dia + local com a Fabiana -> direto para o preenchimento da agenda.
+      // 2. IA aguarda todas as informações (data/hora pelo menos) para que não ocorra erros na agenda. Se faltar dado essencial, registra aviso e tarefa humana.
+      // 3. Facilita nome completo e data de nascimento quando o paciente for novo (sem crm_contact).
+      // 4. Anti-duplicação: não cria duplicado se já houver agendamento no mesmo dia/horário (atualiza).
+      // 5. Cancelamento pelo paciente ("cancelar", "não vou poder", etc.) -> exclusão do nome na agenda local e push do cancelamento para a agenda externa.
+      // 6. Anti-atropelamento: este recurso NÃO envia mensagens para o WhatsApp, apenas altera agenda, cria contato/tarefa/notificação.
       if (
         !fromMe &&
         !isGroup &&
@@ -903,6 +908,117 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
           if (senderDigits && senderDigits.length >= 8) {
             var phoneSuffix = senderDigits.slice(-8)
             var nowIsoForApp = new Date().toISOString()
+            var rawPatientText = content
+            var cleanText = rawPatientText
+              .toLowerCase()
+              .replace(/[!?,.;:🙏✨👍😊❤️]/g, ' ')
+              .trim()
+            var words = cleanText.split(/\s+/)
+
+            // 1. Verificar intenção de CANCELAMENTO
+            var cancelPhrases = [
+              'cancelar',
+              'cancele',
+              'cancela',
+              'preciso cancelar',
+              'quero cancelar',
+              'nao vou poder',
+              'não vou poder',
+              'nao vou conseguir ir',
+              'não vou conseguir ir',
+              'nao poderei ir',
+              'não poderei ir',
+              'nao vou mais',
+              'não vou mais',
+              'desmarcar',
+              'desmarque',
+              'pode desmarcar',
+              'preciso desmarcar',
+              'excluir da agenda',
+              'retirar meu nome',
+            ]
+            var isExplicitCancel = false
+            for (var cpi = 0; cpi < cancelPhrases.length; cpi++) {
+              if (cleanText.indexOf(cancelPhrases[cpi]) !== -1) {
+                isExplicitCancel = true
+                break
+              }
+            }
+
+            // 2. Verificar intenção de CONFIRMAÇÃO
+            var confirmPhrases = [
+              'confirmo',
+              'confirmado',
+              'confirmada',
+              'confirmar',
+              'pode marcar',
+              'pode agendar',
+              'pode deixar marcado',
+              'fechado',
+              'fechou',
+              'combinado',
+              'vou sim',
+              'vou com certeza',
+              'estarei la',
+              'estarei lá',
+              'pode confirmar',
+              'de acordo',
+              'horario perfeito',
+              'horário perfeito',
+              'dia perfeito',
+              'otimo horario',
+              'ótimo horário',
+            ]
+            var isExplicitConfirm = false
+            for (var cfi = 0; cfi < confirmPhrases.length; cfi++) {
+              var term = confirmPhrases[cfi]
+              if (term.indexOf(' ') !== -1) {
+                if (cleanText.indexOf(term) !== -1) {
+                  isExplicitConfirm = true
+                  break
+                }
+              } else {
+                if (words.indexOf(term) !== -1 || cleanText === term) {
+                  isExplicitConfirm = true
+                  break
+                }
+              }
+            }
+            // Palavras curtas que só contam como confirmação se o texto tiver menção de data/hora/local ou for estritamente resposta positiva
+            if (!isExplicitConfirm && !isExplicitCancel) {
+              if (
+                words.indexOf('sim') !== -1 ||
+                cleanText === 'ok' ||
+                cleanText === 'vou' ||
+                cleanText === 'pode'
+              ) {
+                isExplicitConfirm = true
+              }
+            }
+
+            // Expressões de reagendamento / dúvida
+            var reschedulePhrases = [
+              'preciso remarcar',
+              'remarcar',
+              'remarca',
+              'mudar horario',
+              'mudar horário',
+              'mudar data',
+              'mudar o dia',
+              'adiar',
+              'outro dia',
+              'outro horario',
+              'outro horário',
+            ]
+            var isRescheduleIntent = false
+            for (var rpi = 0; rpi < reschedulePhrases.length; rpi++) {
+              if (cleanText.indexOf(reschedulePhrases[rpi]) !== -1) {
+                isRescheduleIntent = true
+                break
+              }
+            }
+
+            // Buscar agendamentos futuros existentes do paciente
             var futureAppointments = $app.findRecordsByFilter(
               'appointments',
               '(patient_phone ~ {:suf} || patient_id.phone ~ {:suf} || patient_id.jid ~ {:suf}) && starts_at >= {:now} && status != "cancelado" && status != "realizado"',
@@ -912,161 +1028,793 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
               { suf: phoneSuffix, now: nowIsoForApp },
             )
 
-            if (futureAppointments && futureAppointments.length > 0) {
-              var targetApp = futureAppointments[0]
-              var rawLower = content.toLowerCase().trim()
-              // Remove pontuações e emojis comuns para análise
-              var cleanText = rawLower.replace(/[!?,.;:🙏✨👍😊❤️]/g, ' ').trim()
+            // Buscar histórico recente da conversa (últimas 6 mensagens) para contextualizar data, hora e local ditos pela Fabiana ou pelo paciente
+            var recentContextText = ''
+            var recentMessages = []
+            try {
+              recentMessages = $app.findRecordsByFilter(
+                'whatsapp_messages',
+                'remote_jid = {:jid} && instance_name = {:name}',
+                '-timestamp',
+                6,
+                0,
+                { jid: remoteJid, name: instanceName },
+              )
+            } catch (_) {}
 
-              // Expressões de confirmação: "sim", "confirmado", "vou", "pode deixar", "ok", "estarei", "confirmar", "com certeza", "estou confirmando"
-              var isConfirm = false
-              var confirmWords = [
-                'sim',
-                'confirmado',
-                'confirmada',
-                'confirmo',
-                'confirmar',
-                'vou',
-                'vou sim',
-                'pode deixar',
-                'ok',
-                'estarei',
-                'estarei la',
-                'estarei lá',
-                'com certeza',
-                'combinado',
-                'pode confirmar',
-              ]
+            var combinedTextForExtraction = rawPatientText + '\n'
+            for (var rmi = 0; rmi < recentMessages.length; rmi++) {
+              var rMsg = recentMessages[rmi]
+              var rContent = rMsg.getString('content') || ''
+              if (rContent) {
+                combinedTextForExtraction += rContent + '\n'
+                recentContextText += rContent + '\n'
+              }
+            }
 
-              // Expressões de reagendamento/não comparecimento: "não posso", "nao posso", "não vou", "nao vou", "preciso remarcar", "mudar", "adiar", "remarcar", "desmarcar"
-              var isReschedule = false
-              var rescheduleWords = [
-                'nao posso',
-                'não posso',
-                'nao vou',
-                'não vou',
-                'nao vou conseguir',
-                'não vou conseguir',
-                'preciso remarcar',
-                'remarcar',
-                'remarca',
-                'mudar horario',
-                'mudar horário',
-                'mudar data',
-                'mudar o dia',
-                'adiar',
-                'desmarcar',
-                'outro dia',
-                'outro horario',
-                'outro horário',
-              ]
+            // Funções de extração de data, hora e local (Fuso America/Sao_Paulo UTC-3)
+            function extractTime(text) {
+              if (!text) return null
+              // 1. "14:30" ou "14h30" ou "14h" ou "14 horas"
+              var m = text.match(/(?:às|as|para\s+as|para\s+às)?\s*(\b[012]?\d)(?::|h)(\d{2})\b/i)
+              if (m) {
+                var h = parseInt(m[1], 10)
+                var min = parseInt(m[2], 10)
+                if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return { hour: h, minute: min }
+              }
+              var m2 = text.match(/(?:às|as|para\s+as|para\s+às)?\s*(\b[012]?\d)\s*h(?:oras)?\b/i)
+              if (m2) {
+                var h2 = parseInt(m2[1], 10)
+                if (h2 >= 0 && h2 <= 23) return { hour: h2, minute: 0 }
+              }
+              // "duas da tarde", "três da tarde", "nove da manhã"
+              var extMap = {
+                uma: 13,
+                duas: 14,
+                tres: 15,
+                três: 15,
+                quatro: 16,
+                cinco: 17,
+                seis: 18,
+                sete: 7,
+                oito: 8,
+                nove: 9,
+                dez: 10,
+                onze: 11,
+                'meio dia': 12,
+              }
+              for (var k in extMap) {
+                if (text.toLowerCase().indexOf(k + ' da tarde') !== -1) {
+                  return { hour: extMap[k], minute: 0 }
+                }
+                if (
+                  text.toLowerCase().indexOf(k + ' da manha') !== -1 ||
+                  text.toLowerCase().indexOf(k + ' da manhã') !== -1
+                ) {
+                  var morningH = extMap[k] > 12 ? extMap[k] - 12 : extMap[k]
+                  return { hour: morningH, minute: 0 }
+                }
+              }
+              return null
+            }
 
-              for (var rw = 0; rw < rescheduleWords.length; rw++) {
-                if (cleanText.indexOf(rescheduleWords[rw]) !== -1) {
-                  isReschedule = true
-                  break
+            function extractDateCivil(text) {
+              if (!text) return null
+              var nowMs = Date.now()
+              // Ajuste de Brasília UTC-3
+              var spNow = new Date(nowMs - 3 * 3600 * 1000)
+              var curYear = spNow.getUTCFullYear()
+              var curMonth = spNow.getUTCMonth() // 0-11
+              var curDate = spNow.getUTCDate()
+              var curDayOfWeek = spNow.getUTCDay() // 0=dom, 1=seg...
+
+              var lower = text.toLowerCase()
+
+              // Expressões relativas
+              if (lower.indexOf('hoje') !== -1) {
+                return { year: curYear, month: curMonth, day: curDate }
+              }
+              if (lower.indexOf('amanha') !== -1 || lower.indexOf('amanhã') !== -1) {
+                var am = new Date(spNow.getTime() + 24 * 3600 * 1000)
+                return { year: am.getUTCFullYear(), month: am.getUTCMonth(), day: am.getUTCDate() }
+              }
+              if (
+                lower.indexOf('depois de amanha') !== -1 ||
+                lower.indexOf('depois de amanhã') !== -1
+              ) {
+                var dam = new Date(spNow.getTime() + 48 * 3600 * 1000)
+                return {
+                  year: dam.getUTCFullYear(),
+                  month: dam.getUTCMonth(),
+                  day: dam.getUTCDate(),
                 }
               }
 
-              if (!isReschedule) {
-                // Checa palavras exatas ou frases de confirmação
-                var words = cleanText.split(/\s+/)
-                for (var cw = 0; cw < confirmWords.length; cw++) {
-                  var term = confirmWords[cw]
-                  if (term.indexOf(' ') !== -1) {
-                    if (cleanText.indexOf(term) !== -1) {
-                      isConfirm = true
-                      break
-                    }
-                  } else {
-                    if (words.indexOf(term) !== -1 || cleanText === term) {
-                      isConfirm = true
-                      break
-                    }
+              // Dias da semana: "segunda", "terça", "quarta", "quinta", "sexta", "sábado"
+              var weekDays = {
+                domingo: 0,
+                segunda: 1,
+                terca: 2,
+                terça: 2,
+                quarta: 3,
+                quinta: 4,
+                sexta: 5,
+                sabado: 6,
+                sábado: 6,
+              }
+              for (var wd in weekDays) {
+                if (lower.indexOf(wd) !== -1) {
+                  var targetDow = weekDays[wd]
+                  var diff = (targetDow - curDayOfWeek + 7) % 7
+                  if (diff === 0) diff = 7 // Próxima ocorrência
+                  var targetDate = new Date(spNow.getTime() + diff * 24 * 3600 * 1000)
+                  return {
+                    year: targetDate.getUTCFullYear(),
+                    month: targetDate.getUTCMonth(),
+                    day: targetDate.getUTCDate(),
                   }
                 }
               }
 
-              if (isConfirm) {
-                targetApp.set('status', 'confirmado')
-                targetApp.set('last_interaction_type', 'confirmado_paciente')
-                $app.saveNoValidate(targetApp)
-                $app
-                  .logger()
-                  .info('webhook_appointment: confirmed by patient', 'app_id', targetApp.id)
-              } else if (isReschedule) {
-                targetApp.set('status', 'remarcado')
-                targetApp.set('last_interaction_type', 'remarcado_paciente')
-                $app.saveNoValidate(targetApp)
-                $app
-                  .logger()
-                  .info('webhook_appointment: rescheduled by patient', 'app_id', targetApp.id)
+              // dd/MM ou dd/MM/yyyy
+              var dateMatch = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/)
+              if (dateMatch) {
+                var d = parseInt(dateMatch[1], 10)
+                var m = parseInt(dateMatch[2], 10) - 1
+                var y = dateMatch[3] ? parseInt(dateMatch[3], 10) : curYear
+                if (y < 100) y += 2000
+                if (d >= 1 && d <= 31 && m >= 0 && m <= 11) {
+                  return { year: y, month: m, day: d }
+                }
+              }
 
-                // Criar tarefa humana para reagendar (não remarcar sozinho)
+              // "dia 15", "dia 20 de outubro"
+              var diaMatch = text.match(/\bdia\s+(\d{1,2})(?:\s+de\s+([a-zçã]+))?\b/i)
+              if (diaMatch) {
+                var dNum = parseInt(diaMatch[1], 10)
+                var mNum = curMonth
+                var monthNames = {
+                  janeiro: 0,
+                  fevereiro: 1,
+                  marco: 2,
+                  março: 2,
+                  abril: 3,
+                  maio: 4,
+                  junho: 5,
+                  julho: 6,
+                  agosto: 7,
+                  setembro: 8,
+                  outubro: 9,
+                  novembro: 10,
+                  dezembro: 11,
+                }
+                if (diaMatch[2] && monthNames[diaMatch[2].toLowerCase()] !== undefined) {
+                  mNum = monthNames[diaMatch[2].toLowerCase()]
+                } else if (dNum < curDate) {
+                  // Se o dia já passou no mês corrente, assume próximo mês
+                  mNum = (curMonth + 1) % 12
+                }
+                var yr = curYear
+                if (mNum < curMonth) yr += 1
+                if (dNum >= 1 && dNum <= 31) {
+                  return { year: yr, month: mNum, day: dNum }
+                }
+              }
+
+              return null
+            }
+
+            function extractLocation(text) {
+              if (!text) return { city: 'Carmo do Rio Claro', location: 'Climed' }
+              var lower = text.toLowerCase()
+              if (lower.indexOf('monte belo') !== -1) {
+                return { city: 'Monte Belo', location: 'Monte Belo' }
+              }
+              if (lower.indexOf('alfenas') !== -1 || lower.indexOf('harmoniza') !== -1) {
+                return { city: 'Alfenas', location: 'Instituto Harmoniza' }
+              }
+              if (
+                lower.indexOf('online') !== -1 ||
+                lower.indexOf('remoto') !== -1 ||
+                lower.indexOf('distancia') !== -1 ||
+                lower.indexOf('distância') !== -1
+              ) {
+                return { city: 'Online', location: 'Atendimento Online' }
+              }
+              if (lower.indexOf('carmo') !== -1 || lower.indexOf('climed') !== -1) {
+                return { city: 'Carmo do Rio Claro', location: 'Climed' }
+              }
+              return { city: 'Carmo do Rio Claro', location: 'Climed' }
+            }
+
+            function extractBirthDateFromText(text) {
+              if (!text) return ''
+              // Formatos comuns: "15/09/1990", "nascido em 12/04/1985", "data de nascimento: 05/11/1998", "nascimento 20/03/88"
+              var m = text.match(
+                /(?:nasc(?:imento|ido)?(?:\s+em)?[:\s]*)?\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/i,
+              )
+              if (m) {
+                var d = m[1].length === 1 ? '0' + m[1] : m[1]
+                var mo = m[2].length === 1 ? '0' + m[2] : m[2]
+                var y = m[3]
+                if (y.length === 2) y = parseInt(y, 10) > 30 ? '19' + y : '20' + y
+                return d + '/' + mo + '/' + y
+              }
+              return ''
+            }
+
+            function extractFullNameFromText(text, fallback) {
+              if (!text) return fallback || 'Paciente'
+              // Procura padrões como "meu nome é [Nome Completo]", "nome: [Nome Completo]", "sou [Nome]"
+              var m = text.match(
+                /(?:meu\s+nome\s+é|meu\s+nome\s+e|nome:\s*|sou\s+(?:o|a)?\s*)([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ][a-záéíóúâêîôûãõç]+(?:\s+[A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ][a-záéíóúâêîôûãõç]+)+)/i,
+              )
+              if (m && m[1]) return m[1].trim()
+              return fallback || 'Paciente'
+            }
+
+            // CENÁRIO A: CANCELAMENTO DO PACIENTE
+            // Usuário pediu: "caso ocorra o cancelamento, ocorre a exclusão do nome na agenda"
+            if (isExplicitCancel && futureAppointments && futureAppointments.length > 0) {
+              var appToCancel = futureAppointments[0]
+              var patientDisplay = appToCancel.getString('patient_name') || 'Paciente'
+              var cancelStart = appToCancel.getString('starts_at')
+              var cancelExternalId = appToCancel.getString('external_id')
+
+              // Notificação para o painel de contexto e equipe humana
+              try {
+                var nColCancel = $app.findCollectionByNameOrId('notifications')
+                var cancelNotif = new Record(nColCancel)
+                if (accountId) cancelNotif.set('account_id', accountId)
+                cancelNotif.set('type', 'care_alert')
+                cancelNotif.set('title', 'Consulta cancelada pelo paciente: ' + patientDisplay)
+                cancelNotif.set(
+                  'body',
+                  'Agendamento de ' +
+                    cancelStart +
+                    ' foi removido da agenda após confirmação de cancelamento pelo WhatsApp: "' +
+                    rawPatientText.substring(0, 100) +
+                    '".',
+                )
+                if (appToCancel.getString('patient_id'))
+                  cancelNotif.set('crm_contact_id', appToCancel.getString('patient_id'))
+                if (appToCancel.getString('conversation_id'))
+                  cancelNotif.set('conversation_id', appToCancel.getString('conversation_id'))
+                cancelNotif.set('read', false)
                 try {
-                  var pName = targetApp.getString('patient_name') || 'Paciente'
-                  var tCol = $app.findCollectionByNameOrId('tasks')
-                  var reschedTask = new Record(tCol)
-                  reschedTask.set('title', 'Reagendar consulta: ' + pName)
-                  reschedTask.set(
-                    'description',
-                    'Paciente informou que precisa remarcar/mudar o horário marcado para ' +
-                      targetApp.getString('starts_at') +
-                      '. Mensagem: "' +
-                      content.substring(0, 150) +
-                      '". Verificar disponibilidade com o Dr. Caio.',
+                  var accMemC = $app.findFirstRecordByFilter(
+                    'account_members',
+                    'account_id = {:aid}',
+                    { aid: accountId },
                   )
-                  reschedTask.set('status', 'pendente')
-                  reschedTask.set('priority', 'alta')
-                  reschedTask.set('care_category', 'precisa_retorno')
-                  if (accountId) reschedTask.set('account_id', accountId)
-                  var patId = targetApp.getString('patient_id')
-                  if (patId) reschedTask.set('crm_contact_id', patId)
-                  var cId = targetApp.getString('conversation_id')
-                  if (cId) reschedTask.set('conversation_id', cId)
+                  if (accMemC) cancelNotif.set('user_id', accMemC.getString('user_id'))
+                } catch (_) {}
+                $app.save(cancelNotif)
+              } catch (nErr) {
+                $app
+                  .logger()
+                  .warn('webhook_appointment: cancel notification error', 'err', String(nErr))
+              }
+
+              // Push da exclusão/cancelamento para a agenda externa antes de deletar do PocketBase
+              if (cancelExternalId) {
+                try {
+                  var RECOMMENDED_BASE_URL =
+                    'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
+                  var rawUrl = (
+                    $secrets.get('AGENDA_SYNC_URL') ||
+                    $os.getenv('AGENDA_SYNC_URL') ||
+                    ''
+                  ).trim()
+                  var rawToken =
+                    (
+                      $secrets.get('AGENDA_CRM_TOKEN') ||
+                      $os.getenv('AGENDA_CRM_TOKEN') ||
+                      ''
+                    ).trim() || 'crm_agenda_token_dr_caio_2026'
+                  var effBase =
+                    rawUrl && rawUrl.indexOf('agendanutri.goskip.app') === -1
+                      ? rawUrl
+                      : RECOMMENDED_BASE_URL
+                  if (effBase.indexOf('/backend/v1/crm-dados') !== -1) {
+                    effBase = effBase.slice(0, effBase.indexOf('/backend/v1/crm-dados'))
+                  }
+                  if (effBase.endsWith('/')) effBase = effBase.slice(0, -1)
+
+                  // Tenta DELETE no endpoint de agendamentos da agenda externa
+                  var delRes = $http.send({
+                    url: effBase + '/backend/v1/agenda/agendamentos/' + cancelExternalId,
+                    method: 'DELETE',
+                    headers: {
+                      Accept: 'application/json',
+                      'X-CRM-Token': rawToken,
+                      Authorization: 'Bearer ' + rawToken,
+                    },
+                    timeout: 10,
+                  })
+                  if (delRes.statusCode < 200 || delRes.statusCode >= 300) {
+                    // Fallback se DELETE não for aceito: marca status=cancelado lá via PATCH
+                    $http.send({
+                      url: effBase + '/backend/v1/agenda/agendamentos/' + cancelExternalId,
+                      method: 'PATCH',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CRM-Token': rawToken,
+                        Authorization: 'Bearer ' + rawToken,
+                      },
+                      body: JSON.stringify({ status: 'cancelado' }),
+                      timeout: 10,
+                    })
+                  }
+                } catch (pushDelErr) {
+                  $app
+                    .logger()
+                    .warn(
+                      'webhook_appointment: external cancel push error',
+                      'err',
+                      String(pushDelErr),
+                    )
+                }
+              }
+
+              // Excluir da agenda local (palavra do usuário: "ocorre a exclusão do nome na agenda")
+              try {
+                $app.delete(appToCancel)
+                $app
+                  .logger()
+                  .info(
+                    'webhook_appointment: deleted appointment by patient cancellation',
+                    'app_id',
+                    appToCancel.id,
+                    'patient',
+                    patientDisplay,
+                  )
+              } catch (delErr) {
+                // Se falhar o delete, marca como cancelado
+                appToCancel.set('status', 'cancelado')
+                appToCancel.set('last_interaction_type', 'cancelado_paciente')
+                $app.saveNoValidate(appToCancel)
+              }
+            } else if (isRescheduleIntent && futureAppointments && futureAppointments.length > 0) {
+              // CENÁRIO B: PEDIDO DE REMARCAÇÃO / REAGENDAMENTO
+              var targetAppResched = futureAppointments[0]
+              targetAppResched.set('status', 'remarcado')
+              targetAppResched.set('last_interaction_type', 'remarcado_paciente')
+              $app.saveNoValidate(targetAppResched)
+              $app
+                .logger()
+                .info('webhook_appointment: rescheduled by patient', 'app_id', targetAppResched.id)
+
+              // Criar tarefa humana para a Fabiana remarcar
+              try {
+                var pNameR = targetAppResched.getString('patient_name') || 'Paciente'
+                var tColR = $app.findCollectionByNameOrId('tasks')
+                var reschedTaskRec = new Record(tColR)
+                reschedTaskRec.set('title', 'Reagendar consulta: ' + pNameR)
+                reschedTaskRec.set(
+                  'description',
+                  'Paciente solicitou alteração do agendamento marcado para ' +
+                    targetAppResched.getString('starts_at') +
+                    '. Mensagem: "' +
+                    rawPatientText.substring(0, 150) +
+                    '". Verificar nova disponibilidade com o Dr. Caio.',
+                )
+                reschedTaskRec.set('status', 'pendente')
+                reschedTaskRec.set('priority', 'alta')
+                reschedTaskRec.set('care_category', 'precisa_retorno')
+                if (accountId) reschedTaskRec.set('account_id', accountId)
+                var pIdR = targetAppResched.getString('patient_id')
+                if (pIdR) reschedTaskRec.set('crm_contact_id', pIdR)
+                var cIdR = targetAppResched.getString('conversation_id')
+                if (cIdR) reschedTaskRec.set('conversation_id', cIdR)
+                try {
+                  var accMemR = $app.findFirstRecordByFilter(
+                    'account_members',
+                    'account_id = {:aid}',
+                    { aid: accountId },
+                  )
+                  if (accMemR) reschedTaskRec.set('user_id', accMemR.getString('user_id'))
+                } catch (_) {}
+                $app.save(reschedTaskRec)
+
+                var nColR = $app.findCollectionByNameOrId('notifications')
+                var reschedNotifRec = new Record(nColR)
+                if (reschedTaskRec.getString('user_id'))
+                  reschedNotifRec.set('user_id', reschedTaskRec.getString('user_id'))
+                if (accountId) reschedNotifRec.set('account_id', accountId)
+                reschedNotifRec.set('type', 'task')
+                reschedNotifRec.set('title', 'Paciente solicitou reagendamento: ' + pNameR)
+                reschedNotifRec.set(
+                  'body',
+                  'Paciente solicitou alteração: "' + rawPatientText.substring(0, 100) + '"',
+                )
+                reschedNotifRec.set('task_id', reschedTaskRec.id)
+                if (pIdR) reschedNotifRec.set('crm_contact_id', pIdR)
+                if (cIdR) reschedNotifRec.set('conversation_id', cIdR)
+                reschedNotifRec.set('read', false)
+                $app.save(reschedNotifRec)
+              } catch (tCreateErr) {
+                $app
+                  .logger()
+                  .error(
+                    'webhook_appointment: create reschedule task failed',
+                    'error',
+                    String(tCreateErr),
+                  )
+              }
+            } else if (isExplicitConfirm) {
+              // CENÁRIO C: CONFIRMAÇÃO DA CONSULTA PELO PACIENTE
+              // Usuário pediu:
+              // - "Ao paciente confirmar a consulta com o horário e o dia e o local do atendimento com a Fabiana, mandando, vai direto para o preenchimento da agenda"
+              // - "facilitando o nome completo e data de nascimento quando o paciente for novo"
+              // - "A IA aguarda todas as informações para que não ocorra erros na agenda"
+              // - "caso já exista agendamento, atualizar em vez de duplicar"
+
+              // Se já temos um agendamento futuro para este paciente
+              if (futureAppointments && futureAppointments.length > 0) {
+                var curApp = futureAppointments[0]
+                curApp.set('status', 'confirmado')
+                curApp.set('last_interaction_type', 'confirmado_paciente')
+                $app.saveNoValidate(curApp)
+                $app
+                  .logger()
+                  .info(
+                    'webhook_appointment: confirmed existing appointment by patient',
+                    'app_id',
+                    curApp.id,
+                  )
+
+                // Cria notificação de visibilidade no chat / equipe
+                try {
+                  var nColConf = $app.findCollectionByNameOrId('notifications')
+                  var confNotif = new Record(nColConf)
+                  if (accountId) confNotif.set('account_id', accountId)
+                  confNotif.set('type', 'message')
+                  confNotif.set(
+                    'title',
+                    'Consulta confirmada pelo paciente: ' +
+                      (curApp.getString('patient_name') || 'Paciente'),
+                  )
+                  confNotif.set(
+                    'body',
+                    'Agendamento confirmado para ' +
+                      curApp.getString('starts_at') +
+                      ' (' +
+                      (curApp.getString('location') || curApp.getString('city')) +
+                      ').',
+                  )
+                  if (curApp.getString('patient_id'))
+                    confNotif.set('crm_contact_id', curApp.getString('patient_id'))
+                  if (curApp.getString('conversation_id'))
+                    confNotif.set('conversation_id', curApp.getString('conversation_id'))
+                  confNotif.set('read', false)
                   try {
-                    var accMem = $app.findFirstRecordByFilter(
+                    var accMemConf = $app.findFirstRecordByFilter(
                       'account_members',
                       'account_id = {:aid}',
                       { aid: accountId },
                     )
-                    if (accMem) reschedTask.set('user_id', accMem.getString('user_id'))
+                    if (accMemConf) confNotif.set('user_id', accMemConf.getString('user_id'))
                   } catch (_) {}
-                  $app.save(reschedTask)
+                  $app.save(confNotif)
+                } catch (_) {}
+              } else {
+                // Não há agendamento futuro marcado ainda! Extrair data, hora e local da conversa
+                var parsedTime = extractTime(combinedTextForExtraction)
+                var parsedDate = extractDateCivil(combinedTextForExtraction)
+                var locInfo = extractLocation(combinedTextForExtraction)
 
-                  // Notificação humana
-                  var nCol = $app.findCollectionByNameOrId('notifications')
-                  var reschedNotif = new Record(nCol)
-                  if (reschedTask.getString('user_id'))
-                    reschedNotif.set('user_id', reschedTask.getString('user_id'))
-                  if (accountId) reschedNotif.set('account_id', accountId)
-                  reschedNotif.set('type', 'task')
-                  reschedNotif.set('title', 'Paciente solicitou reagendamento: ' + pName)
-                  reschedNotif.set(
-                    'body',
-                    'Paciente solicitou alteração do agendamento: "' +
-                      content.substring(0, 100) +
-                      '"',
-                  )
-                  reschedNotif.set('task_id', reschedTask.id)
-                  if (patId) reschedNotif.set('crm_contact_id', patId)
-                  if (cId) reschedNotif.set('conversation_id', cId)
-                  reschedNotif.set('read', false)
-                  $app.save(reschedNotif)
-                } catch (tCreateErr) {
+                // SEGURANÇA ANTI-ERRO: "A IA aguarda todas as informações para que não ocorra erros na agenda"
+                // Se faltar data OU hora legível, NÃO inventar nem criar agendamento errado.
+                if (!parsedDate || !parsedTime) {
                   $app
                     .logger()
-                    .error(
-                      'webhook_appointment: create reschedule task failed',
-                      'error',
-                      String(tCreateErr),
+                    .info(
+                      'webhook_appointment: missing date or time for confirmation, creating completion task',
+                      'jid',
+                      remoteJid,
                     )
+                  try {
+                    var missingDesc = []
+                    if (!parsedDate) missingDesc.push('dia/data')
+                    if (!parsedTime) missingDesc.push('horário')
+
+                    var contactForMissing = null
+                    try {
+                      contactForMissing = $app.findFirstRecordByFilter(
+                        'crm_contacts',
+                        'phone ~ {:suf} || jid ~ {:suf}',
+                        { suf: phoneSuffix },
+                      )
+                    } catch (_) {}
+
+                    var patientMissingName =
+                      validPatientPushName ||
+                      (contactForMissing ? contactForMissing.getString('contact_name') : '') ||
+                      'Paciente'
+
+                    var tColMissing = $app.findCollectionByNameOrId('tasks')
+                    var missingTask = new Record(tColMissing)
+                    missingTask.set(
+                      'title',
+                      'Dados incompletos para agendamento: ' + patientMissingName,
+                    )
+                    missingTask.set(
+                      'description',
+                      'Paciente tentou confirmar consulta mas faltam dados essenciais (' +
+                        missingDesc.join(', ') +
+                        '). Mensagem do paciente: "' +
+                        rawPatientText.substring(0, 150) +
+                        '". Verificar na conversa com a Fabiana para preencher a agenda.',
+                    )
+                    missingTask.set('status', 'pendente')
+                    missingTask.set('priority', 'alta')
+                    missingTask.set('care_category', 'precisa_consulta')
+                    if (accountId) missingTask.set('account_id', accountId)
+                    if (contactForMissing) missingTask.set('crm_contact_id', contactForMissing.id)
+                    try {
+                      var convMissing = $app.findFirstRecordByFilter(
+                        'conversations',
+                        'remote_jid = {:jid}',
+                        { jid: remoteJid },
+                      )
+                      if (convMissing) missingTask.set('conversation_id', convMissing.id)
+                    } catch (_) {}
+                    try {
+                      var accMemM = $app.findFirstRecordByFilter(
+                        'account_members',
+                        'account_id = {:aid}',
+                        { aid: accountId },
+                      )
+                      if (accMemM) missingTask.set('user_id', accMemM.getString('user_id'))
+                    } catch (_) {}
+                    $app.save(missingTask)
+
+                    // Notificação de aviso
+                    var nColM = $app.findCollectionByNameOrId('notifications')
+                    var notifM = new Record(nColM)
+                    if (missingTask.getString('user_id'))
+                      notifM.set('user_id', missingTask.getString('user_id'))
+                    if (accountId) notifM.set('account_id', accountId)
+                    notifM.set('type', 'care_alert')
+                    notifM.set('title', 'Agendamento pendente de dados: ' + patientMissingName)
+                    notifM.set(
+                      'body',
+                      'Paciente confirmou mas falta ' +
+                        missingDesc.join(' e ') +
+                        '. Verifique o chat.',
+                    )
+                    notifM.set('task_id', missingTask.id)
+                    if (contactForMissing) notifM.set('crm_contact_id', contactForMissing.id)
+                    notifM.set('read', false)
+                    $app.save(notifM)
+                  } catch (missErr) {
+                    $app
+                      .logger()
+                      .warn(
+                        'webhook_appointment: missing info handler error',
+                        'err',
+                        String(missErr),
+                      )
+                  }
+                } else {
+                  // TEM TODAS AS INFORMAÇÕES: Data + Hora + Local!
+                  // Converter para ISO UTC considerando fuso America/Sao_Paulo (UTC-3):
+                  // starts_at UTC = Date.UTC(year, month, day, hour + 3, minute, 0)
+                  var utcStartMs = Date.UTC(
+                    parsedDate.year,
+                    parsedDate.month,
+                    parsedDate.day,
+                    parsedTime.hour + 3,
+                    parsedTime.minute,
+                    0,
+                  )
+                  var newStartsAtIso = new Date(utcStartMs).toISOString()
+                  var newEndsAtIso = new Date(utcStartMs + 45 * 60 * 1000).toISOString()
+
+                  // Verificar e gerenciar Contato no CRM (Paciente Novo ou Existente)
+                  var contactRec = null
+                  try {
+                    contactRec = $app.findFirstRecordByFilter(
+                      'crm_contacts',
+                      'phone ~ {:suf} || jid ~ {:suf}',
+                      { suf: phoneSuffix },
+                    )
+                  } catch (_) {}
+
+                  var extractedBirthDate = extractBirthDateFromText(combinedTextForExtraction)
+                  var extractedName = extractFullNameFromText(
+                    combinedTextForExtraction,
+                    validPatientPushName ||
+                      (contactRec ? contactRec.getString('contact_name') : 'Paciente'),
+                  )
+
+                  if (!contactRec) {
+                    // PACIENTE NOVO: Criar crm_contact facilitando nome e data de nascimento
+                    try {
+                      var crmCol = $app.findCollectionByNameOrId('crm_contacts')
+                      contactRec = new Record(crmCol)
+                      contactRec.set('user_id', userId)
+                      if (accountId) contactRec.set('account_id', accountId)
+                      contactRec.set('instance_name', instanceName)
+                      contactRec.set('jid', remoteJid)
+                      contactRec.set('phone', senderDigits)
+                      contactRec.set('push_name', validPatientPushName || '')
+                      contactRec.set('contact_name', extractedName)
+                      contactRec.set('is_patient', true)
+                      contactRec.set('stage', 'cliente')
+                      contactRec.set('care_status', 'precisa_consulta')
+                      if (extractedBirthDate) {
+                        contactRec.set('birth_date', extractedBirthDate)
+                      }
+                      $app.save(contactRec)
+                      $app
+                        .logger()
+                        .info(
+                          'webhook_appointment: new patient crm_contact created',
+                          'name',
+                          extractedName,
+                          'birth',
+                          extractedBirthDate,
+                        )
+                    } catch (cCreateErr) {
+                      $app
+                        .logger()
+                        .warn(
+                          'webhook_appointment: failed to create new crm_contact',
+                          'err',
+                          String(cCreateErr),
+                        )
+                    }
+                  } else {
+                    // Contato existente: atualizar nome ou data de nascimento se surgiram na conversa
+                    var updatedContact = false
+                    if (
+                      (!contactRec.getString('contact_name') ||
+                        contactRec.getString('contact_name') === 'Novo Contato' ||
+                        contactRec.getString('contact_name') === 'Paciente') &&
+                      extractedName &&
+                      extractedName !== 'Paciente'
+                    ) {
+                      contactRec.set('contact_name', extractedName)
+                      updatedContact = true
+                    }
+                    if (extractedBirthDate && !contactRec.getString('birth_date')) {
+                      contactRec.set('birth_date', extractedBirthDate)
+                      updatedContact = true
+                    }
+                    if (!contactRec.getBool('is_patient')) {
+                      contactRec.set('is_patient', true)
+                      updatedContact = true
+                    }
+                    if (updatedContact) {
+                      try {
+                        $app.save(contactRec)
+                      } catch (_) {}
+                    }
+                  }
+
+                  var finalPatientName =
+                    (contactRec ? contactRec.getString('contact_name') : '') ||
+                    extractedName ||
+                    validPatientPushName ||
+                    'Paciente'
+
+                  // Anti-duplicação: verificar se já existe agendamento deste paciente no mesmo dia/horário (margem de 2 horas)
+                  var startWindowMs = utcStartMs - 2 * 3600 * 1000
+                  var endWindowMs = utcStartMs + 2 * 3600 * 1000
+                  var existingSameDay = null
+                  try {
+                    existingSameDay = $app.findFirstRecordByFilter(
+                      'appointments',
+                      '(patient_phone ~ {:suf} || patient_id = {:pid}) && starts_at >= {:winStart} && starts_at <= {:winEnd}',
+                      {
+                        suf: phoneSuffix,
+                        pid: contactRec ? contactRec.id : '',
+                        winStart: new Date(startWindowMs).toISOString(),
+                        winEnd: new Date(endWindowMs).toISOString(),
+                      },
+                    )
+                  } catch (_) {}
+
+                  var convForAppId = ''
+                  try {
+                    var cRec = $app.findFirstRecordByFilter(
+                      'conversations',
+                      'remote_jid = {:jid}',
+                      { jid: remoteJid },
+                    )
+                    if (cRec) convForAppId = cRec.id
+                  } catch (_) {}
+
+                  var appToSave = existingSameDay
+                  if (!appToSave) {
+                    var appCol = $app.findCollectionByNameOrId('appointments')
+                    appToSave = new Record(appCol)
+                    appToSave.set('source', 'crm')
+                    appToSave.set('doctor', 'Dr. Caio')
+                  }
+
+                  if (accountId) appToSave.set('account_id', accountId)
+                  appToSave.set('patient_name', finalPatientName)
+                  appToSave.set('patient_phone', senderDigits)
+                  if (contactRec) appToSave.set('patient_id', contactRec.id)
+                  if (convForAppId) appToSave.set('conversation_id', convForAppId)
+                  appToSave.set('city', locInfo.city)
+                  appToSave.set('location', locInfo.location)
+                  appToSave.set('starts_at', newStartsAtIso)
+                  appToSave.set('ends_at', newEndsAtIso)
+                  appToSave.set('status', 'confirmado')
+                  appToSave.set('appointment_type', 'Consulta')
+                  appToSave.set('last_interaction_type', 'confirmado_paciente')
+                  appToSave.set(
+                    'notes',
+                    'Agendamento confirmado automaticamente pelo paciente no WhatsApp.',
+                  )
+                  $app.save(appToSave)
+
+                  $app
+                    .logger()
+                    .info(
+                      'webhook_appointment: appointment created/updated by patient confirmation',
+                      'id',
+                      appToSave.id,
+                      'patient',
+                      finalPatientName,
+                      'starts_at',
+                      newStartsAtIso,
+                    )
+
+                  // Criar notificação para visibilidade imediata no painel / equipe
+                  try {
+                    var nColSuccess = $app.findCollectionByNameOrId('notifications')
+                    var notifSuccess = new Record(nColSuccess)
+                    if (accountId) notifSuccess.set('account_id', accountId)
+                    notifSuccess.set('type', 'message')
+                    notifSuccess.set(
+                      'title',
+                      'Consulta agendada pela confirmação do paciente: ' + finalPatientName,
+                    )
+                    notifSuccess.set(
+                      'body',
+                      'Agendamento confirmado para ' +
+                        newStartsAtIso.substring(0, 10) +
+                        ' às ' +
+                        (parsedTime.hour < 10 ? '0' + parsedTime.hour : parsedTime.hour) +
+                        ':' +
+                        (parsedTime.minute < 10 ? '0' + parsedTime.minute : parsedTime.minute) +
+                        ', ' +
+                        locInfo.location +
+                        ' (' +
+                        locInfo.city +
+                        ').',
+                    )
+                    if (contactRec) notifSuccess.set('crm_contact_id', contactRec.id)
+                    if (convForAppId) notifSuccess.set('conversation_id', convForAppId)
+                    notifSuccess.set('read', false)
+                    try {
+                      var accMemS = $app.findFirstRecordByFilter(
+                        'account_members',
+                        'account_id = {:aid}',
+                        { aid: accountId },
+                      )
+                      if (accMemS) notifSuccess.set('user_id', accMemS.getString('user_id'))
+                    } catch (_) {}
+                    $app.save(notifSuccess)
+                  } catch (nErrS) {
+                    $app
+                      .logger()
+                      .warn('webhook_appointment: success notification error', 'err', String(nErrS))
+                  }
                 }
               }
             }
           }
         } catch (appCheckErr) {
-          $app.logger().warn('webhook_appointment: detection error', 'error', String(appCheckErr))
+          $app
+            .logger()
+            .warn('webhook_appointment: confirmation detection error', 'error', String(appCheckErr))
         }
       }
 
