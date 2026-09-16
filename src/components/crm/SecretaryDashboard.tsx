@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { UserCheck, Clock, AlertTriangle, Heart, ChevronRight } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -17,24 +17,70 @@ export function SecretaryDashboard({ accountId }: SecretaryDashboardProps) {
   const navigate = useNavigate()
   const [data, setData] = useState<CareDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
-  const load = useCallback(async () => {
-    if (!accountId) return
-    try {
-      const res = await getCareDashboard()
-      setData(res)
-    } catch {
-      /* intentionally ignored */
-    }
-    setLoading(false)
-  }, [accountId])
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!accountId) {
+        setLoading(false)
+        return
+      }
+      setError(false)
+      try {
+        const res = await getCareDashboard(signal)
+        if (signal?.aborted) return
+        setData(res)
+      } catch (err) {
+        // Ignora AbortError / cancelamentos silenciosamente
+        if (signal?.aborted) return
+        console.debug('[SecretaryDashboard] Erro silencioso ao carregar dashboard:', err)
+        setError(true)
+      } finally {
+        if (!signal?.aborted) {
+          setLoading(false)
+        }
+      }
+    },
+    [accountId],
+  )
 
   useEffect(() => {
-    load()
+    // Aborta chamada anterior ao desmontar ou re-executar efeito
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    load(controller.signal)
+
+    return () => {
+      controller.abort()
+    }
   }, [load])
 
-  useRealtime('crm_contacts', () => load(), !!accountId)
-  useRealtime('tasks', () => load(), !!accountId)
+  useRealtime(
+    'crm_contacts',
+    () => {
+      if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
+        load(abortControllerRef.current.signal)
+      } else {
+        load()
+      }
+    },
+    !!accountId,
+  )
+
+  useRealtime(
+    'tasks',
+    () => {
+      if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
+        load(abortControllerRef.current.signal)
+      } else {
+        load()
+      }
+    },
+    !!accountId,
+  )
 
   if (loading) {
     return (
@@ -42,6 +88,22 @@ export function SecretaryDashboard({ accountId }: SecretaryDashboardProps) {
         {[1, 2, 3, 4].map((i) => (
           <Skeleton key={i} className="h-20 rounded-xl" />
         ))}
+      </div>
+    )
+  }
+
+  if (error && !data) {
+    return (
+      <div className="p-3 bg-muted/40 rounded-xl border border-border/40 text-xs text-muted-foreground flex items-center justify-between">
+        <span>Não foi possível carregar as métricas de cuidado no momento.</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs font-medium"
+          onClick={() => load()}
+        >
+          Tentar novamente
+        </Button>
       </div>
     )
   }

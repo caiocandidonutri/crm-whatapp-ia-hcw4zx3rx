@@ -27,33 +27,22 @@ export function useRealtime<TRecord extends RecordModel = RecordModel>(
     let unsubscribeFn: (() => Promise<void>) | undefined
     let cancelled = false
 
-    try {
-      pb.collection<TRecord>(collectionName)
-        .subscribe('*', (e) => {
-          callbackRef.current(e)
-        })
-        .then((fn) => {
-          if (cancelled) {
-            if (typeof fn === 'function') {
-              fn().catch(() => {})
-            }
-          } else {
-            unsubscribeFn = fn
-          }
-        })
-        .catch((err) => {
-          console.warn(`[useRealtime] Falha ao assinar '${collectionName}':`, err?.message || err)
-        })
-    } catch (err: any) {
-      console.warn(
-        `[useRealtime] Exceção síncrona ao assinar '${collectionName}':`,
-        err?.message || err,
-      )
-    }
+    pb.collection<TRecord>(collectionName)
+      .subscribe('*', (e) => {
+        callbackRef.current(e)
+      })
+      .then((fn) => {
+        if (cancelled) {
+          fn().catch(() => {})
+        } else {
+          unsubscribeFn = fn
+        }
+      })
+      .catch(() => {})
 
     return () => {
       cancelled = true
-      if (unsubscribeFn && typeof unsubscribeFn === 'function') {
+      if (unsubscribeFn) {
         unsubscribeFn().catch(() => {})
       }
     }

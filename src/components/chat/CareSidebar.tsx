@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -90,27 +90,43 @@ export function CareSidebar({ open, onClose, onSelectPatient }: CareSidebarProps
     care_status: '',
     min_priority: '0',
   })
+  const abortControllerRef = useRef<AbortController | null>(null)
 
-  const load = useCallback(async () => {
-    try {
-      const filters: PatientGroupFilters = {}
-      const pd = Number(filterValues.period_days)
-      if (pd > 0) filters.period_days = pd
-      const mp = Number(filterValues.min_priority)
-      if (mp > 0) filters.min_priority = mp
-      const cs = filterValues.care_status === 'all' ? '' : filterValues.care_status
-      if (cs) filters.care_status = cs
-      const hasFilters = Object.keys(filters).length > 0
-      const res = await getPatientGroups(hasFilters ? filters : undefined)
-      setData(res)
-    } catch {
-      /* ignored */
-    }
-    setLoading(false)
-  }, [filterValues])
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const filters: PatientGroupFilters = {}
+        const pd = Number(filterValues.period_days)
+        if (pd > 0) filters.period_days = pd
+        const mp = Number(filterValues.min_priority)
+        if (mp > 0) filters.min_priority = mp
+        const cs = filterValues.care_status === 'all' ? '' : filterValues.care_status
+        if (cs) filters.care_status = cs
+        const hasFilters = Object.keys(filters).length > 0
+        const res = await getPatientGroups(hasFilters ? filters : undefined, signal)
+        if (signal?.aborted) return
+        setData(res)
+      } catch {
+        /* ignored */
+      } finally {
+        if (!signal?.aborted) {
+          setLoading(false)
+        }
+      }
+    },
+    [filterValues],
+  )
 
   useEffect(() => {
-    load()
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    load(controller.signal)
+
+    return () => {
+      controller.abort()
+    }
   }, [load])
 
   useRealtime('crm_contacts', () => load())
