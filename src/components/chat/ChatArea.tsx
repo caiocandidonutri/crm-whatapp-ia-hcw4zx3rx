@@ -1554,6 +1554,7 @@ export function ChatArea({
         open={patientPanelOpen}
         onClose={() => setPatientPanelOpen(false)}
         remoteJid={chat.remote_jid}
+        conversationId={chat.id}
         contactName={chat.name}
         instanceName={chat.instance_name}
         onOpenAddToCrm={handleOpenAddToCrm}

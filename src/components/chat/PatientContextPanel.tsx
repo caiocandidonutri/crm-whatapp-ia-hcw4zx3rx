@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   X,
   User,
@@ -12,35 +12,55 @@ import {
   Plus,
   Loader2,
   Sparkles,
+  CalendarCheck,
+  CalendarX,
+  AlertTriangle,
+  Bot,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
-import { CrmContact, Task, Appointment } from '@/types/models'
+import { CrmContact, Task, Appointment, Notification } from '@/types/models'
 import pb from '@/lib/pocketbase/client'
 import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { getCareCategoryMeta, getPriorityMeta, getStatusMeta } from '@/lib/task-meta'
 import { format } from 'date-fns'
 import { listAppointments } from '@/services/appointments'
 import { ptBR } from 'date-fns/locale'
-import { formatBrazilianDate, formatTimeSaoPaulo } from '@/lib/datetime'
+import {
+  formatBrazilianDate,
+  formatTimeSaoPaulo,
+  getWeekdayLongSaoPaulo,
+  formatRecentActivityDate,
+} from '@/lib/datetime'
 import { PatientBirthDateBadge } from '@/components/PatientBirthDateBadge'
 
 interface PatientContextPanelProps {
   open: boolean
   onClose: () => void
   remoteJid: string
+  conversationId?: string
   contactName?: string
   instanceName?: string
   onOpenAddToCrm?: () => void
   onOpenSchedule?: () => void
 }
 
+/** Formata texto legível do tipo: "terça-feira 15/09 às 14:00" */
+function formatAppointmentDateTimeLabel(isoString: string): string {
+  if (!isoString) return ''
+  const weekday = getWeekdayLongSaoPaulo(isoString)
+  const dateBR = formatBrazilianDate(isoString, false)
+  const time = formatTimeSaoPaulo(isoString)
+  return `${weekday} ${dateBR} às ${time}`
+}
+
 export function PatientContextPanel({
   open,
   onClose,
   remoteJid,
+  conversationId,
   contactName,
   instanceName,
   onOpenAddToCrm,
@@ -50,6 +70,7 @@ export function PatientContextPanel({
   const [contact, setContact] = useState<CrmContact | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [patientAppointments, setPatientAppointments] = useState<Appointment[]>([])
+  const [conversationNotifications, setConversationNotifications] = useState<Notification[]>([])
 
   useEffect(() => {
     if (!open || !remoteJid) return
@@ -59,52 +80,66 @@ export function PatientContextPanel({
       setLoading(true)
       try {
         const cleanPhone = remoteJid.split('@')[0]
-        // Buscar contato no CRM
+
+        // Buscar contato no CRM (consulta única e indexada)
         const contacts = await pb.collection('crm_contacts').getFullList<CrmContact>({
           filter: `jid = "${remoteJid}" || phone ~ "${cleanPhone}"`,
           expand: 'stage_id,company_id',
           sort: '-created',
+          requestKey: null,
         })
 
         if (cancelled) return
 
-        if (contacts.length > 0) {
-          const c = contacts[0]
-          setContact(c)
+        const foundContact = contacts.length > 0 ? contacts[0] : null
+        setContact(foundContact)
 
-          // Buscar tarefas e agendamentos vinculados ao contato
-          try {
-            const [taskList, appts] = await Promise.all([
-              pb.collection('tasks').getFullList<Task>({
-                filter: `crm_contact_id = "${c.id}"`,
-                sort: '-created',
-              }),
-              listAppointments({
-                patient_phone: c.phone || cleanPhone,
-                patient_id: c.id,
-              }),
-            ])
-            if (!cancelled) {
-              setTasks(taskList)
-              setPatientAppointments(appts)
-            }
-          } catch {
-            /* intentionally ignored */
-          }
-        } else {
-          // Mesmo se ainda não for cadastrado no CRM, verificar se já tem agendamento espelhado pelo telefone
-          try {
-            const appts = await listAppointments({
-              patient_phone: cleanPhone,
+        // Montar filtro de notificações relevantes vinculadas à conversa e/ou contato
+        const notifFilterParts: string[] = []
+        if (conversationId) {
+          notifFilterParts.push(`conversation_id = "${conversationId}"`)
+        }
+        if (foundContact?.id) {
+          notifFilterParts.push(`crm_contact_id = "${foundContact.id}"`)
+        }
+
+        // Executar chamadas em lote paralelo com requestKey=null (sem cascata de re-queries)
+        const fetchTasksPromise = foundContact?.id
+          ? pb.collection('tasks').getFullList<Task>({
+              filter: `crm_contact_id = "${foundContact.id}"`,
+              sort: '-created',
+              requestKey: null,
             })
-            if (!cancelled) {
-              setPatientAppointments(appts)
-            }
-          } catch {
-            /* intentionally ignored */
+          : Promise.resolve([] as Task[])
+
+        const fetchApptsPromise = listAppointments({
+          patient_phone: foundContact?.phone || cleanPhone,
+          patient_id: foundContact?.id,
+        })
+
+        const fetchNotifsPromise =
+          notifFilterParts.length > 0
+            ? pb.collection('notifications').getFullList<Notification>({
+                filter: notifFilterParts.join(' || '),
+                sort: '-created',
+                requestKey: null,
+              })
+            : Promise.resolve([] as Notification[])
+
+        try {
+          const [taskList, appts, notifs] = await Promise.all([
+            fetchTasksPromise,
+            fetchApptsPromise,
+            fetchNotifsPromise,
+          ])
+
+          if (!cancelled) {
+            setTasks(taskList)
+            setPatientAppointments(appts)
+            setConversationNotifications(notifs)
           }
-          setContact(null)
-          setTasks([])
+        } catch {
+          /* intentionally ignored */
         }
       } catch (err) {
         if (!cancelled) setContact(null)
@@ -117,7 +152,80 @@ export function PatientContextPanel({
     return () => {
       cancelled = true
     }
-  }, [open, remoteJid, instanceName])
+  }, [open, remoteJid, conversationId, instanceName])
+
+  // Identificar próximo agendamento ativo e histórico dos últimos 2 meses (memoizado incondicionalmente)
+  const nowIso = useMemo(() => new Date().toISOString(), [])
+  const twoMonthsAgo = useMemo(
+    () => new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+    [],
+  )
+
+  const upcomingAppointment = useMemo(() => {
+    return patientAppointments
+      .filter((a) => a.starts_at >= nowIso && a.status !== 'cancelado')
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
+  }, [patientAppointments, nowIso])
+
+  const pastAppointments2Months = useMemo(() => {
+    return patientAppointments
+      .filter(
+        (a) => a.starts_at < nowIso && a.starts_at >= twoMonthsAgo && a.status !== 'cancelado',
+      )
+      .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
+  }, [patientAppointments, nowIso, twoMonthsAgo])
+
+  // Identificar agendamentos originados / confirmados automaticamente pela conversa
+  const autoConfirmedAppointments = useMemo(() => {
+    return patientAppointments
+      .filter((a) => {
+        const isAuto =
+          a.last_interaction_type === 'confirmado_paciente' ||
+          (a.source === 'crm' && (a.notes || '').includes('WhatsApp')) ||
+          (a.notes || '').toLowerCase().includes('confirmado automaticamente')
+        return isAuto && a.status !== 'cancelado'
+      })
+      .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
+  }, [patientAppointments])
+
+  // Notificações de confirmação e agendamento geradas pelo webhook da conversa
+  const autoCreatedNotifs = useMemo(() => {
+    return conversationNotifications.filter((n) => {
+      const title = n.title || ''
+      return (
+        title.includes('Consulta confirmada pelo paciente') ||
+        title.includes('Consulta agendada pela confirmação do paciente')
+      )
+    })
+  }, [conversationNotifications])
+
+  // Notificações de cancelamento de agendamento pelo paciente
+  const cancelledByPatientNotifs = useMemo(() => {
+    return conversationNotifications.filter((n) => {
+      const title = n.title || ''
+      const body = n.body || ''
+      return (
+        title.includes('Consulta cancelada pelo paciente') ||
+        (title.includes('cancelada') && body.includes('removido da agenda'))
+      )
+    })
+  }, [conversationNotifications])
+
+  // Notificações de reagendamento solicitado
+  const reschedNotifs = useMemo(() => {
+    return conversationNotifications.filter((n) => {
+      const title = n.title || ''
+      return title.includes('solicitou reagendamento')
+    })
+  }, [conversationNotifications])
+
+  // Notificações de dados incompletos para agendamento
+  const missingDataNotifs = useMemo(() => {
+    return conversationNotifications.filter((n) => {
+      const title = n.title || ''
+      return title.includes('Agendamento pendente de dados')
+    })
+  }, [conversationNotifications])
 
   if (!open) return null
 
@@ -129,17 +237,6 @@ export function PatientContextPanel({
   const displayPhone = formatPhoneBR(contact?.phone || remoteJid)
 
   const careMeta = contact?.care_status ? getCareCategoryMeta(contact.care_status) : null
-
-  // Identificar próximo agendamento ativo e histórico dos últimos 2 meses
-  const nowIso = new Date().toISOString()
-  const upcomingAppointment = patientAppointments
-    .filter((a) => a.starts_at >= nowIso && a.status !== 'cancelado')
-    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
-
-  const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
-  const pastAppointments2Months = patientAppointments
-    .filter((a) => a.starts_at < nowIso && a.starts_at >= twoMonthsAgo && a.status !== 'cancelado')
-    .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
 
   return (
     <aside className="fixed inset-0 md:static md:inset-auto md:w-80 w-full bg-white flex flex-col h-full z-50 md:z-20 border-l border-border shadow-lg md:shadow-sm shrink-0 animate-in slide-in-from-right duration-200">
@@ -180,11 +277,49 @@ export function PatientContextPanel({
             <p className="text-xs text-muted-foreground">
               Este paciente ainda não está cadastrado na base do CRM.
             </p>
+
+            {/* Se houver alertas da automação mesmo antes de cadastrado no CRM */}
+            {(autoConfirmedAppointments.length > 0 ||
+              autoCreatedNotifs.length > 0 ||
+              cancelledByPatientNotifs.length > 0) && (
+              <div className="text-left space-y-2 pt-2">
+                {autoConfirmedAppointments.length > 0 && (
+                  <div className="p-3 rounded-lg bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 text-xs space-y-1.5 shadow-sm">
+                    <div className="flex items-center gap-1.5 text-teal-900 dark:text-teal-200 font-semibold">
+                      <CalendarCheck className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                      <span>Agendamento via WhatsApp</span>
+                    </div>
+                    <p className="text-teal-950 dark:text-teal-100 font-medium leading-snug">
+                      Agendamento criado pela confirmação do paciente:{' '}
+                      {formatAppointmentDateTimeLabel(autoConfirmedAppointments[0].starts_at)},{' '}
+                      {autoConfirmedAppointments[0].location || autoConfirmedAppointments[0].city}
+                    </p>
+                  </div>
+                )}
+
+                {cancelledByPatientNotifs.map((notif) => (
+                  <div
+                    key={notif.id}
+                    className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs space-y-1.5 shadow-sm"
+                  >
+                    <div className="flex items-center gap-1.5 text-rose-900 dark:text-rose-200 font-semibold">
+                      <CalendarX className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                      <span>Agendamento cancelado pelo paciente</span>
+                    </div>
+                    <p className="text-rose-950 dark:text-rose-100 font-normal leading-snug">
+                      {notif.body ||
+                        'Consulta cancelada pelo paciente no WhatsApp e removida da agenda.'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {onOpenAddToCrm && (
               <Button
                 size="sm"
                 onClick={onOpenAddToCrm}
-                className="w-full min-h-[44px] bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium"
+                className="w-full min-h-[44px] bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium mt-2"
               >
                 <Plus className="w-4 h-4 mr-1.5" />
                 Adicionar ao CRM
@@ -193,13 +328,126 @@ export function PatientContextPanel({
           </div>
         ) : (
           <div className="contents">
-            {/* Banner de Próximo Agendamento / Status de Cuidado */}
+            {/* SEÇÃO DE VISIBILIDADE DE AUTOMAÇÃO VIA CONVERSA (Fabiana Humana) */}
+            {/* 1. Alerta de Agendamento Confirmado / Criado Automaticamente na Conversa */}
+            {autoConfirmedAppointments.length > 0 && (
+              <div className="p-3 rounded-lg bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 text-xs space-y-1.5 shadow-sm">
+                <div className="flex items-center justify-between text-teal-900 dark:text-teal-200 font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <CalendarCheck className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                    Agendamento via Conversa
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] bg-teal-100 dark:bg-teal-900/60 text-teal-800 dark:text-teal-200 border-teal-300 dark:border-teal-700 flex items-center gap-1 py-0 h-5 font-medium"
+                  >
+                    <Bot className="w-3 h-3" />
+                    Automático
+                  </Badge>
+                </div>
+                <p className="text-teal-950 dark:text-teal-100 font-medium leading-snug">
+                  Agendamento criado pela confirmação do paciente:{' '}
+                  {formatAppointmentDateTimeLabel(autoConfirmedAppointments[0].starts_at)},{' '}
+                  {autoConfirmedAppointments[0].location || autoConfirmedAppointments[0].city}
+                </p>
+                <p className="text-[11px] text-teal-700 dark:text-teal-400">
+                  {autoConfirmedAppointments[0].appointment_type || 'Consulta'} com Dr. Caio
+                  {autoConfirmedAppointments[0].created
+                    ? ` • Registrado ${formatRecentActivityDate(autoConfirmedAppointments[0].created, true)}`
+                    : ''}
+                </p>
+              </div>
+            )}
+
+            {/* 2. Alerta de Cancelamento pelo Paciente na Conversa */}
+            {cancelledByPatientNotifs.length > 0 && (
+              <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs space-y-1.5 shadow-sm">
+                <div className="flex items-center justify-between text-rose-900 dark:text-rose-200 font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <CalendarX className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                    Cancelado no WhatsApp
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200 border-rose-300 dark:border-rose-700 py-0 h-5 font-medium"
+                  >
+                    Removido da Agenda
+                  </Badge>
+                </div>
+                {cancelledByPatientNotifs.slice(0, 2).map((notif) => (
+                  <div key={notif.id} className="space-y-0.5">
+                    <p className="text-rose-950 dark:text-rose-100 font-medium leading-snug">
+                      Agendamento cancelado pelo paciente: {notif.body || notif.title}
+                    </p>
+                    {notif.created && (
+                      <p className="text-[10px] text-rose-600 dark:text-rose-400">
+                        {formatRecentActivityDate(notif.created, true)}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 3. Alerta de Pedido de Reagendamento */}
+            {reschedNotifs.length > 0 && (
+              <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-xs space-y-1.5 shadow-sm">
+                <div className="flex items-center justify-between text-indigo-900 dark:text-indigo-200 font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    Pedido de Reagendamento
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border-indigo-300 dark:border-indigo-700 py-0 h-5 font-medium"
+                  >
+                    Tarefa Criada
+                  </Badge>
+                </div>
+                {reschedNotifs.slice(0, 1).map((notif) => (
+                  <p
+                    key={notif.id}
+                    className="text-indigo-950 dark:text-indigo-100 font-normal leading-snug"
+                  >
+                    {notif.body || 'Paciente solicitou alteração de horário/dia na conversa.'}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* 4. Alerta de Confirmação com Dados Faltantes */}
+            {missingDataNotifs.length > 0 && (
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs space-y-1.5 shadow-sm">
+                <div className="flex items-center justify-between text-amber-900 dark:text-amber-200 font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    Dados Faltantes para Agendar
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700 py-0 h-5 font-medium"
+                  >
+                    Atenção
+                  </Badge>
+                </div>
+                {missingDataNotifs.slice(0, 1).map((notif) => (
+                  <p
+                    key={notif.id}
+                    className="text-amber-950 dark:text-amber-100 font-normal leading-snug"
+                  >
+                    {notif.body || 'Paciente tentou agendar mas faltam horário, dia ou local.'}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* Banner de Próximo Agendamento Geral / Status de Cuidado */}
             {upcomingAppointment ? (
               <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs space-y-1.5">
                 <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300 font-semibold">
                   <span className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    Consulta Agendada
+                    Próxima Consulta Agendada
                   </span>
                   <Badge
                     variant="secondary"
