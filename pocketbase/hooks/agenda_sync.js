@@ -52,6 +52,22 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
     'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev/backend/v1/crm-dados?tipo=tudo&' +
     buildDateQuery(defaultDates)
 
+  function getMonthlyChunkDates() {
+    var now = new Date()
+    var chunks = []
+    // Cobrir os últimos 6 meses (chunk mensal) até 2 meses futuros
+    // -6m até -5m, -5m até -4m, ..., +1m até +2m
+    for (var m = -6; m < 2; m++) {
+      var start = new Date(now.getFullYear(), now.getMonth() + m, 1)
+      var end = new Date(now.getFullYear(), now.getMonth() + m + 1, 0, 23, 59, 59)
+      chunks.push({
+        data_inicio: formatBRDate(start),
+        data_fim: formatBRDate(end),
+      })
+    }
+    return chunks
+  }
+
   function isHtmlContent(raw) {
     if (!raw) return false
     var trimmed = String(raw).trim()
@@ -397,6 +413,10 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
     }
   }
 
+  var effectivePullUrl = cfg.pullUrl
+  var effectiveBaseUrl = cfg.baseUrl
+  var usedFallback = false
+
   // Debug: gravar no details imediatamente antes do pull para termos visibilidade total
   if (syncStateRec) {
     try {
@@ -440,10 +460,6 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
   var pushedCount = 0
   var syncErrors = []
   var pulledContactsCount = 0
-
-  var effectivePullUrl = cfg.pullUrl
-  var effectiveBaseUrl = cfg.baseUrl
-  var usedFallback = false
 
   var pullAttempt = fetchWithRetry(effectivePullUrl, headers, 2)
   var pullRes = pullAttempt.res
@@ -618,27 +634,145 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
   var extAppointments = []
   var extContacts = []
 
-  if (body) {
-    if (Array.isArray(body)) {
-      extAppointments = body
-    } else if (typeof body === 'object') {
-      if (Array.isArray(body.appointments)) extAppointments = body.appointments
-      else if (Array.isArray(body.agendamentos)) extAppointments = body.agendamentos
-      else if (Array.isArray(body.items)) extAppointments = body.items
-      else if (Array.isArray(body.consultas)) extAppointments = body.consultas
-      else if (body.data && Array.isArray(body.data)) extAppointments = body.data
-      else if (body.data && typeof body.data === 'object') {
-        if (Array.isArray(body.data.appointments)) extAppointments = body.data.appointments
-        if (Array.isArray(body.data.agendamentos)) extAppointments = body.data.agendamentos
-        if (Array.isArray(body.data.contatos)) extContacts = body.data.contatos
-        if (Array.isArray(body.data.contacts)) extContacts = body.data.contacts
-      }
+  // Extração recursiva / flexível de arrays em envelopes arbitrários
+  function extractAppointmentsAndContacts(data) {
+    var foundAppointments = []
+    var foundContacts = []
 
-      if (Array.isArray(body.contatos)) extContacts = body.contatos
-      else if (Array.isArray(body.contacts)) extContacts = body.contacts
-      else if (Array.isArray(body.pacientes)) extContacts = body.pacientes
+    if (!data) return { appointments: foundAppointments, contacts: foundContacts }
+
+    // Função auxiliar para testar se um objeto parece ser um agendamento
+    function isAppointmentObject(obj) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false
+      var keys = Object.keys(obj)
+      var hasDateOrTime = false
+      var hasPatientOrClient = false
+      for (var k = 0; k < keys.length; k++) {
+        var lk = keys[k].toLowerCase()
+        if (
+          lk.indexOf('data') !== -1 ||
+          lk.indexOf('start') !== -1 ||
+          lk.indexOf('hora') !== -1 ||
+          lk.indexOf('inicio') !== -1 ||
+          lk.indexOf('horario') !== -1
+        ) {
+          hasDateOrTime = true
+        }
+        if (
+          lk.indexOf('paciente') !== -1 ||
+          lk.indexOf('patient') !== -1 ||
+          lk.indexOf('cliente') !== -1 ||
+          lk.indexOf('nome') !== -1
+        ) {
+          hasPatientOrClient = true
+        }
+      }
+      return hasDateOrTime && hasPatientOrClient
     }
+
+    // Função auxiliar para testar se um objeto parece ser um contato
+    function isContactObject(obj) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false
+      var keys = Object.keys(obj)
+      var hasPhone = false
+      var hasName = false
+      for (var k = 0; k < keys.length; k++) {
+        var lk = keys[k].toLowerCase()
+        if (
+          lk.indexOf('telefone') !== -1 ||
+          lk.indexOf('phone') !== -1 ||
+          lk.indexOf('whatsapp') !== -1 ||
+          lk.indexOf('celular') !== -1
+        ) {
+          hasPhone = true
+        }
+        if (
+          lk.indexOf('nome') !== -1 ||
+          lk.indexOf('name') !== -1 ||
+          lk.indexOf('paciente') !== -1
+        ) {
+          hasName = true
+        }
+      }
+      return hasPhone && hasName
+    }
+
+    // Busca recursiva por listas
+    function traverse(node, depth) {
+      if (!node || depth > 5) return
+      if (Array.isArray(node)) {
+        if (node.length > 0) {
+          var first = node[0]
+          if (isAppointmentObject(first)) {
+            for (var a = 0; a < node.length; a++) {
+              foundAppointments.push(node[a])
+            }
+            return
+          } else if (isContactObject(first)) {
+            for (var c = 0; c < node.length; c++) {
+              foundContacts.push(node[c])
+            }
+            return
+          }
+        }
+        // Se for array de objetos mistos ou outros arrays
+        for (var i = 0; i < node.length; i++) {
+          if (typeof node[i] === 'object') {
+            traverse(node[i], depth + 1)
+          }
+        }
+      } else if (typeof node === 'object') {
+        // Checar chaves diretas conhecidas primeiro
+        var directAppts =
+          node.agendamentos ||
+          node.appointments ||
+          node.consultas ||
+          node.atendimentos ||
+          node.agenda
+        if (Array.isArray(directAppts)) {
+          for (var da = 0; da < directAppts.length; da++) {
+            foundAppointments.push(directAppts[da])
+          }
+        }
+
+        var directContacts =
+          node.contatos || node.contacts || node.pacientes || node.patients || node.clientes
+        if (Array.isArray(directContacts)) {
+          for (var dc = 0; dc < directContacts.length; dc++) {
+            foundContacts.push(directContacts[dc])
+          }
+        }
+
+        // Se encontrou via chaves diretas, ainda assim percorre outros nós filhos (ex: node.dados)
+        var objKeys = Object.keys(node)
+        for (var k = 0; k < objKeys.length; k++) {
+          var keyName = objKeys[k]
+          if (
+            keyName === 'agendamentos' ||
+            keyName === 'appointments' ||
+            keyName === 'consultas' ||
+            keyName === 'atendimentos' ||
+            keyName === 'contatos' ||
+            keyName === 'contacts' ||
+            keyName === 'pacientes' ||
+            keyName === 'patients'
+          ) {
+            continue
+          }
+          if (typeof node[keyName] === 'object') {
+            traverse(node[keyName], depth + 1)
+          }
+        }
+      }
+    }
+
+    traverse(data, 0)
+    return { appointments: foundAppointments, contacts: foundContacts }
   }
+
+  var extracted = extractAppointmentsAndContacts(body)
+  extAppointments = extracted.appointments
+  extContacts = extracted.contacts
 
   var appointmentsCol = $app.findCollectionByNameOrId('appointments')
 
@@ -646,7 +780,16 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
     var item = extAppointments[i]
     if (!item || typeof item !== 'object') continue
 
-    var extId = String(item.id || item.external_id || item._id || item.codigo || '').trim()
+    var extId = String(
+      item.id ||
+        item.external_id ||
+        item._id ||
+        item.codigo ||
+        item.agendamento_id ||
+        (item.patient_name || item.paciente_nome || item.paciente || '') +
+          '_' +
+          (item.starts_at || item.data || item.data_hora || ''),
+    ).trim()
     if (!extId) continue
 
     var existing = null
@@ -695,22 +838,121 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
     rec.set('city', normalizeCity(item.city || item.cidade || item.location || item.local))
     rec.set('location', item.location || item.local || item.clinica || 'Climed')
 
-    var startsAt =
+    function parseDateToIso(rawDate, rawTime) {
+      if (!rawDate) return new Date().toISOString()
+      var s = String(rawDate).trim()
+      // Se for formato dd/MM/yyyy ou dd/MM/yyyy HH:mm
+      var brMatch = s.match(
+        /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
+      )
+      if (brMatch) {
+        var day = parseInt(brMatch[1], 10)
+        var month = parseInt(brMatch[2], 10) - 1
+        var year = parseInt(brMatch[3], 10)
+        var hour = brMatch[4] ? parseInt(brMatch[4], 10) : 0
+        var min = brMatch[5] ? parseInt(brMatch[5], 10) : 0
+        var sec = brMatch[6] ? parseInt(brMatch[6], 10) : 0
+
+        if (rawTime && !brMatch[4]) {
+          var timeStr = String(rawTime).trim()
+          var tmMatch = timeStr.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/)
+          if (tmMatch) {
+            hour = parseInt(tmMatch[1], 10)
+            min = parseInt(tmMatch[2], 10)
+            sec = tmMatch[3] ? parseInt(tmMatch[3], 10) : 0
+          }
+        }
+
+        // Criar date considerando fuso horário de SP (-03:00)
+        var pad = function (n) {
+          return (n < 10 ? '0' : '') + n
+        }
+        return (
+          year +
+          '-' +
+          pad(month + 1) +
+          '-' +
+          pad(day) +
+          ' ' +
+          pad(hour) +
+          ':' +
+          pad(min) +
+          ':' +
+          pad(sec)
+        )
+      }
+
+      // Se for ISO yyyy-MM-dd
+      var isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+      if (isoMatch) {
+        if (s.indexOf('T') !== -1 || s.indexOf(' ') !== -1) {
+          return s.replace('T', ' ').slice(0, 19)
+        }
+        var isoHour = 0
+        var isoMin = 0
+        if (rawTime) {
+          var tMatch = String(rawTime)
+            .trim()
+            .match(/^(\d{1,2}):(\d{1,2})/)
+          if (tMatch) {
+            isoHour = parseInt(tMatch[1], 10)
+            isoMin = parseInt(tMatch[2], 10)
+          }
+        }
+        var pad2 = function (n) {
+          return (n < 10 ? '0' : '') + n
+        }
+        return s.slice(0, 10) + ' ' + pad2(isoHour) + ':' + pad2(isoMin) + ':00'
+      }
+
+      try {
+        var parsedD = new Date(s)
+        if (!isNaN(parsedD.getTime())) {
+          return parsedD.toISOString().replace('T', ' ').slice(0, 19)
+        }
+      } catch (_) {}
+
+      return new Date().toISOString().replace('T', ' ').slice(0, 19)
+    }
+
+    var rawStartVal =
       item.starts_at ||
       item.start_time ||
       item.data_inicio ||
       item.data_hora ||
-      item.data ||
-      new Date().toISOString()
-    var endsAt = item.ends_at || item.end_time || item.data_fim || item.starts_at || startsAt
+      item.data_atendimento ||
+      item.data_consulta ||
+      item.data_agendamento ||
+      item.horario_inicio ||
+      item.data
+    var rawTimeVal =
+      item.hora || item.horario || item.time || item.hora_inicio || item.start_time || ''
 
-    rec.set('starts_at', startsAt)
-    rec.set('ends_at', endsAt)
+    var startsAt = parseDateToIso(rawStartVal, rawTimeVal)
+
+    var rawEndVal = item.ends_at || item.end_time || item.data_fim || item.horario_fim || ''
+    var rawEndTimeVal = item.hora_fim || item.horario_fim || item.end_time || ''
+    var endsAt = rawEndVal ? parseDateToIso(rawEndVal, rawEndTimeVal) : startsAt
+
+    // Garantir que starts_at e ends_at sejam válidos para DateField do PocketBase (formato UTC ISO ou "yyyy-MM-dd HH:mm:ss.000Z")
+    function sanitizeDateForPB(val) {
+      if (!val) return new Date().toISOString()
+      try {
+        var d = new Date(val)
+        if (!isNaN(d.getTime())) {
+          return d.toISOString()
+        }
+      } catch (_) {}
+      return new Date().toISOString()
+    }
+
+    rec.set('starts_at', sanitizeDateForPB(startsAt))
+    rec.set('ends_at', sanitizeDateForPB(endsAt))
     rec.set('status', normalizeStatus(item.status || item.situacao || item.estado || 'agendado'))
     var normalizedType = normalizeAppointmentType(item)
     rec.set('appointment_type', normalizedType)
     rec.set('notes', item.notes || item.observacoes || item.descricao || '')
-    rec.set('sync_hash', item.updated || item.updated_at || item.id || extId)
+    rec.set('sync_hash', String(item.updated || item.updated_at || item.id || extId))
     rec.set('last_synced_at', new Date().toISOString())
     rec.set('sync_error', '')
 
@@ -870,16 +1112,49 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
   var finalStatus =
     syncErrors.length === 0 ? 'success' : pulledCount > 0 || pushedCount > 0 ? 'partial' : 'error'
 
-  var rawBodySample = pullRes && pullRes.raw ? pullRes.raw.slice(0, 400) : ''
+  var rawBodySample = pullRes && pullRes.raw ? pullRes.raw.slice(0, 3000) : ''
   var bodyKeys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : []
+  var firstSampleItem =
+    extAppointments && extAppointments.length > 0
+      ? JSON.stringify(extAppointments[0]).slice(0, 500)
+      : 'none'
+
+  console.log(
+    '[agenda_sync] PULL CONCLUÍDO | Status:',
+    finalStatus,
+    '| Total puxado:',
+    pulledCount,
+    '| Total salvo:',
+    pulledCount,
+    '| Itens brutos encontrados:',
+    extAppointments ? extAppointments.length : 0,
+    '| PrimeirAmostra:',
+    firstSampleItem,
+  )
 
   if (syncStateRec) {
     try {
       syncStateRec.set('last_sync', new Date().toISOString())
       syncStateRec.set('last_status', finalStatus)
+      var firstRawKeys = ''
+      if (body && body.dados && body.dados.agendamentos && body.dados.agendamentos.length > 0) {
+        firstRawKeys = JSON.stringify(body.dados.agendamentos[0]).slice(0, 240)
+      } else if (body && body.agendamentos && body.agendamentos.length > 0) {
+        firstRawKeys = JSON.stringify(body.agendamentos[0]).slice(0, 240)
+      } else if (rawBodySample) {
+        firstRawKeys = rawBodySample.slice(0, 240)
+      }
+
       syncStateRec.set(
         'last_error',
-        syncErrors.length > 0 ? syncErrors.slice(0, 3).join(' | ') : '',
+        'FOUND=' +
+          (extAppointments ? extAppointments.length : 0) +
+          ' PULLED=' +
+          pulledCount +
+          ' ERRORS=' +
+          (syncErrors.length > 0 ? syncErrors[0] : 'none') +
+          ' FIRST=' +
+          firstRawKeys,
       )
       syncStateRec.set(
         'details',
@@ -892,11 +1167,13 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
           pushed: pushedCount,
           errors: syncErrors.slice(0, 5),
           synced_at: new Date().toISOString(),
+          raw_sample: rawBodySample,
           raw_snippet: pullRes ? String(pullRes.raw || '').slice(0, 500) : '',
           raw_status: pullRes ? pullRes.statusCode : 0,
           ext_appts_found: extAppointments ? extAppointments.length : 0,
           debug_keys: bodyKeys,
-          debug_sample: rawBodySample,
+          debug_sample: rawBodySample.slice(0, 400),
+          first_parsed_sample: firstSampleItem,
         }),
       )
       $app.save(syncStateRec)
@@ -958,6 +1235,20 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
     var RECOMMENDED_URL =
       'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev/backend/v1/crm-dados?tipo=tudo&' +
       buildDateQuery(defaultDates)
+
+    function getMonthlyChunkDates() {
+      var now = new Date()
+      var chunks = []
+      for (var m = -6; m < 2; m++) {
+        var start = new Date(now.getFullYear(), now.getMonth() + m, 1)
+        var end = new Date(now.getFullYear(), now.getMonth() + m + 1, 0, 23, 59, 59)
+        chunks.push({
+          data_inicio: formatBRDate(start),
+          data_fim: formatBRDate(end),
+        })
+      }
+      return chunks
+    }
 
     function isHtmlContent(raw) {
       if (!raw) return false
@@ -1555,27 +1846,137 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
     var extAppointments = []
     var extContacts = []
 
-    if (body) {
-      if (Array.isArray(body)) {
-        extAppointments = body
-      } else if (typeof body === 'object') {
-        if (Array.isArray(body.appointments)) extAppointments = body.appointments
-        else if (Array.isArray(body.agendamentos)) extAppointments = body.agendamentos
-        else if (Array.isArray(body.items)) extAppointments = body.items
-        else if (Array.isArray(body.consultas)) extAppointments = body.consultas
-        else if (body.data && Array.isArray(body.data)) extAppointments = body.data
-        else if (body.data && typeof body.data === 'object') {
-          if (Array.isArray(body.data.appointments)) extAppointments = body.data.appointments
-          if (Array.isArray(body.data.agendamentos)) extAppointments = body.data.agendamentos
-          if (Array.isArray(body.data.contatos)) extContacts = body.data.contatos
-          if (Array.isArray(body.data.contacts)) extContacts = body.data.contacts
-        }
+    function extractAppointmentsAndContacts(data) {
+      var foundAppointments = []
+      var foundContacts = []
+      if (!data) return { appointments: foundAppointments, contacts: foundContacts }
 
-        if (Array.isArray(body.contatos)) extContacts = body.contatos
-        else if (Array.isArray(body.contacts)) extContacts = body.contacts
-        else if (Array.isArray(body.pacientes)) extContacts = body.pacientes
+      function isAppointmentObject(obj) {
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false
+        var keys = Object.keys(obj)
+        var hasDateOrTime = false
+        var hasPatientOrClient = false
+        for (var k = 0; k < keys.length; k++) {
+          var lk = keys[k].toLowerCase()
+          if (
+            lk.indexOf('data') !== -1 ||
+            lk.indexOf('start') !== -1 ||
+            lk.indexOf('hora') !== -1 ||
+            lk.indexOf('inicio') !== -1 ||
+            lk.indexOf('horario') !== -1
+          ) {
+            hasDateOrTime = true
+          }
+          if (
+            lk.indexOf('paciente') !== -1 ||
+            lk.indexOf('patient') !== -1 ||
+            lk.indexOf('cliente') !== -1 ||
+            lk.indexOf('nome') !== -1
+          ) {
+            hasPatientOrClient = true
+          }
+        }
+        return hasDateOrTime && hasPatientOrClient
       }
+
+      function isContactObject(obj) {
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false
+        var keys = Object.keys(obj)
+        var hasPhone = false
+        var hasName = false
+        for (var k = 0; k < keys.length; k++) {
+          var lk = keys[k].toLowerCase()
+          if (
+            lk.indexOf('telefone') !== -1 ||
+            lk.indexOf('phone') !== -1 ||
+            lk.indexOf('whatsapp') !== -1 ||
+            lk.indexOf('celular') !== -1
+          ) {
+            hasPhone = true
+          }
+          if (
+            lk.indexOf('nome') !== -1 ||
+            lk.indexOf('name') !== -1 ||
+            lk.indexOf('paciente') !== -1
+          ) {
+            hasName = true
+          }
+        }
+        return hasPhone && hasName
+      }
+
+      function traverse(node, depth) {
+        if (!node || depth > 5) return
+        if (Array.isArray(node)) {
+          if (node.length > 0) {
+            var first = node[0]
+            if (isAppointmentObject(first)) {
+              for (var a = 0; a < node.length; a++) {
+                foundAppointments.push(node[a])
+              }
+              return
+            } else if (isContactObject(first)) {
+              for (var c = 0; c < node.length; c++) {
+                foundContacts.push(node[c])
+              }
+              return
+            }
+          }
+          for (var i = 0; i < node.length; i++) {
+            if (typeof node[i] === 'object') {
+              traverse(node[i], depth + 1)
+            }
+          }
+        } else if (typeof node === 'object') {
+          var directAppts =
+            node.agendamentos ||
+            node.appointments ||
+            node.consultas ||
+            node.atendimentos ||
+            node.agenda
+          if (Array.isArray(directAppts)) {
+            for (var da = 0; da < directAppts.length; da++) {
+              foundAppointments.push(directAppts[da])
+            }
+          }
+
+          var directContacts =
+            node.contatos || node.contacts || node.pacientes || node.patients || node.clientes
+          if (Array.isArray(directContacts)) {
+            for (var dc = 0; dc < directContacts.length; dc++) {
+              foundContacts.push(directContacts[dc])
+            }
+          }
+
+          var objKeys = Object.keys(node)
+          for (var k = 0; k < objKeys.length; k++) {
+            var keyName = objKeys[k]
+            if (
+              keyName === 'agendamentos' ||
+              keyName === 'appointments' ||
+              keyName === 'consultas' ||
+              keyName === 'atendimentos' ||
+              keyName === 'contatos' ||
+              keyName === 'contacts' ||
+              keyName === 'pacientes' ||
+              keyName === 'patients'
+            ) {
+              continue
+            }
+            if (typeof node[keyName] === 'object') {
+              traverse(node[keyName], depth + 1)
+            }
+          }
+        }
+      }
+
+      traverse(data, 0)
+      return { appointments: foundAppointments, contacts: foundContacts }
     }
+
+    var extracted = extractAppointmentsAndContacts(body)
+    extAppointments = extracted.appointments
+    extContacts = extracted.contacts
 
     var appointmentsCol = $app.findCollectionByNameOrId('appointments')
 
@@ -1583,7 +1984,16 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       var item = extAppointments[i]
       if (!item || typeof item !== 'object') continue
 
-      var extId = String(item.id || item.external_id || item._id || item.codigo || '').trim()
+      var extId = String(
+        item.id ||
+          item.external_id ||
+          item._id ||
+          item.codigo ||
+          item.agendamento_id ||
+          (item.patient_name || item.paciente_nome || item.paciente || '') +
+            '_' +
+            (item.starts_at || item.data || item.data_hora || ''),
+      ).trim()
       if (!extId) continue
 
       var existing = null
@@ -1632,22 +2042,117 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       rec.set('city', normalizeCity(item.city || item.cidade || item.location || item.local))
       rec.set('location', item.location || item.local || item.clinica || 'Climed')
 
-      var startsAt =
+      function parseDateToIso(rawDate, rawTime) {
+        if (!rawDate) return new Date().toISOString()
+        var s = String(rawDate).trim()
+        var brMatch = s.match(
+          /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
+        )
+        if (brMatch) {
+          var day = parseInt(brMatch[1], 10)
+          var month = parseInt(brMatch[2], 10) - 1
+          var year = parseInt(brMatch[3], 10)
+          var hour = brMatch[4] ? parseInt(brMatch[4], 10) : 0
+          var min = brMatch[5] ? parseInt(brMatch[5], 10) : 0
+          var sec = brMatch[6] ? parseInt(brMatch[6], 10) : 0
+
+          if (rawTime && !brMatch[4]) {
+            var timeStr = String(rawTime).trim()
+            var tmMatch = timeStr.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/)
+            if (tmMatch) {
+              hour = parseInt(tmMatch[1], 10)
+              min = parseInt(tmMatch[2], 10)
+              sec = tmMatch[3] ? parseInt(tmMatch[3], 10) : 0
+            }
+          }
+
+          var pad = function (n) {
+            return (n < 10 ? '0' : '') + n
+          }
+          return (
+            year +
+            '-' +
+            pad(month + 1) +
+            '-' +
+            pad(day) +
+            ' ' +
+            pad(hour) +
+            ':' +
+            pad(min) +
+            ':' +
+            pad(sec)
+          )
+        }
+
+        var isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+        if (isoMatch) {
+          if (s.indexOf('T') !== -1 || s.indexOf(' ') !== -1) {
+            return s.replace('T', ' ').slice(0, 19)
+          }
+          var isoHour = 0
+          var isoMin = 0
+          if (rawTime) {
+            var tMatch = String(rawTime)
+              .trim()
+              .match(/^(\d{1,2}):(\d{1,2})/)
+            if (tMatch) {
+              isoHour = parseInt(tMatch[1], 10)
+              isoMin = parseInt(tMatch[2], 10)
+            }
+          }
+          var pad2 = function (n) {
+            return (n < 10 ? '0' : '') + n
+          }
+          return s.slice(0, 10) + ' ' + pad2(isoHour) + ':' + pad2(isoMin) + ':00'
+        }
+
+        try {
+          var parsedD = new Date(s)
+          if (!isNaN(parsedD.getTime())) {
+            return parsedD.toISOString().replace('T', ' ').slice(0, 19)
+          }
+        } catch (_) {}
+
+        return new Date().toISOString().replace('T', ' ').slice(0, 19)
+      }
+
+      var rawStartVal =
         item.starts_at ||
         item.start_time ||
         item.data_inicio ||
         item.data_hora ||
-        item.data ||
-        new Date().toISOString()
-      var endsAt = item.ends_at || item.end_time || item.data_fim || item.starts_at || startsAt
+        item.data_atendimento ||
+        item.data_consulta ||
+        item.data_agendamento ||
+        item.horario_inicio ||
+        item.data
+      var rawTimeVal =
+        item.hora || item.horario || item.time || item.hora_inicio || item.start_time || ''
 
-      rec.set('starts_at', startsAt)
-      rec.set('ends_at', endsAt)
+      var startsAt = parseDateToIso(rawStartVal, rawTimeVal)
+
+      var rawEndVal = item.ends_at || item.end_time || item.data_fim || item.horario_fim || ''
+      var rawEndTimeVal = item.hora_fim || item.horario_fim || item.end_time || ''
+      var endsAt = rawEndVal ? parseDateToIso(rawEndVal, rawEndTimeVal) : startsAt
+
+      function sanitizeDateForPB(val) {
+        if (!val) return new Date().toISOString()
+        try {
+          var d = new Date(val)
+          if (!isNaN(d.getTime())) {
+            return d.toISOString()
+          }
+        } catch (_) {}
+        return new Date().toISOString()
+      }
+
+      rec.set('starts_at', sanitizeDateForPB(startsAt))
+      rec.set('ends_at', sanitizeDateForPB(endsAt))
       rec.set('status', normalizeStatus(item.status || item.situacao || item.estado || 'agendado'))
       var normalizedType = normalizeAppointmentType(item)
       rec.set('appointment_type', normalizedType)
       rec.set('notes', item.notes || item.observacoes || item.descricao || '')
-      rec.set('sync_hash', item.updated || item.updated_at || item.id || extId)
+      rec.set('sync_hash', String(item.updated || item.updated_at || item.id || extId))
       rec.set('last_synced_at', new Date().toISOString())
       rec.set('sync_error', '')
 
@@ -1805,9 +2310,26 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
     var finalStatus =
       syncErrors.length === 0 ? 'success' : pulledCount > 0 || pushedCount > 0 ? 'partial' : 'error'
 
-    var manualRawSample = pullRes && pullRes.raw ? pullRes.raw.slice(0, 400) : ''
+    var manualRawSample = pullRes && pullRes.raw ? pullRes.raw.slice(0, 3000) : ''
     var manualBodyKeys =
       body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : []
+    var manualFirstSample =
+      extAppointments && extAppointments.length > 0
+        ? JSON.stringify(extAppointments[0]).slice(0, 500)
+        : 'none'
+
+    console.log(
+      '[agenda_sync] MANUAL PULL CONCLUÍDO | Status:',
+      finalStatus,
+      '| Total puxado:',
+      pulledCount,
+      '| Total salvo:',
+      pulledCount,
+      '| Itens brutos:',
+      extAppointments ? extAppointments.length : 0,
+      '| PrimeiraAmostra:',
+      manualFirstSample,
+    )
 
     if (syncStateRec) {
       try {
@@ -1828,9 +2350,11 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
             pushed: pushedCount,
             errors: syncErrors.slice(0, 5),
             synced_at: new Date().toISOString(),
+            raw_sample: manualRawSample,
             ext_appts_found: extAppointments ? extAppointments.length : 0,
             debug_keys: manualBodyKeys,
-            debug_sample: manualRawSample,
+            debug_sample: manualRawSample.slice(0, 400),
+            first_parsed_sample: manualFirstSample,
           }),
         )
         $app.save(syncStateRec)
@@ -1854,7 +2378,8 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       used_fallback: usedFallback,
       pull_url: effectivePullUrl,
       ext_appts_found: extAppointments ? extAppointments.length : 0,
-      debug_sample: manualRawSample,
+      raw_sample: manualRawSample,
+      debug_sample: manualRawSample.slice(0, 400),
       debug_keys: manualBodyKeys,
     })
   } catch (err) {
@@ -2028,6 +2553,9 @@ routerAdd('GET', '/backend/v1/agenda/sync-status', (e) => {
       }
     } catch (_) {}
 
+    // Adicionar visualização do raw_sample armazenado no details para inspeção
+    var rawSampleStored = recDetails && recDetails.raw_sample ? recDetails.raw_sample : ''
+
     var diagnostic = {
       configured: cfg.configured,
       missing_envs: cfg.missing,
@@ -2039,6 +2567,7 @@ routerAdd('GET', '/backend/v1/agenda/sync-status', (e) => {
       classification: 'unknown',
       explanation: '',
       raw_snippet: '',
+      raw_sample: rawSampleStored,
     }
 
     if (cfg.configured) {
@@ -2056,7 +2585,17 @@ routerAdd('GET', '/backend/v1/agenda/sync-status', (e) => {
 
         diagnostic.last_tested_status = testRes.statusCode
         diagnostic.raw_snippet = (testRes.raw || '').slice(0, 500)
-        recDetails.direct_test_raw = (testRes.raw || '').slice(0, 500)
+        diagnostic.raw_sample = (testRes.raw || '').slice(0, 3000)
+        recDetails.direct_test_raw = (testRes.raw || '').slice(0, 3000)
+
+        // Também salvar em sync_state imediatamente se obtivemos resposta
+        if (stateRec && testRes.raw) {
+          try {
+            recDetails.raw_sample = (testRes.raw || '').slice(0, 3000)
+            stateRec.set('details', JSON.stringify(recDetails))
+            $app.save(stateRec)
+          } catch (_) {}
+        }
 
         var testIsHtml = isHtmlContent(testRes.raw)
         diagnostic.url_is_site_frontend = testIsHtml
