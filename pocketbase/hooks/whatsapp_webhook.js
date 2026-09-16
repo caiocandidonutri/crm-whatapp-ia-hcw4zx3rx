@@ -735,7 +735,7 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
           }
 
           // 3. VERIFICAÇÃO DE RESPOSTA FORA DO HORÁRIO
-          // Checar se recurso está ativo na conta
+          // Checar se recurso está ativo na conta e se KILL SWITCH global não está acionado
           var ahSettings = null
           if (accountId) {
             try {
@@ -746,7 +746,14 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
               )
             } catch (_) {}
           }
-          var isAhEnabled = !ahSettings || ahSettings.get('after_hours_enabled') !== false
+          if (!ahSettings) {
+            try {
+              ahSettings = $app.findFirstRecordByFilter('care_alert_settings', '')
+            } catch (_) {}
+          }
+          var isKillSwitchPaused = ahSettings && ahSettings.getBool('global_automations_paused')
+          var isAhEnabled =
+            !isKillSwitchPaused && (!ahSettings || ahSettings.get('after_hours_enabled') !== false)
 
           if (isAhEnabled) {
             // Calcular data/hora atual no timezone de São Paulo (UTC-3)

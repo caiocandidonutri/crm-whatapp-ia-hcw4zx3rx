@@ -36,6 +36,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { QuickRepliesManager } from '@/components/crm/QuickRepliesManager'
 import { BusinessHoursManager } from '@/components/crm/BusinessHoursManager'
 import { SurveySettingsManager } from '@/components/crm/SurveySettingsManager'
+import { AutomationsControlCard } from '@/components/crm/AutomationsControlCard'
 
 export default function Integracoes() {
   const { accountId, role, loading: accountLoading } = useCurrentAccount()
@@ -194,6 +195,9 @@ export default function Integracoes() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-12">
+      {/* Card de Controle Global de Mensagens Automáticas */}
+      <AutomationsControlCard />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

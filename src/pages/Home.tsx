@@ -33,6 +33,7 @@ import { useTasks } from '@/hooks/use-tasks'
 import { getPriorityMeta, CARE_CATEGORIES } from '@/lib/task-meta'
 import { stageStyle } from '@/lib/stage-colors'
 import { FollowupRecoveryReport } from '@/components/crm/FollowupRecoveryReport'
+import { AutomationsControlCard } from '@/components/crm/AutomationsControlCard'
 import { getSatisfactionSummary, type SurveySummaryStats } from '@/services/satisfaction_surveys'
 import pb from '@/lib/pocketbase/client'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -664,6 +665,9 @@ export default function Home() {
           </div>
         </Alert>
       )}
+
+      {/* ═══ CONTROLE DE MENSAGENS AUTOMÁTICAS (KILL SWITCH GLOBAL) ═══ */}
+      <AutomationsControlCard />
 
       {/* ═══ SECTION 2: CARDS DE MÉTRICAS NO TOPO (4 CARDS OBRIGATÓRIOS) ═══ */}
       {/* Responsivo: coluna única no mobile (grid-cols-1), 2 colunas em telas médias, 4 em desktop */}

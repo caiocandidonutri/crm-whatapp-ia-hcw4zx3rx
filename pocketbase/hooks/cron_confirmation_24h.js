@@ -1,4 +1,18 @@
 cronAdd('confirmation_24h', '0 * * * *', () => {
+  function isNightShieldActive() {
+    var nMs = Date.now()
+    var spD = new Date(nMs - 3 * 3600 * 1000)
+    var hSp = spD.getUTCHours()
+    return hSp >= 21 || hSp < 7
+  }
+
+  if (isNightShieldActive()) {
+    $app
+      .logger()
+      .info('cron_confirmation_24h: skip devido ao Night Shield ativo (21h-07h de Brasília)')
+    return
+  }
+
   var nowTs = Math.floor(Date.now() / 1000)
 
   var allSettings = []
@@ -21,6 +35,21 @@ cronAdd('confirmation_24h', '0 * * * *', () => {
     try {
       var settings = allSettings[s]
       var accountId = settings.getString('account_id')
+
+      // KILL SWITCH GLOBAL: interrompe envio e não marca alertas
+      if (settings.getBool('global_automations_paused')) {
+        $app
+          .logger()
+          .info(
+            'Envio cancelado: automações globais pausadas',
+            'cron',
+            'confirmation_24h',
+            'account_id',
+            accountId,
+          )
+        continue
+      }
+
       var hoursBefore = settings.getInt('confirmation_hours_before') || 24
       var alertPhone = settings.getString('whatsapp_alert_phone') || ''
 
@@ -95,6 +124,18 @@ cronAdd('confirmation_24h', '0 * * * *', () => {
           contact.getString('contact_name') || contact.getString('push_name') || 'Paciente'
         var convertedAt = contact.getString('converted_at') || targetDate
         var instanceName = contact.getString('instance_name')
+
+        // Se Night Shield ativo, pula envio sem registrar care_alert nem marcar como enviado
+        if (isNightShieldActive()) {
+          $app
+            .logger()
+            .info(
+              'cron_confirmation_24h: skip contato por Night Shield (21h-07h de Brasília)',
+              'contact_id',
+              contactId,
+            )
+          continue
+        }
 
         var isDuplicate = false
         try {

@@ -239,6 +239,9 @@ export interface CareAlertSettings extends RecordModel {
   survey_enabled?: boolean
   survey_q1?: string
   survey_q2?: string
+  global_automations_paused?: boolean
+  global_automations_paused_at?: string
+  global_automations_paused_by?: string
 }
 
 export interface CareAlert extends RecordModel {

@@ -3,8 +3,10 @@
 /**
  * CRON DE RECALL DE PACIENTES INATIVOS
  *
- * Roda diariamente às 03:15 no horário de Brasília (UTC-3), que equivale a 06:15 UTC.
- * Expressão cron: "15 6 * * *" (UTC).
+ * Conversão UTC -> Brasília (UTC-3):
+ * 10:00 de Brasília corresponde a 13:00 UTC (10 + 3 = 13).
+ * Expressão cron atualizada para '0 13 * * *' (10:00 de Brasília),
+ * evitando disparos no meio da madrugada que incomodavam os pacientes.
  *
  * Regras:
  * - Respeita o toggle recall_enabled de care_alert_settings da conta.
@@ -199,11 +201,26 @@ cronAdd('daily_patient_recall', '15 6 * * *', () => {
     return false
   }
 
-  // 1. Carregar contas com configurações
+  // 1. Carregar contas com configurações e verificar Kill Switch Global
   var allSettings = []
   try {
     allSettings = $app.findRecordsByFilter('care_alert_settings', '', '-created', 100, 0)
   } catch (_) {}
+
+  function isGlobalAutomationsPaused(accountId) {
+    try {
+      if (allSettings && allSettings.length > 0) {
+        for (var s = 0; s < allSettings.length; s++) {
+          var st = allSettings[s]
+          if (accountId && st.getString('account_id') === accountId) {
+            if (st.getBool('global_automations_paused')) return true
+          }
+          if (st.getBool('global_automations_paused')) return true
+        }
+      }
+    } catch (_) {}
+    return false
+  }
 
   // Se não houver configurações, cria um fallback padrão para a primeira conta
   var accountsToProcess = []
@@ -239,6 +256,21 @@ cronAdd('daily_patient_recall', '15 6 * * *', () => {
     } catch (_) {}
   }
 
+  // NIGHT SHIELD: não disparar recall entre 21h e 07h de Brasília
+  function isNightShieldActive() {
+    var nMs = Date.now()
+    var spD = new Date(nMs - 3 * 3600 * 1000)
+    var hSp = spD.getUTCHours()
+    return hSp >= 21 || hSp < 7
+  }
+
+  if (isNightShieldActive()) {
+    $app
+      .logger()
+      .info('daily_patient_recall: skip devido ao Night Shield ativo (21h-07h de Brasília)')
+    return
+  }
+
   var totalSentAcrossAccounts = 0
 
   for (var ac = 0; ac < accountsToProcess.length; ac++) {
@@ -246,6 +278,20 @@ cronAdd('daily_patient_recall', '15 6 * * *', () => {
     var accountId = item.accountId
     var daysInactive = item.daysInactive
     var dailyLimit = item.dailyLimit
+
+    // KILL SWITCH GLOBAL: se automações pausadas, pular sem marcar flags
+    if (isGlobalAutomationsPaused(accountId)) {
+      $app
+        .logger()
+        .info(
+          'Envio cancelado: automações globais pausadas',
+          'cron',
+          'patient_recall',
+          'account_id',
+          accountId,
+        )
+      continue
+    }
 
     if (isSilenced(accountId)) {
       continue

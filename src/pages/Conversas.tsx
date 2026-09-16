@@ -132,6 +132,7 @@ export default function Conversas() {
     rawState,
     connectingSince,
     generateQrCode,
+    resetErrors,
     disconnect,
   } = useQrConnection(undefined, instance)
 
@@ -632,7 +633,13 @@ export default function Conversas() {
             ) : pollErrors >= 5 ? (
               <div className="flex flex-col items-center justify-center space-y-4 p-4 text-center">
                 <p className="text-sm text-destructive font-medium">Conexão instável</p>
-                <Button variant="outline" onClick={generateQrCode}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    resetErrors?.()
+                    generateQrCode()
+                  }}
+                >
                   Tentar novamente
                 </Button>
               </div>

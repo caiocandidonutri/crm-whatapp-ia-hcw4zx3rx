@@ -314,6 +314,21 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
               aid: aId,
             })
           } catch (_) {}
+
+          // KILL SWITCH GLOBAL: se automações pausadas, não envia WhatsApp do alerta
+          if (aSettings && aSettings.getBool('global_automations_paused')) {
+            $app
+              .logger()
+              .info(
+                'Envio cancelado: automações globais pausadas',
+                'cron',
+                'post_consultation_followup',
+                'account_id',
+                aId,
+              )
+            continue
+          }
+
           if (
             aSettings &&
             aSettings.getBool('followup_alert_enabled') &&

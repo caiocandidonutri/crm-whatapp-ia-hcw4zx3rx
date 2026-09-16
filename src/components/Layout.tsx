@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import pb from '@/lib/pocketbase/client'
 import { DisconnectBanner } from '@/components/DisconnectBanner'
+import { AutomationsPausedBanner } from '@/components/AutomationsPausedBanner'
 import { RealtimeStatusIndicator } from '@/components/RealtimeStatusIndicator'
 import { NotificationCenter } from '@/components/NotificationCenter'
 
@@ -176,8 +177,13 @@ export default function Layout() {
       {/* Global Disconnect Banner */}
       <DisconnectBanner />
 
+      {/* Global Automations Paused Banner (Abaixo do Header) */}
+      <div className="pt-20">
+        <AutomationsPausedBanner />
+      </div>
+
       {/* Main Content Area */}
-      <div className="flex-1 min-h-0 pt-24 pb-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full z-10 overflow-y-auto">
+      <div className="flex-1 min-h-0 pt-4 pb-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full z-10 overflow-y-auto">
         <Outlet />
       </div>
     </main>

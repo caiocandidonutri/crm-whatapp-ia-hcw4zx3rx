@@ -31,6 +31,11 @@ export function useQrConnection(
   const [rawState, setRawState] = useState<string | null>(null)
   const [connectingSince, setConnectingSince] = useState<number | null>(null)
 
+  // Resetar contador de erros ao montar/reabrir página
+  useEffect(() => {
+    setPollErrors(0)
+  }, [])
+
   useEffect(() => {
     if (existingInstance?.instance_name) {
       setInstanceName(existingInstance.instance_name)
@@ -68,6 +73,11 @@ export function useQrConnection(
         setQrCodeBase64(res.qrcodeBase64)
       }
     } catch (e: any) {
+      // Tratar AbortError silenciosamente (não conta como erro)
+      if (e?.name === 'AbortError' || e?.isAbort) {
+        return
+      }
+
       setPollErrors((prev) => prev + 1)
 
       if (e?.status === 401) {
@@ -98,52 +108,91 @@ export function useQrConnection(
   }, [])
 
   useEffect(() => {
-    let interval: any
-    if (instanceName && pollErrors < 5) {
-      interval = setInterval(async () => {
+    let timeoutId: any
+    let isCancelled = false
+
+    // Polling do QR code com backoff crescente resiliente e auto-reset:
+    // Nunca trava permanentemente após 5 tentativas.
+    // Intervalo base de 5s, aumentando progressivamente até 15s em erros sucessivos.
+    // A cada 5 erros consecutivos, reinicia contador para dar nova chance limpa.
+    if (instanceName) {
+      const poll = async () => {
+        let nextDelay = 5000
+
         try {
           const res = await consultarStatusInstancia(instanceName)
+          if (isCancelled) return
+
           if (res.error) {
-            setPollErrors((prev) => prev + 1)
+            setPollErrors((prev) => {
+              const next = prev + 1
+              // Se acumulou 5 tentativas com erro, reinicia contador/retry suavemente
+              if (next >= 5) {
+                return 1
+              }
+              return next
+            })
+            // Backoff crescente: 5s, 7s, 9s, 12s, 15s
+            nextDelay = Math.min(15000, 5000 + pollErrors * 2000)
+          } else {
+            // Sucesso na consulta: reseta contadores de erro
+            setPollErrors(0)
+
+            if (res.state) {
+              setRawState(res.state)
+              if (res.state === 'connecting') {
+                setConnectingSince((prev) => prev || Date.now())
+              } else {
+                setConnectingSince(null)
+              }
+            }
+            if (res.status === 'connected') {
+              setQrCodeBase64(null)
+              toast({
+                title: 'WhatsApp conectado com sucesso!',
+                className: 'bg-green-50 text-green-900 border-green-200',
+              })
+              if (onConnected) onConnected()
+              return // encerra polling
+            } else if (res.status === 'qrcode' && res.qrcodeBase64) {
+              setQrCodeBase64(res.qrcodeBase64)
+            }
+            nextDelay = 5500
+          }
+        } catch (e: any) {
+          if (e?.name === 'AbortError' || e?.isAbort) {
             return
           }
-          if (res.state) {
-            setRawState(res.state)
-            if (res.state === 'connecting') {
-              setConnectingSince((prev) => prev || Date.now())
-            } else {
-              setConnectingSince(null)
-            }
-          }
-          if (res.status === 'connected') {
-            clearInterval(interval)
-            setQrCodeBase64(null)
-            toast({
-              title: 'WhatsApp conectado com sucesso!',
-              className: 'bg-green-50 text-green-900 border-green-200',
+          if (!isCancelled) {
+            setPollErrors((prev) => {
+              const next = prev + 1
+              if (next >= 5) {
+                return 1
+              }
+              return next
             })
-            if (onConnected) onConnected()
-          } else if (res.status === 'qrcode' && res.qrcodeBase64) {
-            setQrCodeBase64(res.qrcodeBase64)
-            setPollErrors(0)
+            nextDelay = Math.min(15000, 5000 + pollErrors * 2000)
           }
-        } catch (e) {
-          setPollErrors((prev) => prev + 1)
         }
-      }, 3000)
+
+        if (!isCancelled) {
+          timeoutId = setTimeout(poll, nextDelay)
+        }
+      }
+
+      // Dispara primeiro ciclo
+      timeoutId = setTimeout(poll, 1500)
     }
-    return () => clearInterval(interval)
+
+    return () => {
+      isCancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [instanceName, pollErrors, toast, onConnected])
 
-  useEffect(() => {
-    if (pollErrors === 5) {
-      toast({
-        title: 'Atenção',
-        description: 'Estamos com instabilidade na conexão. Recarregue a página.',
-        variant: 'destructive',
-      })
-    }
-  }, [pollErrors, toast])
+  const resetErrors = useCallback(() => {
+    setPollErrors(0)
+  }, [])
 
   return {
     instanceName,
@@ -153,6 +202,7 @@ export function useQrConnection(
     rawState,
     connectingSince,
     generateQrCode,
+    resetErrors,
     disconnect,
   }
 }

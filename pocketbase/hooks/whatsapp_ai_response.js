@@ -17,6 +17,28 @@ onRecordAfterCreateSuccess((e) => {
       return e.next()
     }
 
+    // KILL SWITCH GLOBAL: se automações pausadas, NUNCA disparar resposta de IA
+    var accountId = conv.getString('account_id')
+    try {
+      var kFilter = 'global_automations_paused = true'
+      if (accountId) {
+        kFilter = 'account_id = "' + accountId + '" && global_automations_paused = true'
+      }
+      var kPaused = $app.findFirstRecordByFilter('care_alert_settings', kFilter)
+      if (kPaused) {
+        $app
+          .logger()
+          .info(
+            'Envio cancelado: automações globais pausadas',
+            'hook',
+            'whatsapp_ai_response',
+            'msg_id',
+            msg.id,
+          )
+        return e.next()
+      }
+    } catch (_) {}
+
     if (!conv.getBool('ai_enabled')) return e.next()
 
     const agentId = conv.getString('ai_agent_id')

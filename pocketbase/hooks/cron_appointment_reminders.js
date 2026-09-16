@@ -234,7 +234,7 @@ cronAdd('appointment_reminders_and_followup', '4,9,14,19,24,29,34,39,44,49,54,59
     return false
   }
 
-  // 1. Carregar configurações de care_alert_settings
+  // 1. Carregar configurações de care_alert_settings e verificar Kill Switch Global
   var settingsMap = {}
   try {
     var allSettings = $app.findRecordsByFilter('care_alert_settings', '', '-created', 200, 0)
@@ -246,8 +246,36 @@ cronAdd('appointment_reminders_and_followup', '4,9,14,19,24,29,34,39,44,49,54,59
     }
   } catch (_) {}
 
+  function isGlobalAutomationsPaused(accountId) {
+    try {
+      if (accountId && settingsMap[accountId]) {
+        if (settingsMap[accountId].getBool('global_automations_paused')) return true
+      }
+      // Se não encontrou por accountId ou se accountId é vazio, checar se qualquer registro de care_alert_settings está com Kill Switch ativo
+      for (var k in settingsMap) {
+        if (settingsMap[k].getBool('global_automations_paused')) return true
+      }
+    } catch (_) {}
+    return false
+  }
+
   // 2. Buscar agendamentos com status "agendado" a partir de hoje até 3 dias no futuro
   // starts_at >= now - 1 dia (para pegar os que precisam de follow-up pós-confirmação)
+  // NIGHT SHIELD: não disparar lembretes automáticos entre 21h e 07h de Brasília
+  function isNightShieldActive() {
+    var nMs = Date.now()
+    var spD = new Date(nMs - 3 * 3600 * 1000)
+    var hSp = spD.getUTCHours()
+    return hSp >= 21 || hSp < 7
+  }
+
+  if (isNightShieldActive()) {
+    $app
+      .logger()
+      .info('appointment_reminders: skip devido ao Night Shield ativo (21h-07h de Brasília)')
+    return
+  }
+
   var minIso = new Date(nowMs - 24 * 3600 * 1000).toISOString()
   var maxIso = new Date(nowMs + 48 * 3600 * 1000).toISOString()
 
@@ -272,6 +300,20 @@ cronAdd('appointment_reminders_and_followup', '4,9,14,19,24,29,34,39,44,49,54,59
     try {
       var app = appointments[i]
       var accountId = app.getString('account_id')
+
+      // KILL SWITCH GLOBAL: se automações estiverem pausadas, interrompe e NUNCA marca flags
+      if (isGlobalAutomationsPaused(accountId)) {
+        $app
+          .logger()
+          .info(
+            'Envio cancelado: automações globais pausadas',
+            'cron',
+            'appointment_reminders',
+            'app_id',
+            app.id,
+          )
+        continue
+      }
 
       // Verificar toggle reminders_enabled
       var settings = accountId ? settingsMap[accountId] : null

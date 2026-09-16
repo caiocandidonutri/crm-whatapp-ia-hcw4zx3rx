@@ -1,4 +1,11 @@
 cronAdd('ai_delayed_response', '*/3 * * * *', () => {
+  function isNightShieldActive() {
+    var nMs = Date.now()
+    var spD = new Date(nMs - 3 * 3600 * 1000)
+    var hSp = spD.getUTCHours()
+    return hSp >= 21 || hSp < 7
+  }
+
   var now = new Date()
   var brazilMs = now.getTime() - 3 * 60 * 60 * 1000
   var brazilTime = new Date(brazilMs)
@@ -22,6 +29,26 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
   }
 
   if (!pendingMsgs || pendingMsgs.length === 0) return
+
+  var isGlobalAutomationsPaused = function (accountId) {
+    try {
+      var filter = 'global_automations_paused = true'
+      if (accountId) {
+        filter = 'account_id = "' + accountId + '" && global_automations_paused = true'
+      }
+      var pausedRec = $app.findFirstRecordByFilter('care_alert_settings', filter)
+      if (pausedRec) return true
+    } catch (_) {}
+    // Se não encontrou específico, verifica se há qualquer conta pausada
+    try {
+      var anyPaused = $app.findFirstRecordByFilter(
+        'care_alert_settings',
+        'global_automations_paused = true',
+      )
+      if (anyPaused) return true
+    } catch (_) {}
+    return false
+  }
 
   // Verifica se o horário atual está dentro de um período de silêncio
   // configurado para a conta. Se sim, NÃO dispara mensagens automáticas
@@ -417,6 +444,17 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
       }
     }
 
+    if (isNightShieldActive()) {
+      $app
+        .logger()
+        .info(
+          'cron_ai: processAiResponse skip por Night Shield (21h-07h de Brasília) — mensagem continua pendente',
+          'msg_id',
+          msg.id,
+        )
+      return false
+    }
+
     var apiUrlRaw = $secrets.get('EVOLUTION_API_URL') || ''
     var apiUrl = apiUrlRaw.endsWith('/') ? apiUrlRaw.slice(0, -1) : apiUrlRaw
     var evApiKey = $secrets.get('EVOLUTION_API_KEY') || ''
@@ -580,6 +618,17 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
       if (nowTs - lastAiTs < 2 * 60 * 60) return true
     }
 
+    if (isNightShieldActive()) {
+      $app
+        .logger()
+        .info(
+          'cron_ai: sendOrientation skip por Night Shield (21h-07h de Brasília) — mensagem continua pendente',
+          'msg_id',
+          msg.id,
+        )
+      return false
+    }
+
     var apiUrlRaw = $secrets.get('EVOLUTION_API_URL') || ''
     var apiUrl = apiUrlRaw.endsWith('/') ? apiUrlRaw.slice(0, -1) : apiUrlRaw
     var evApiKey = $secrets.get('EVOLUTION_API_KEY') || ''
@@ -674,6 +723,34 @@ cronAdd('ai_delayed_response', '*/3 * * * *', () => {
     if (msg.getBool('from_me') || remoteJid.endsWith('@g.us')) {
       msg.set('pending_ai_response', false)
       $app.saveNoValidate(msg)
+      continue
+    }
+
+    // NIGHT SHIELD: entre 21h e 07h de Brasília, pular envio mantendo pendente
+    if (isNightShieldActive()) {
+      $app
+        .logger()
+        .info(
+          'Envio adiado: Night Shield ativo (21h-07h de Brasília)',
+          'cron',
+          'cron_ai_delayed_response',
+          'msg_id',
+          msg.id,
+        )
+      continue
+    }
+
+    // KILL SWITCH GLOBAL: se automações pausadas, NUNCA disparar e manter mensagem pendente
+    if (isGlobalAutomationsPaused(msgAccountId)) {
+      $app
+        .logger()
+        .info(
+          'Envio cancelado: automações globais pausadas',
+          'cron',
+          'cron_ai_delayed_response',
+          'msg_id',
+          msg.id,
+        )
       continue
     }
 

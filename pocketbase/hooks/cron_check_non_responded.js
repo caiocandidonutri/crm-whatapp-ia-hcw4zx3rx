@@ -137,6 +137,21 @@ cronAdd('check_non_responded', '0 * * * *', () => {
                 { aid: bId },
               )
             } catch (_) {}
+
+            // KILL SWITCH GLOBAL: se automações pausadas, não dispara alerta
+            if (bSettings && bSettings.getBool('global_automations_paused')) {
+              $app
+                .logger()
+                .info(
+                  'Envio cancelado: automações globais pausadas',
+                  'cron',
+                  'check_non_responded',
+                  'account_id',
+                  bId,
+                )
+              continue
+            }
+
             if (
               bSettings &&
               bSettings.getBool('needs_care_alert_enabled') &&

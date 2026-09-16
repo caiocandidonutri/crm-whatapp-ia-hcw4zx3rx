@@ -55,6 +55,20 @@ cronAdd('cron_satisfaction_surveys', '37 17 * * *', () => {
         })
       } catch (_) {}
 
+      // KILL SWITCH GLOBAL: interrompe envio e não marca survey_sent
+      if (settings && settings.getBool('global_automations_paused')) {
+        $app
+          .logger()
+          .info(
+            'Envio cancelado: automações globais pausadas',
+            'cron',
+            'satisfaction_surveys',
+            'account_id',
+            accountId,
+          )
+        continue
+      }
+
       if (settings && settings.get('survey_enabled') === false) {
         continue
       }

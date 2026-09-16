@@ -68,3 +68,52 @@ export async function getCareAlerts(
   })
   return res.items as CareAlertWithContact[]
 }
+
+export interface AutomationsToggleResult {
+  success: boolean
+  paused: boolean
+  paused_at: string | null
+  paused_by: string
+  account_id: string
+}
+
+export async function toggleGlobalAutomations(
+  paused?: boolean,
+  accountId?: string,
+): Promise<AutomationsToggleResult> {
+  const payload: Record<string, any> = {}
+  if (typeof paused === 'boolean') payload.paused = paused
+  if (accountId) payload.account_id = accountId
+
+  return await pb.send<AutomationsToggleResult>('/backend/v1/settings/automations-toggle', {
+    method: 'POST',
+    body: payload,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+}
+
+export interface AutomationAuditItem {
+  id: string
+  remote_jid: string
+  patient_name: string
+  content: string
+  automation_type: string
+  is_automated: boolean
+  status: string
+  created_at: string
+  created_at_sp: string
+}
+
+export interface AutomationAuditResponse {
+  items: AutomationAuditItem[]
+  total: number
+}
+
+export async function getAutomationsAudit(limit = 35): Promise<AutomationAuditResponse> {
+  return await pb.send<AutomationAuditResponse>('/backend/v1/settings/automations-audit', {
+    method: 'GET',
+    params: { limit },
+  })
+}

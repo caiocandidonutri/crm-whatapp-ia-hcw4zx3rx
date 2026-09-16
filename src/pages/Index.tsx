@@ -129,7 +129,7 @@ export default function Index() {
 
   const handleConnected = React.useCallback(() => setStep(3), [])
 
-  const { qrCodeBase64, isGenerating, pollErrors, generateQrCode } =
+  const { qrCodeBase64, isGenerating, pollErrors, generateQrCode, resetErrors } =
     useQrConnection(handleConnected)
 
   useEffect(() => {
@@ -455,7 +455,14 @@ export default function Index() {
                 ) : pollErrors >= 1 ? (
                   <div className="flex flex-col items-center gap-3 p-4 text-center">
                     <p className="text-sm text-red-500 font-medium">Conexão instável</p>
-                    <Button variant="outline" size="sm" onClick={generateQrCode}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        resetErrors?.()
+                        generateQrCode()
+                      }}
+                    >
                       Tentar novamente
                     </Button>
                   </div>
