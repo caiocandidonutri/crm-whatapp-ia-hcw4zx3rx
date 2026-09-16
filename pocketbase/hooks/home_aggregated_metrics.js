@@ -469,6 +469,41 @@ routerAdd(
       myOverdue = myOverdueRow.cnt
     } catch (_) {}
 
+    // Métricas de Cuidado dos Últimos 2 Meses (agendamentos dos últimos 60 dias)
+    var care2Months = {
+      total: 0,
+      contacted: 0,
+      notContacted: 0,
+    }
+    try {
+      var sixtyDaysAgoIso = new Date(Date.now() - 60 * 86400 * 1000).toISOString()
+      var careAppts = $app.findRecordsByFilter(
+        'appointments',
+        'starts_at >= {:since}',
+        '-starts_at',
+        500,
+        0,
+        { since: sixtyDaysAgoIso },
+      )
+      if (careAppts && careAppts.length > 0) {
+        care2Months.total = careAppts.length
+        for (var cai = 0; cai < careAppts.length; cai++) {
+          var ca = careAppts[cai]
+          var hasCare = Boolean(
+            ca.getString('confirmation_sent_at') ||
+            ca.getString('reminder_day_sent_at') ||
+            ca.getString('followup_sent_at') ||
+            ca.getString('task_created_at'),
+          )
+          if (hasCare) {
+            care2Months.contacted++
+          } else {
+            care2Months.notContacted++
+          }
+        }
+      }
+    } catch (_) {}
+
     // Métricas de Recall de Pacientes
     var recallDetected = 0
     var recallSentToday = 0
@@ -549,6 +584,7 @@ routerAdd(
         sentToday: recallSentToday,
         reengaged: recallReengaged,
       },
+      care2Months: care2Months,
     })
   },
   $apis.requireAuth(),

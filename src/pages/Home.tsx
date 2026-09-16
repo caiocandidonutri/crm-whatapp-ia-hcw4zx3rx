@@ -440,6 +440,7 @@ export default function Home() {
   const audiosPending = metrics?.audios?.pending ?? 0
   const followupsRecovered = metrics?.followupsRecovered7d ?? 0
   const patientRecallStats = metrics?.patientRecall ?? { detected: 0, sentToday: 0, reengaged: 0 }
+  const care2MonthsStats = metrics?.care2Months ?? { total: 0, contacted: 0, notContacted: 0 }
 
   if (sessionExpired) {
     return (
@@ -872,9 +873,9 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 sm:gap-6 text-xs divide-x divide-border/60">
+          <div className="flex items-center gap-3 sm:gap-5 text-xs divide-x divide-border/60 flex-wrap sm:flex-nowrap">
             <div className="flex flex-col items-center">
-              <span className="text-xl sm:text-2xl font-bold font-serif text-primary">
+              <span className="text-lg sm:text-2xl font-bold font-serif text-primary">
                 {patientRecallStats.detected}
               </span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -882,8 +883,8 @@ export default function Home() {
               </span>
             </div>
 
-            <div className="flex flex-col items-center pl-4 sm:pl-6">
-              <span className="text-xl sm:text-2xl font-bold font-serif text-emerald-600">
+            <div className="flex flex-col items-center pl-3 sm:pl-5">
+              <span className="text-lg sm:text-2xl font-bold font-serif text-emerald-600">
                 {patientRecallStats.sentToday}
               </span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -891,12 +892,31 @@ export default function Home() {
               </span>
             </div>
 
-            <div className="flex flex-col items-center pl-4 sm:pl-6">
-              <span className="text-xl sm:text-2xl font-bold font-serif text-purple-600">
+            <div className="flex flex-col items-center pl-3 sm:pl-5">
+              <span className="text-lg sm:text-2xl font-bold font-serif text-purple-600">
                 {patientRecallStats.reengaged}
               </span>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
                 Reengajados
+              </span>
+            </div>
+
+            {/* Métricas de Cuidado - Últimos 2 meses: Acionados vs Não Acionados */}
+            <div className="flex flex-col items-center pl-3 sm:pl-5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-lg sm:text-2xl font-bold font-serif text-teal-600">
+                  {care2MonthsStats.contacted}
+                </span>
+                <span className="text-xs text-muted-foreground font-serif">/</span>
+                <span className="text-sm sm:text-base font-semibold font-serif text-amber-600">
+                  {care2MonthsStats.notContacted}
+                </span>
+              </div>
+              <span
+                className="text-[10px] text-muted-foreground uppercase tracking-wide"
+                title="Pacientes com lembrete/recall enviado vs pendentes nos últimos 2 meses"
+              >
+                Acionados / Pendentes (2m)
               </span>
             </div>
           </div>

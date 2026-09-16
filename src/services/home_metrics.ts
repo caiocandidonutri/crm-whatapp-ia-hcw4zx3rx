@@ -71,6 +71,11 @@ export interface HomeMetricsData {
     sentToday: number
     reengaged: number
   }
+  care2Months?: {
+    total: number
+    contacted: number
+    notContacted: number
+  }
 }
 
 export const DEFAULT_HOME_METRICS: HomeMetricsData = {
@@ -125,6 +130,11 @@ export const DEFAULT_HOME_METRICS: HomeMetricsData = {
     detected: 0,
     sentToday: 0,
     reengaged: 0,
+  },
+  care2Months: {
+    total: 0,
+    contacted: 0,
+    notContacted: 0,
   },
 }
 

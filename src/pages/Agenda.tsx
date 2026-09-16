@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { AgendaLogisticsReport } from '@/components/AgendaLogisticsReport'
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -137,7 +138,7 @@ export default function Agenda() {
   const { accountId } = useCurrentAccount()
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
-  const [viewMode, setViewMode] = useState<'day' | 'week'>('day')
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'report'>('day')
   const [selectedCity, setSelectedCity] = useState<AppointmentCity | 'all'>('all')
   const [selectedStatus, setSelectedStatus] = useState<AppointmentStatus | 'all'>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -297,22 +298,39 @@ export default function Agenda() {
       let startDateIso: string
       let endDateIso: string
 
-      if (viewMode === 'day') {
+      let list: Appointment[] = []
+
+      if (viewMode === 'report') {
+        // Para a aba 'Últimos 2 meses', buscamos janela ampla de 90 dias atrás até 90 dias no futuro
+        const past90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+        const future90d = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+        list = await listAppointments({
+          startDate: past90d.toISOString(),
+          endDate: future90d.toISOString(),
+          city: selectedCity,
+          status: selectedStatus,
+        })
+      } else if (viewMode === 'day') {
         startDateIso = startOfDay(currentDate).toISOString()
         endDateIso = endOfDay(currentDate).toISOString()
+        list = await listAppointments({
+          startDate: startDateIso,
+          endDate: endDateIso,
+          city: selectedCity,
+          status: selectedStatus,
+        })
       } else {
         const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
         const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 })
         startDateIso = startOfDay(weekStart).toISOString()
         endDateIso = endOfDay(weekEnd).toISOString()
+        list = await listAppointments({
+          startDate: startDateIso,
+          endDate: endDateIso,
+          city: selectedCity,
+          status: selectedStatus,
+        })
       }
-
-      const list = await listAppointments({
-        startDate: startDateIso,
-        endDate: endDateIso,
-        city: selectedCity,
-        status: selectedStatus,
-      })
 
       setAppointments(list)
     } catch (err) {
@@ -939,7 +957,7 @@ export default function Agenda() {
 
           <Tabs
             value={viewMode}
-            onValueChange={(v) => setViewMode(v as 'day' | 'week')}
+            onValueChange={(v) => setViewMode(v as 'day' | 'week' | 'report')}
             className="w-auto"
           >
             <TabsList className="h-9">
@@ -948,6 +966,13 @@ export default function Agenda() {
               </TabsTrigger>
               <TabsTrigger value="week" className="text-xs px-3">
                 Semana
+              </TabsTrigger>
+              <TabsTrigger
+                value="report"
+                className="text-xs px-3 flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300"
+              >
+                <CalendarDays className="w-3.5 h-3.5" />
+                <span>Últimos 2 meses</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -986,8 +1011,15 @@ export default function Agenda() {
         })}
       </div>
 
-      {/* Conteúdo Principal: Visão Dia ou Visão Semana */}
-      {loading ? (
+      {/* Conteúdo Principal: Visão Dia, Semana ou Painel dos Últimos 2 meses */}
+      {viewMode === 'report' ? (
+        <AgendaLogisticsReport
+          appointments={appointments}
+          onOpenConversation={handleOpenConversation}
+          onRefreshSync={handleManualSync}
+          syncing={isSyncing}
+        />
+      ) : loading ? (
         <div className="py-20 flex flex-col items-center justify-center text-muted-foreground gap-3">
           <RefreshCw className="w-8 h-8 animate-spin text-primary" />
           <p className="text-sm">Carregando consultas da agenda...</p>
