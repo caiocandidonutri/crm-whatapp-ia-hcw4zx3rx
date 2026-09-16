@@ -225,6 +225,10 @@ export interface CareAlertSettings extends RecordModel {
   needs_care_alert_enabled: boolean
   confirmation_alert_enabled: boolean
   confirmation_hours_before: number
+  reminders_enabled?: boolean
+  recall_enabled?: boolean
+  recall_days_inactive?: number
+  recall_daily_limit?: number
 }
 
 export interface CareAlert extends RecordModel {
@@ -306,6 +310,11 @@ export interface Appointment extends RecordModel {
   sync_hash?: string
   last_synced_at?: string
   sync_error?: string
+  confirmation_sent_at?: string
+  reminder_day_sent_at?: string
+  followup_sent_at?: string
+  task_created_at?: string
+  last_interaction_type?: string
 }
 
 export interface SyncState extends RecordModel {

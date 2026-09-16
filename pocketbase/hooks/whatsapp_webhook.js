@@ -610,6 +610,187 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
 
       $app.save(newMsg)
 
+      // DETECÇÃO AUTOMÁTICA DE RESPOSTAS A AGENDAMENTOS (Anti-atropelamento: não dispara mensagens)
+      // Se mensagem recebida do paciente (fromMe = false, !isGroup, texto não vazio),
+      // verifica se há agendamento futuro para este paciente (pelo telefone/remote_jid).
+      if (
+        !fromMe &&
+        !isGroup &&
+        content &&
+        (msgType === 'conversation' || msgType === 'extendedTextMessage')
+      ) {
+        try {
+          var senderDigits = remoteJid.split('@')[0].replace(/\D/g, '')
+          if (senderDigits && senderDigits.length >= 8) {
+            var phoneSuffix = senderDigits.slice(-8)
+            var nowIsoForApp = new Date().toISOString()
+            var futureAppointments = $app.findRecordsByFilter(
+              'appointments',
+              '(patient_phone ~ {:suf} || patient_id.phone ~ {:suf} || patient_id.jid ~ {:suf}) && starts_at >= {:now} && status != "cancelado" && status != "realizado"',
+              '+starts_at',
+              5,
+              0,
+              { suf: phoneSuffix, now: nowIsoForApp },
+            )
+
+            if (futureAppointments && futureAppointments.length > 0) {
+              var targetApp = futureAppointments[0]
+              var rawLower = content.toLowerCase().trim()
+              // Remove pontuações e emojis comuns para análise
+              var cleanText = rawLower.replace(/[!?,.;:🙏✨👍😊❤️]/g, ' ').trim()
+
+              // Expressões de confirmação: "sim", "confirmado", "vou", "pode deixar", "ok", "estarei", "confirmar", "com certeza", "estou confirmando"
+              var isConfirm = false
+              var confirmWords = [
+                'sim',
+                'confirmado',
+                'confirmada',
+                'confirmo',
+                'confirmar',
+                'vou',
+                'vou sim',
+                'pode deixar',
+                'ok',
+                'estarei',
+                'estarei la',
+                'estarei lá',
+                'com certeza',
+                'combinado',
+                'pode confirmar',
+              ]
+
+              // Expressões de reagendamento/não comparecimento: "não posso", "nao posso", "não vou", "nao vou", "preciso remarcar", "mudar", "adiar", "remarcar", "desmarcar"
+              var isReschedule = false
+              var rescheduleWords = [
+                'nao posso',
+                'não posso',
+                'nao vou',
+                'não vou',
+                'nao vou conseguir',
+                'não vou conseguir',
+                'preciso remarcar',
+                'remarcar',
+                'remarca',
+                'mudar horario',
+                'mudar horário',
+                'mudar data',
+                'mudar o dia',
+                'adiar',
+                'desmarcar',
+                'outro dia',
+                'outro horario',
+                'outro horário',
+              ]
+
+              for (var rw = 0; rw < rescheduleWords.length; rw++) {
+                if (cleanText.indexOf(rescheduleWords[rw]) !== -1) {
+                  isReschedule = true
+                  break
+                }
+              }
+
+              if (!isReschedule) {
+                // Checa palavras exatas ou frases de confirmação
+                var words = cleanText.split(/\s+/)
+                for (var cw = 0; cw < confirmWords.length; cw++) {
+                  var term = confirmWords[cw]
+                  if (term.indexOf(' ') !== -1) {
+                    if (cleanText.indexOf(term) !== -1) {
+                      isConfirm = true
+                      break
+                    }
+                  } else {
+                    if (words.indexOf(term) !== -1 || cleanText === term) {
+                      isConfirm = true
+                      break
+                    }
+                  }
+                }
+              }
+
+              if (isConfirm) {
+                targetApp.set('status', 'confirmado')
+                targetApp.set('last_interaction_type', 'confirmado_paciente')
+                $app.saveNoValidate(targetApp)
+                $app
+                  .logger()
+                  .info('webhook_appointment: confirmed by patient', 'app_id', targetApp.id)
+              } else if (isReschedule) {
+                targetApp.set('status', 'remarcado')
+                targetApp.set('last_interaction_type', 'remarcado_paciente')
+                $app.saveNoValidate(targetApp)
+                $app
+                  .logger()
+                  .info('webhook_appointment: rescheduled by patient', 'app_id', targetApp.id)
+
+                // Criar tarefa humana para reagendar (não remarcar sozinho)
+                try {
+                  var pName = targetApp.getString('patient_name') || 'Paciente'
+                  var tCol = $app.findCollectionByNameOrId('tasks')
+                  var reschedTask = new Record(tCol)
+                  reschedTask.set('title', 'Reagendar consulta: ' + pName)
+                  reschedTask.set(
+                    'description',
+                    'Paciente informou que precisa remarcar/mudar o horário marcado para ' +
+                      targetApp.getString('starts_at') +
+                      '. Mensagem: "' +
+                      content.substring(0, 150) +
+                      '". Verificar disponibilidade com o Dr. Caio.',
+                  )
+                  reschedTask.set('status', 'pendente')
+                  reschedTask.set('priority', 'alta')
+                  reschedTask.set('care_category', 'precisa_retorno')
+                  if (accountId) reschedTask.set('account_id', accountId)
+                  var patId = targetApp.getString('patient_id')
+                  if (patId) reschedTask.set('crm_contact_id', patId)
+                  var cId = targetApp.getString('conversation_id')
+                  if (cId) reschedTask.set('conversation_id', cId)
+                  try {
+                    var accMem = $app.findFirstRecordByFilter(
+                      'account_members',
+                      'account_id = {:aid}',
+                      { aid: accountId },
+                    )
+                    if (accMem) reschedTask.set('user_id', accMem.getString('user_id'))
+                  } catch (_) {}
+                  $app.save(reschedTask)
+
+                  // Notificação humana
+                  var nCol = $app.findCollectionByNameOrId('notifications')
+                  var reschedNotif = new Record(nCol)
+                  if (reschedTask.getString('user_id'))
+                    reschedNotif.set('user_id', reschedTask.getString('user_id'))
+                  if (accountId) reschedNotif.set('account_id', accountId)
+                  reschedNotif.set('type', 'task')
+                  reschedNotif.set('title', 'Paciente solicitou reagendamento: ' + pName)
+                  reschedNotif.set(
+                    'body',
+                    'Paciente solicitou alteração do agendamento: "' +
+                      content.substring(0, 100) +
+                      '"',
+                  )
+                  reschedNotif.set('task_id', reschedTask.id)
+                  if (patId) reschedNotif.set('crm_contact_id', patId)
+                  if (cId) reschedNotif.set('conversation_id', cId)
+                  reschedNotif.set('read', false)
+                  $app.save(reschedNotif)
+                } catch (tCreateErr) {
+                  $app
+                    .logger()
+                    .error(
+                      'webhook_appointment: create reschedule task failed',
+                      'error',
+                      String(tCreateErr),
+                    )
+                }
+              }
+            }
+          }
+        } catch (appCheckErr) {
+          $app.logger().warn('webhook_appointment: detection error', 'error', String(appCheckErr))
+        }
+      }
+
       if (msg.extractedMedia) {
         if (msg.extractedMedia.base64) {
           try {

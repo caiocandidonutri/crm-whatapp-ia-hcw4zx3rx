@@ -188,14 +188,29 @@ cronAdd('confirmation_24h', '0 * * * *', () => {
           var alertStatus = 'failed'
           if (alertPhone) {
             var phone = alertPhone.replace(/\D/g, '')
-            var apiUrl = $secrets.get('EVOLUTION_API_URL')
-            var apiKey = $secrets.get('EVOLUTION_API_KEY')
+            var apiUrl = $secrets.get('EVOLUTION_API_URL') || $os.getenv('EVOLUTION_API_URL') || ''
+            var apiKey = $secrets.get('EVOLUTION_API_KEY') || $os.getenv('EVOLUTION_API_KEY') || ''
+            var targetInst = 'instance_1786021758855'
+            var sendInstName = targetInst
 
-            if (apiUrl && apiKey && instanceName && phone) {
+            try {
+              var chk = $app.findFirstRecordByFilter(
+                'whatsapp_instances',
+                'instance_name = {:name} && status = "connected"',
+                { name: targetInst },
+              )
+              if (!chk && instanceName) {
+                sendInstName = instanceName
+              }
+            } catch (_) {
+              if (instanceName) sendInstName = instanceName
+            }
+
+            if (apiUrl && apiKey && sendInstName && phone) {
               var url = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl
               try {
                 var res = $http.send({
-                  url: url + '/message/sendText/' + instanceName,
+                  url: url + '/message/sendText/' + sendInstName,
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', apikey: apiKey },
                   body: JSON.stringify({ number: phone, text: confirmText }),

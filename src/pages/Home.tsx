@@ -439,6 +439,7 @@ export default function Home() {
   const audiosTranscribed = metrics?.audios?.transcribed ?? 0
   const audiosPending = metrics?.audios?.pending ?? 0
   const followupsRecovered = metrics?.followupsRecovered7d ?? 0
+  const patientRecallStats = metrics?.patientRecall ?? { detected: 0, sentToday: 0, reengaged: 0 }
 
   if (sessionExpired) {
     return (
@@ -842,6 +843,65 @@ export default function Home() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ═══ CARD DE RECALL DE PACIENTES INATIVOS ═══ */}
+      <Card
+        onClick={() => navigate('/agenda')}
+        className="border-border/50 bg-gradient-to-r from-rose-50/50 via-white/80 to-purple-50/40 backdrop-blur-md shadow-sm hover:shadow-md hover:border-rose-300 transition-all cursor-pointer rounded-2xl p-5"
+      >
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+              <HeartHandshake className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-serif font-bold text-base text-primary">
+                  Recall de Pacientes Inativos
+                </h3>
+                <Badge
+                  variant="outline"
+                  className="text-[10px] bg-rose-50 text-rose-700 border-rose-200"
+                >
+                  Disparo diário 03:15
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Mensagem acolhedora de retorno para pacientes sem mensagens nos últimos dias
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 sm:gap-6 text-xs divide-x divide-border/60">
+            <div className="flex flex-col items-center">
+              <span className="text-xl sm:text-2xl font-bold font-serif text-primary">
+                {patientRecallStats.detected}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Detectados
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center pl-4 sm:pl-6">
+              <span className="text-xl sm:text-2xl font-bold font-serif text-emerald-600">
+                {patientRecallStats.sentToday}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Enviados Hoje
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center pl-4 sm:pl-6">
+              <span className="text-xl sm:text-2xl font-bold font-serif text-purple-600">
+                {patientRecallStats.reengaged}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Reengajados
+              </span>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       {/* ═══ SECTION RELATÓRIO DE FOLLOW-UPS: PACIENTES RECUPERADOS POR REGRA ═══ */}
       <FollowupRecoveryReport />

@@ -55,6 +55,11 @@ export interface AgendaSyncStatus {
   } | null
   total_appointments: number
   pending_push: number
+  reminders_stats?: {
+    confirmations_sent: number
+    reminders_day_sent: number
+    confirmed_by_patient: number
+  }
 }
 
 export interface AgendaSyncResult {

@@ -20,7 +20,13 @@ import {
   FileText,
   CalendarDays,
   ExternalLink,
+  Bell,
+  Settings,
+  Sliders,
+  Send,
 } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import { getCareAlertSettings, saveCareAlertSettings } from '@/services/care_alerts_service'
 import {
   format,
   addDays,
@@ -144,6 +150,96 @@ export default function Agenda() {
   const [newDialogOpen, setNewDialogOpen] = useState(false)
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
+  const [configDialogOpen, setConfigDialogOpen] = useState(false)
+
+  // Estados dos toggles de automação da clínica (care_alert_settings)
+  const [remindersEnabled, setRemindersEnabled] = useState(true)
+  const [recallEnabled, setRecallEnabled] = useState(true)
+  const [recallDaysInactive, setRecallDaysInactive] = useState(14)
+  const [recallDailyLimit, setRecallDailyLimit] = useState(15)
+  const [savingSettings, setSavingSettings] = useState(false)
+
+  // Carregar configurações de care_alert_settings
+  useEffect(() => {
+    if (!accountId) return
+    let cancelled = false
+    getCareAlertSettings(accountId).then((settings) => {
+      if (settings && !cancelled) {
+        setRemindersEnabled(settings.reminders_enabled ?? true)
+        setRecallEnabled(settings.recall_enabled ?? true)
+        setRecallDaysInactive(settings.recall_days_inactive ?? 14)
+        setRecallDailyLimit(settings.recall_daily_limit ?? 15)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [accountId])
+
+  const handleToggleReminders = async (val: boolean) => {
+    if (!accountId) return
+    setRemindersEnabled(val)
+    try {
+      await saveCareAlertSettings(accountId, { reminders_enabled: val })
+      toast({
+        title: val ? 'Lembretes ativados' : 'Lembretes pausados',
+        description: val
+          ? 'Confirmação 24h e lembrete do dia serão enviados automaticamente.'
+          : 'Envio automático de confirmação e lembretes desativado.',
+      })
+    } catch {
+      setRemindersEnabled(!val)
+      toast({
+        title: 'Erro ao salvar configuração',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleToggleRecall = async (val: boolean) => {
+    if (!accountId) return
+    setRecallEnabled(val)
+    try {
+      await saveCareAlertSettings(accountId, { recall_enabled: val })
+      toast({
+        title: val ? 'Recall de pacientes ativado' : 'Recall pausado',
+        description: val
+          ? 'Disparo diário às 03:15 para pacientes inativos ativado.'
+          : 'Recall diário de pacientes inativos desativado.',
+      })
+    } catch {
+      setRecallEnabled(!val)
+      toast({
+        title: 'Erro ao salvar configuração',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleSaveRecallConfig = async () => {
+    if (!accountId) return
+    setSavingSettings(true)
+    try {
+      await saveCareAlertSettings(accountId, {
+        reminders_enabled: remindersEnabled,
+        recall_enabled: recallEnabled,
+        recall_days_inactive: recallDaysInactive,
+        recall_daily_limit: recallDailyLimit,
+      })
+      toast({
+        title: 'Configurações salvas',
+        description: 'Parâmetros de lembretes e recall atualizados com sucesso.',
+      })
+      setConfigDialogOpen(false)
+    } catch {
+      toast({
+        title: 'Erro ao salvar configurações',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingSettings(false)
+    }
+  }
 
   // Patient Autocomplete no formulário de novo agendamento
   const [patientSuggestions, setPatientSuggestions] = useState<
@@ -580,6 +676,17 @@ export default function Agenda() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setConfigDialogOpen(true)}
+            className="gap-1.5"
+            title="Configurar Lembretes e Recall"
+          >
+            <Sliders className="w-4 h-4" />
+            <span className="hidden md:inline">Regras de Disparo</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleManualSync}
             disabled={isSyncing}
             className="gap-2"
@@ -601,6 +708,91 @@ export default function Agenda() {
           >
             <Plus className="w-4 h-4" />
             <span>Novo Agendamento</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* BARRA DE TOGGLES RÁPIDOS & STATUS VIVO DE SINCRONIA */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3.5 rounded-2xl bg-card border border-border/70 shadow-sm text-xs">
+        {/* Toggle 1: Lembretes automáticos */}
+        <div className="flex items-center justify-between p-2.5 rounded-xl bg-muted/40 border border-border/40">
+          <div className="flex items-center gap-2.5">
+            <div
+              className={cn(
+                'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
+                remindersEnabled ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+              )}
+            >
+              <Bell className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-medium text-foreground">Lembretes automáticos</p>
+              <p className="text-[11px] text-muted-foreground">Véspera 24h & dia 2-3h</p>
+            </div>
+          </div>
+          <Switch checked={remindersEnabled} onCheckedChange={handleToggleReminders} />
+        </div>
+
+        {/* Toggle 2: Recall de pacientes */}
+        <div className="flex items-center justify-between p-2.5 rounded-xl bg-muted/40 border border-border/40">
+          <div className="flex items-center gap-2.5">
+            <div
+              className={cn(
+                'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
+                recallEnabled
+                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                  : 'bg-muted text-muted-foreground',
+              )}
+            >
+              <Send className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-medium text-foreground">Recall de pacientes</p>
+              <p className="text-[11px] text-muted-foreground">
+                Inativos há {recallDaysInactive}d (máx {recallDailyLimit}/dia)
+              </p>
+            </div>
+          </div>
+          <Switch checked={recallEnabled} onCheckedChange={handleToggleRecall} />
+        </div>
+
+        {/* Card 3: Status vivo de sincronia */}
+        <div className="flex items-center justify-between p-2.5 rounded-xl bg-muted/40 border border-border/40">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <RefreshCw className={cn('w-3.5 h-3.5', isSyncing && 'animate-spin')} />
+            </div>
+            <div className="truncate">
+              <div className="flex items-center gap-1.5">
+                <span className="font-medium text-foreground">Sincronia viva</span>
+                {syncStatus?.pending_push && syncStatus.pending_push > 0 ? (
+                  <Badge variant="destructive" className="text-[9px] px-1.5 py-0 h-4">
+                    {syncStatus.pending_push} pendente(s)
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] px-1.5 py-0 h-4 border-emerald-500/30 text-emerald-600"
+                  >
+                    Fila zerada ✓
+                  </Badge>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground truncate">
+                {syncStatus?.last_sync
+                  ? `Último sync: ${format(parseISO(syncStatus.last_sync), 'HH:mm')}`
+                  : 'Aguardando primeiro sync'}
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            className="h-7 px-2 text-[11px]"
+          >
+            Atualizar
           </Button>
         </div>
       </div>
@@ -857,6 +1049,78 @@ export default function Agenda() {
                     </p>
                   )}
 
+                  {/* Indicadores discretos de automação: Véspera ✓ | Dia ✓ | Confirmado pelo paciente ✓ */}
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+                              app.confirmation_sent_at
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                : 'bg-muted/30 text-muted-foreground/60 border-transparent',
+                            )}
+                          >
+                            <span>Véspera</span>
+                            <span>{app.confirmation_sent_at ? '✓' : '○'}</span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs">
+                          {app.confirmation_sent_at
+                            ? `Confirmação 24h enviada em ${format(parseISO(app.confirmation_sent_at), 'dd/MM HH:mm')}`
+                            : 'Confirmação 24h ainda não disparada'}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+                              app.reminder_day_sent_at
+                                ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                                : 'bg-muted/30 text-muted-foreground/60 border-transparent',
+                            )}
+                          >
+                            <span>Dia</span>
+                            <span>{app.reminder_day_sent_at ? '✓' : '○'}</span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs">
+                          {app.reminder_day_sent_at
+                            ? `Lembrete do dia enviado em ${format(parseISO(app.reminder_day_sent_at), 'dd/MM HH:mm')}`
+                            : 'Lembrete do dia (2-3h antes) ainda não disparado'}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+
+                    {app.last_interaction_type === 'confirmado_paciente' ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200">
+                              <span>Paciente ✓</span>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="text-xs">
+                            Confirmado diretamente pelo paciente via WhatsApp!
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : app.last_interaction_type === 'remarcado_paciente' ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300">
+                        <span>Reagendamento solicitado</span>
+                      </span>
+                    ) : app.followup_sent_at ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                        <span>Follow-up 6h ✓</span>
+                      </span>
+                    ) : null}
+                  </div>
+
                   <div className="flex items-center justify-between pt-1 border-t border-border/60">
                     <div className="flex items-center gap-1.5">
                       {app.source === 'agenda_externa' ? (
@@ -957,19 +1221,32 @@ export default function Agenda() {
                             <span className="text-[11px] font-bold text-foreground">
                               {startTimeStr}
                             </span>
-                            <span
-                              className={cn(
-                                'text-[9px] px-1.5 py-0.2 rounded-full font-medium',
-                                statusConfig.badgeClass,
+                            <div className="flex items-center gap-1">
+                              {app.last_interaction_type === 'confirmado_paciente' && (
+                                <span className="text-[9px] px-1 rounded bg-emerald-100 text-emerald-800 font-bold">
+                                  ✓ Paciente
+                                </span>
                               )}
-                            >
-                              {app.status}
-                            </span>
+                              <span
+                                className={cn(
+                                  'text-[9px] px-1.5 py-0.2 rounded-full font-medium',
+                                  statusConfig.badgeClass,
+                                )}
+                              >
+                                {app.status}
+                              </span>
+                            </div>
                           </div>
                           <p className="text-xs font-medium text-foreground truncate">
                             {app.patient_name}
                           </p>
-                          <p className="text-[10px] text-muted-foreground truncate">{app.city}</p>
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                            <span className="truncate">{app.city}</span>
+                            <span className="font-mono text-[9px] shrink-0">
+                              {app.confirmation_sent_at ? 'V✓' : 'V○'}{' '}
+                              {app.reminder_day_sent_at ? 'D✓' : 'D○'}
+                            </span>
+                          </div>
                         </div>
                       )
                     })
@@ -1255,6 +1532,68 @@ export default function Agenda() {
                 </div>
               )}
 
+              {/* Linha do tempo dos disparos e confirmações */}
+              <div className="space-y-2 p-3 rounded-xl border bg-muted/20 text-xs">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-primary" />
+                  Rastreamento de Lembretes & Interações
+                </span>
+                <div className="space-y-1.5 text-muted-foreground">
+                  <div className="flex items-center justify-between">
+                    <span>Confirmação da véspera (~24h):</span>
+                    <span className="font-medium text-foreground">
+                      {selectedAppointment.confirmation_sent_at
+                        ? format(
+                            parseISO(selectedAppointment.confirmation_sent_at),
+                            "dd/MM/yyyy 'às' HH:mm",
+                          )
+                        : 'Não enviada'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Lembrete do dia (2-3h antes):</span>
+                    <span className="font-medium text-foreground">
+                      {selectedAppointment.reminder_day_sent_at
+                        ? format(
+                            parseISO(selectedAppointment.reminder_day_sent_at),
+                            "dd/MM/yyyy 'às' HH:mm",
+                          )
+                        : 'Não enviado'}
+                    </span>
+                  </div>
+                  {selectedAppointment.followup_sent_at && (
+                    <div className="flex items-center justify-between text-amber-700 dark:text-amber-400">
+                      <span>Follow-up leve (+6h):</span>
+                      <span className="font-medium">
+                        {format(
+                          parseISO(selectedAppointment.followup_sent_at),
+                          "dd/MM/yyyy 'às' HH:mm",
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  {selectedAppointment.task_created_at && (
+                    <div className="flex items-center justify-between text-rose-600 dark:text-rose-400">
+                      <span>Tarefa humana criada:</span>
+                      <span className="font-medium">
+                        {format(
+                          parseISO(selectedAppointment.task_created_at),
+                          "dd/MM/yyyy 'às' HH:mm",
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  {selectedAppointment.last_interaction_type && (
+                    <div className="flex items-center justify-between pt-1 border-t border-border/50">
+                      <span>Última interação:</span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {selectedAppointment.last_interaction_type}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-2 pt-2 border-t">
                 <span className="text-xs text-muted-foreground font-medium block">
                   Alterar Status Rápido:
@@ -1298,6 +1637,77 @@ export default function Agenda() {
             </div>
           </DialogContent>
         )}
+      </Dialog>
+
+      {/* DIALOG: CONFIGURAÇÃO DE LEMBRETES E RECALL */}
+      <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serif">Regras de Lembretes & Recall</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl border bg-card">
+              <div>
+                <Label className="text-sm font-medium">Lembretes automáticos</Label>
+                <p className="text-xs text-muted-foreground">
+                  Véspera 24h (com preparo) e lembrete 2-3h antes no WhatsApp
+                </p>
+              </div>
+              <Switch checked={remindersEnabled} onCheckedChange={setRemindersEnabled} />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl border bg-card">
+              <div>
+                <Label className="text-sm font-medium">Recall de pacientes</Label>
+                <p className="text-xs text-muted-foreground">
+                  Disparo diário às 03:15 SP para reengajar pacientes inativos
+                </p>
+              </div>
+              <Switch checked={recallEnabled} onCheckedChange={setRecallEnabled} />
+            </div>
+
+            {recallEnabled && (
+              <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-muted/40 border">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Dias de inatividade</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={recallDaysInactive}
+                    onChange={(e) =>
+                      setRecallDaysInactive(Math.max(1, Number(e.target.value) || 14))
+                    }
+                    className="h-9"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Padrão: 14 dias</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Limite diário</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={recallDailyLimit}
+                    onChange={(e) => setRecallDailyLimit(Math.max(1, Number(e.target.value) || 15))}
+                    className="h-9"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Padrão: 15 / dia</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfigDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveRecallConfig} disabled={savingSettings}>
+              Salvar Parâmetros
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   )

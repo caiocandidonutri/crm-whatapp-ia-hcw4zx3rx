@@ -18,6 +18,10 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
   function sanitizeUrl(raw) {
     if (!raw) return ''
     var trimmed = String(raw).trim()
+    if (!trimmed) return ''
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      trimmed = 'https://' + trimmed
+    }
     return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
   }
 
@@ -417,6 +421,10 @@ routerAdd(
       function sanitizeUrl(raw) {
         if (!raw) return ''
         var trimmed = String(raw).trim()
+        if (!trimmed) return ''
+        if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+          trimmed = 'https://' + trimmed
+        }
         return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
       }
 
@@ -858,6 +866,10 @@ routerAdd(
       function sanitizeUrl(raw) {
         if (!raw) return ''
         var trimmed = String(raw).trim()
+        if (!trimmed) return ''
+        if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+          trimmed = 'https://' + trimmed
+        }
         return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
       }
 
@@ -894,6 +906,19 @@ routerAdd(
         )
       } catch (_) {}
 
+      // Contagem de lembretes e confirmações enviados
+      var confirmationSentCount = 0
+      var reminderDaySentCount = 0
+      var confirmedByPatientCount = 0
+      try {
+        confirmationSentCount = $app.countRecords('appointments', 'confirmation_sent_at != ""')
+        reminderDaySentCount = $app.countRecords('appointments', 'reminder_day_sent_at != ""')
+        confirmedByPatientCount = $app.countRecords(
+          'appointments',
+          'last_interaction_type = "confirmado_paciente"',
+        )
+      } catch (_) {}
+
       return e.json(200, {
         configured: isConfigured,
         external_url: extUrl || null,
@@ -907,6 +932,11 @@ routerAdd(
         details: details,
         total_appointments: totalLocal,
         pending_push: pendingPushCount,
+        reminders_stats: {
+          confirmations_sent: confirmationSentCount,
+          reminders_day_sent: reminderDaySentCount,
+          confirmed_by_patient: confirmedByPatientCount,
+        },
       })
     } catch (err) {
       return e.json(500, { error: 'Erro ao consultar status da sincronia: ' + String(err) })

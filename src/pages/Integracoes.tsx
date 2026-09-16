@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { useCurrentAccount } from '@/hooks/use-current-account'
 import { getVapidStatus, VapidConfigStatus } from '@/services/integrations'
+import {
+  getAgendaSyncStatus,
+  triggerAgendaSync,
+  type AgendaSyncStatus,
+} from '@/services/appointments'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,9 +25,12 @@ import {
   Loader2,
   RefreshCw,
   AlertTriangle,
+  AlertCircle,
   ExternalLink,
   HelpCircle,
+  Calendar,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
@@ -39,6 +47,8 @@ export default function Integracoes() {
   const [contactEmailInput, setContactEmailInput] = useState('')
   const [showPrivateKey, setShowPrivateKey] = useState(false)
   const [copiedKey, setCopiedKey] = useState(false)
+  const [agendaSync, setAgendaSync] = useState<AgendaSyncStatus | null>(null)
+  const [isSyncingAgenda, setIsSyncingAgenda] = useState(false)
 
   const loadStatus = async (silent = false) => {
     if (!silent) setLoading(true)
@@ -64,7 +74,28 @@ export default function Integracoes() {
 
   useEffect(() => {
     loadStatus()
+    getAgendaSyncStatus()
+      .then(setAgendaSync)
+      .catch(() => {})
   }, [])
+
+  const handleSyncAgendaNow = async () => {
+    setIsSyncingAgenda(true)
+    try {
+      const res = await triggerAgendaSync()
+      if (res.success) {
+        toast.success(`Sincronia concluída: ${res.pulled} puxados, ${res.pushed} enviados.`)
+      } else {
+        toast.warning(res.message || 'Sincronia parcial ou pendente de credenciais.')
+      }
+      const st = await getAgendaSyncStatus()
+      setAgendaSync(st)
+    } catch {
+      toast.error('Erro ao sincronizar agenda')
+    } finally {
+      setIsSyncingAgenda(false)
+    }
+  }
 
   const handleCopyPublicKey = () => {
     if (!publicKeyInput) return
@@ -371,6 +402,98 @@ export default function Integracoes() {
               </Button>
             </div>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* Card da Sincronização da Agenda Externa */}
+      <Card className="border-border/60 bg-white/70 shadow-sm rounded-2xl">
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-base font-semibold text-primary flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-primary" />
+              Sincronização da Agenda Médica (Dr. Caio)
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Conexão bidirecional em tempo real entre o CRM WhatsApp e a Agenda de Consultas
+            </CardDescription>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleSyncAgendaNow}
+            disabled={isSyncingAgenda}
+            className="gap-1.5 text-xs h-8"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', isSyncingAgenda && 'animate-spin')} />
+            <span>Sincronizar Agora</span>
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3 rounded-xl border bg-card/60 space-y-1">
+              <span className="text-[11px] text-muted-foreground block">Status do Motor</span>
+              <span className="font-semibold text-xs flex items-center gap-1 text-foreground">
+                {agendaSync?.last_status === 'success' ? (
+                  <span className="text-emerald-600 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Ativo & Conectado
+                  </span>
+                ) : agendaSync?.last_status === 'missing_credentials' ? (
+                  <span className="text-amber-600 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" /> Aguardando AGENDA_SYNC_*
+                  </span>
+                ) : (
+                  <span className="text-foreground">{agendaSync?.last_status || 'Em standby'}</span>
+                )}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl border bg-card/60 space-y-1">
+              <span className="text-[11px] text-muted-foreground block">Última Execução</span>
+              <span className="font-semibold text-xs text-foreground">
+                {agendaSync?.last_sync
+                  ? new Date(agendaSync.last_sync).toLocaleString('pt-BR')
+                  : 'Ainda não executado'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl border bg-card/60 space-y-1">
+              <span className="text-[11px] text-muted-foreground block">Fila de Push Local</span>
+              <span className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                {agendaSync?.pending_push && agendaSync.pending_push > 0 ? (
+                  <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">
+                    {agendaSync.pending_push} pendência(s)
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] px-1.5 py-0 h-4 border-emerald-500/40 text-emerald-600"
+                  >
+                    Sincronizado (0 pendentes)
+                  </Badge>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {agendaSync?.reminders_stats && (
+            <div className="p-3 rounded-xl bg-muted/30 border text-xs flex flex-wrap items-center justify-between gap-2">
+              <span className="text-muted-foreground font-medium">
+                Métricas de Lembretes no CRM:
+              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-emerald-700 dark:text-emerald-400">
+                  Véspera: <strong>{agendaSync.reminders_stats.confirmations_sent}</strong>
+                </span>
+                <span className="text-blue-700 dark:text-blue-400">
+                  Dia: <strong>{agendaSync.reminders_stats.reminders_day_sent}</strong>
+                </span>
+                <span className="text-purple-700 dark:text-purple-400">
+                  Confirmados pelo paciente:{' '}
+                  <strong>{agendaSync.reminders_stats.confirmed_by_patient}</strong>
+                </span>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

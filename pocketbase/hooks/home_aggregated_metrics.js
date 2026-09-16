@@ -469,6 +469,47 @@ routerAdd(
       myOverdue = myOverdueRow.cnt
     } catch (_) {}
 
+    // Métricas de Recall de Pacientes
+    var recallDetected = 0
+    var recallSentToday = 0
+    var recallReengaged = 0
+    try {
+      // 1. Detectados / elegíveis para recall: clientes ou com consulta realizada, sem mensagem recente
+      var recallInactiveCutoffIso = new Date(Date.now() - 14 * 86400 * 1000).toISOString()
+      var detRow = new DynamicModel({ cnt: 0 })
+      $app
+        .db()
+        .newQuery(
+          'SELECT COUNT(*) as cnt FROM crm_contacts WHERE account_id = {:accId} AND (stage = "cliente" OR is_patient = 1) AND (last_recall_sent_at IS NULL OR last_recall_sent_at = "")',
+        )
+        .bind({ accId: accountId })
+        .one(detRow)
+      recallDetected = detRow.cnt
+
+      // 2. Enviados hoje: last_recall_sent_at começando com a data de hoje
+      var todayPrefix = todayIso + '%'
+      var sentRow = new DynamicModel({ cnt: 0 })
+      $app
+        .db()
+        .newQuery(
+          'SELECT COUNT(*) as cnt FROM crm_contacts WHERE account_id = {:accId} AND last_recall_sent_at LIKE {:todayPfx}',
+        )
+        .bind({ accId: accountId, todayPfx: todayPrefix })
+        .one(sentRow)
+      recallSentToday = sentRow.cnt
+
+      // 3. Reengajados: recall_count > 0 e care_status != "reengajamento" ou stage != "nao_respondido"
+      var reengRow = new DynamicModel({ cnt: 0 })
+      $app
+        .db()
+        .newQuery(
+          'SELECT COUNT(*) as cnt FROM crm_contacts WHERE account_id = {:accId} AND recall_count > 0 AND (stage = "cliente" OR stage = "em_atendimento" OR care_status = "precisa_retorno")',
+        )
+        .bind({ accId: accountId })
+        .one(reengRow)
+      recallReengaged = reengRow.cnt
+    } catch (_) {}
+
     return e.json(200, {
       conversations: conversations,
       unread: unread,
@@ -502,6 +543,11 @@ routerAdd(
         active: convActive,
         archived: convArchived,
         total: convActive + convArchived,
+      },
+      patientRecall: {
+        detected: recallDetected,
+        sentToday: recallSentToday,
+        reengaged: recallReengaged,
       },
     })
   },

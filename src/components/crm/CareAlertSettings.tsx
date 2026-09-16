@@ -19,6 +19,10 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
   const [needsCareEnabled, setNeedsCareEnabled] = useState(true)
   const [confirmationEnabled, setConfirmationEnabled] = useState(true)
   const [hoursBefore, setHoursBefore] = useState(24)
+  const [remindersEnabled, setRemindersEnabled] = useState(true)
+  const [recallEnabled, setRecallEnabled] = useState(true)
+  const [recallDaysInactive, setRecallDaysInactive] = useState(14)
+  const [recallDailyLimit, setRecallDailyLimit] = useState(15)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -32,6 +36,10 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
         setNeedsCareEnabled(settings.needs_care_alert_enabled ?? true)
         setConfirmationEnabled(settings.confirmation_alert_enabled ?? true)
         setHoursBefore(settings.confirmation_hours_before ?? 24)
+        setRemindersEnabled(settings.reminders_enabled ?? true)
+        setRecallEnabled(settings.recall_enabled ?? true)
+        setRecallDaysInactive(settings.recall_days_inactive ?? 14)
+        setRecallDailyLimit(settings.recall_daily_limit ?? 15)
       }
     } catch {
       /* defaults */
@@ -53,6 +61,10 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
         needs_care_alert_enabled: needsCareEnabled,
         confirmation_alert_enabled: confirmationEnabled,
         confirmation_hours_before: hoursBefore,
+        reminders_enabled: remindersEnabled,
+        recall_enabled: recallEnabled,
+        recall_days_inactive: recallDaysInactive,
+        recall_daily_limit: recallDailyLimit,
       })
       toast.success('Configurações salvas')
     } catch (err) {
@@ -143,6 +155,58 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
             <p className="text-xs text-muted-foreground">
               Quantas horas antes da consulta o lembrete será enviado.
             </p>
+          </div>
+        )}
+      </div>
+
+      <Separator />
+
+      {/* Lembretes automáticos e Recall */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label className="text-sm font-medium">Lembretes automáticos de agendamento</Label>
+            <p className="text-xs text-muted-foreground">
+              Dispara confirmação 24h com preparo, lembrete 2-3h antes e follow-up único
+            </p>
+          </div>
+          <Switch checked={remindersEnabled} onCheckedChange={setRemindersEnabled} />
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label className="text-sm font-medium">Recall de pacientes inativos</Label>
+            <p className="text-xs text-muted-foreground">
+              Disparo diário de mensagem acolhedora para pacientes sem contato recente
+            </p>
+          </div>
+          <Switch checked={recallEnabled} onCheckedChange={setRecallEnabled} />
+        </div>
+
+        {recallEnabled && (
+          <div className="grid grid-cols-2 gap-3 pl-1 pt-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Dias de inatividade</Label>
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={recallDaysInactive}
+                onChange={(e) => setRecallDaysInactive(Math.max(1, Number(e.target.value) || 14))}
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Limite diário</Label>
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                value={recallDailyLimit}
+                onChange={(e) => setRecallDailyLimit(Math.max(1, Number(e.target.value) || 15))}
+                className="h-9"
+              />
+            </div>
           </div>
         )}
       </div>

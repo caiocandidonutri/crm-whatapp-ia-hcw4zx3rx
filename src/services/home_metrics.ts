@@ -66,6 +66,11 @@ export interface HomeMetricsData {
     archived: number
     total: number
   }
+  patientRecall?: {
+    detected: number
+    sentToday: number
+    reengaged: number
+  }
 }
 
 export const DEFAULT_HOME_METRICS: HomeMetricsData = {
@@ -115,6 +120,11 @@ export const DEFAULT_HOME_METRICS: HomeMetricsData = {
     active: 0,
     archived: 0,
     total: 0,
+  },
+  patientRecall: {
+    detected: 0,
+    sentToday: 0,
+    reengaged: 0,
   },
 }
 
