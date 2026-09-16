@@ -132,6 +132,23 @@ export const CITY_DEFAULT_LOCATIONS: Record<AppointmentCity, string> = {
   Online: 'Online',
 }
 
+/**
+ * Helper para verificar se um erro é 429 (Too Many Requests / Rate limit).
+ */
+export function isAppointmentRateLimited(err: unknown): boolean {
+  if (!err) return false
+  if (typeof err === 'object') {
+    if ('status' in err && (err as { status: unknown }).status === 429) {
+      return true
+    }
+    if ('statusCode' in err && (err as { statusCode: unknown }).statusCode === 429) {
+      return true
+    }
+  }
+  const str = String(err).toLowerCase()
+  return str.includes('429') || str.includes('too many requests')
+}
+
 export async function listAppointments(options?: {
   startDate?: string
   endDate?: string
@@ -182,13 +199,7 @@ export async function listAppointments(options?: {
         requestKey: null,
       })
     } catch (err: unknown) {
-      const is429 =
-        (err &&
-          typeof err === 'object' &&
-          'status' in err &&
-          (err as { status: number }).status === 429) ||
-        String(err).includes('429') ||
-        String(err).toLowerCase().includes('too many requests')
+      const is429 = isAppointmentRateLimited(err)
 
       if (is429 && attempt < maxRetries) {
         const delay = delays[attempt] + Math.floor(Math.random() * 400)

@@ -65,7 +65,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/hooks/use-toast'
 import { useCurrentAccount } from '@/hooks/use-current-account'
-import pb, { isAppointmentRateLimited } from '@/lib/pocketbase/client'
+import pb from '@/lib/pocketbase/client'
 import { cn } from '@/lib/utils'
 import type { Appointment, AppointmentCity, AppointmentStatus } from '@/types/models'
 import {
@@ -74,6 +74,7 @@ import {
   updateAppointment,
   getAgendaSyncStatus,
   triggerAgendaSync,
+  isAppointmentRateLimited,
   CITY_DEFAULT_LOCATIONS,
   type AgendaSyncStatus,
   type CreateAppointmentInput,
