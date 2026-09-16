@@ -63,6 +63,63 @@ routerAdd(
       var spDate = nowSp.getUTCDate()
       var todayStartMs = Date.UTC(spYear, spMonth, spDate) - SP_OFFSET_MS
 
+      var nowIso = new Date().toISOString()
+      var threeMonthsAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+
+      // Carregar agendamentos para guiar verificação da agenda em tempo real
+      var allAppts = []
+      try {
+        allAppts = $app.findRecordsByFilter(
+          'appointments',
+          'account_id = {:accId} || account_id = "" || account_id = null',
+          '-starts_at',
+          1000,
+          0,
+          { accId: accountId },
+        )
+      } catch (_) {}
+
+      var apptsByPid = {}
+      var apptsBySuffix = {}
+      for (var apI = 0; apI < allAppts.length; apI++) {
+        var apRec = allAppts[apI]
+        var apPid = apRec.getString('patient_id')
+        var apP = (apRec.getString('patient_phone') || '').replace(/\D/g, '')
+        var apSuf = apP.length >= 8 ? apP.slice(-8) : ''
+        if (apPid) {
+          if (!apptsByPid[apPid]) apptsByPid[apPid] = []
+          apptsByPid[apPid].push(apRec)
+        }
+        if (apSuf) {
+          if (!apptsBySuffix[apSuf]) apptsBySuffix[apSuf] = []
+          apptsBySuffix[apSuf].push(apRec)
+        }
+      }
+
+      function isPatientCoveredByAgenda(contactRec) {
+        var cId = contactRec.id
+        var cP = (contactRec.getString('phone') || '').replace(/\D/g, '')
+        var cJ = (contactRec.getString('jid') || '').replace(/\D/g, '')
+        var sufA = cP.length >= 8 ? cP.slice(-8) : ''
+        var sufB = cJ.length >= 8 ? cJ.slice(-8) : ''
+
+        var candidateAppts = []
+        if (apptsByPid[cId]) candidateAppts = candidateAppts.concat(apptsByPid[cId])
+        if (sufA && apptsBySuffix[sufA]) candidateAppts = candidateAppts.concat(apptsBySuffix[sufA])
+        if (sufB && sufB !== sufA && apptsBySuffix[sufB])
+          candidateAppts = candidateAppts.concat(apptsBySuffix[sufB])
+
+        for (var ca = 0; ca < candidateAppts.length; ca++) {
+          var cand = candidateAppts[ca]
+          var sAt = cand.getString('starts_at')
+          var st = cand.getString('status')
+          if (!sAt) continue
+          if (sAt > nowIso && (st === 'agendado' || st === 'confirmado')) return true
+          if (sAt <= nowIso && sAt >= threeMonthsAgoIso && st === 'realizado') return true
+        }
+        return false
+      }
+
       var attendedToday = 0
       var needsReturn = 0
       var totalPatients = 0
@@ -85,11 +142,17 @@ routerAdd(
         }
 
         var careStatus = c.getString('care_status') || 'em_dia'
-        if (careStatus === 'precisa_retorno') {
+        var covered = isPatientCoveredByAgenda(c)
+
+        if (covered && (careStatus === 'precisa_retorno' || careStatus === 'precisa_consulta')) {
+          careStatus = 'em_dia'
+        }
+
+        if (careStatus === 'precisa_retorno' && !covered) {
           needsReturn++
         }
 
-        if (careStatus && careStatus !== 'em_dia') {
+        if (careStatus && careStatus !== 'em_dia' && !covered) {
           var alertName = c.getString('contact_name') || c.getString('push_name') || 'Contato'
           careAlerts.push({
             id: c.id,

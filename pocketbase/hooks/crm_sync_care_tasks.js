@@ -20,6 +20,53 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
     alta_demanda: 'Alta demanda',
   }
 
+  var nowIso = new Date().toISOString()
+  var threeMonthsAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+
+  // Helper para verificar se paciente já tem atendimento recente (últimos 3 meses) ou agendamento futuro ativo
+  function checkPatientAgendaStatus(contactRec) {
+    if (!contactRec) return { hasActiveFuture: false, hasRecentRealizado: false }
+    var cId = contactRec.id
+    var cPhone = (contactRec.getString('phone') || '').replace(/\D/g, '')
+    var cJid = (contactRec.getString('jid') || '').replace(/\D/g, '')
+    var suf1 = cPhone.length >= 8 ? cPhone.slice(-8) : ''
+    var suf2 = cJid.length >= 8 ? cJid.slice(-8) : ''
+
+    var filterParts = ["patient_id = '" + cId + "'"]
+    if (suf1) filterParts.push("patient_phone ~ '" + suf1 + "'")
+    if (suf2 && suf2 !== suf1) filterParts.push("patient_phone ~ '" + suf2 + "'")
+
+    var appts = []
+    try {
+      appts = $app.findRecordsByFilter(
+        'appointments',
+        '(' + filterParts.join(' || ') + ')',
+        '-starts_at',
+        50,
+        0,
+      )
+    } catch (_) {}
+
+    var hasActiveFuture = false
+    var hasRecentRealizado = false
+
+    for (var ai = 0; ai < appts.length; ai++) {
+      var ap = appts[ai]
+      var st = ap.getString('status')
+      var sAt = ap.getString('starts_at')
+      if (!sAt) continue
+
+      if (sAt > nowIso && (st === 'agendado' || st === 'confirmado')) {
+        hasActiveFuture = true
+      }
+      if (sAt <= nowIso && sAt >= threeMonthsAgoIso && st === 'realizado') {
+        hasRecentRealizado = true
+      }
+    }
+
+    return { hasActiveFuture: hasActiveFuture, hasRecentRealizado: hasRecentRealizado }
+  }
+
   var tasksCreated = 0
   var tasksUpdated = 0
   var tasksCompleted = 0
@@ -152,9 +199,27 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
         if (conv) conversationId = conv.id
       } catch (_) {}
 
+      // Consulta a agenda antes de gerar/reabrir pendências de agendamento/retorno
+      var agendaInfo = checkPatientAgendaStatus(contact)
+      var hasAgendaCoverage = agendaInfo.hasActiveFuture || agendaInfo.hasRecentRealizado
+
+      // Se o paciente está atendido nos últimos 3 meses ou agendado no futuro,
+      // normaliza care_status para 'em_dia' se estava em pendência de agendamento/retorno
+      if (
+        hasAgendaCoverage &&
+        (careStatus === 'precisa_retorno' || careStatus === 'precisa_consulta')
+      ) {
+        contact.set('care_status', 'em_dia')
+        try {
+          $app.saveNoValidate(contact)
+        } catch (_) {}
+        careStatus = 'em_dia'
+      }
+
       var currentCategories = []
 
-      if (careStatus === 'precisa_retorno') {
+      // Pendências de agendamento (retorno/consulta/follow-up) só entram se NÃO houver cobertura pela agenda
+      if (careStatus === 'precisa_retorno' && !hasAgendaCoverage) {
         currentCategories.push('precisa_retorno')
       }
 
@@ -179,11 +244,11 @@ cronAdd('sync_care_tasks', '0 * * * *', () => {
         currentCategories.push('precisa_atencao')
       }
 
-      if (stage === 'em_atendimento' && !convertedAt) {
+      if (stage === 'em_atendimento' && !convertedAt && !hasAgendaCoverage) {
         currentCategories.push('precisa_consulta')
       }
 
-      if (isPatient && convertedAt) {
+      if (isPatient && convertedAt && !hasAgendaCoverage) {
         var convTs = Math.floor(new Date(convertedAt).getTime() / 1000)
         if (!isNaN(convTs)) {
           var daysSince = Math.floor((nowTs - convTs) / 86400)

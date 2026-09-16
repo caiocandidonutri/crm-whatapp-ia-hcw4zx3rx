@@ -71,6 +71,51 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
 
   var totalClassified = 0
   var totalProcessed = 0
+  var nowIso = new Date().toISOString()
+  var threeMonthsAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+
+  function checkPatientAgendaStatus(contactRec) {
+    if (!contactRec) return { hasActiveFuture: false, hasRecentRealizado: false }
+    var cId = contactRec.id
+    var cPhone = (contactRec.getString('phone') || '').replace(/\D/g, '')
+    var cJid = (contactRec.getString('jid') || '').replace(/\D/g, '')
+    var suf1 = cPhone.length >= 8 ? cPhone.slice(-8) : ''
+    var suf2 = cJid.length >= 8 ? cJid.slice(-8) : ''
+
+    var filterParts = ["patient_id = '" + cId + "'"]
+    if (suf1) filterParts.push("patient_phone ~ '" + suf1 + "'")
+    if (suf2 && suf2 !== suf1) filterParts.push("patient_phone ~ '" + suf2 + "'")
+
+    var appts = []
+    try {
+      appts = $app.findRecordsByFilter(
+        'appointments',
+        '(' + filterParts.join(' || ') + ')',
+        '-starts_at',
+        50,
+        0,
+      )
+    } catch (_) {}
+
+    var hasActiveFuture = false
+    var hasRecentRealizado = false
+
+    for (var ai = 0; ai < appts.length; ai++) {
+      var ap = appts[ai]
+      var st = ap.getString('status')
+      var sAt = ap.getString('starts_at')
+      if (!sAt) continue
+
+      if (sAt > nowIso && (st === 'agendado' || st === 'confirmado')) {
+        hasActiveFuture = true
+      }
+      if (sAt <= nowIso && sAt >= threeMonthsAgoIso && st === 'realizado') {
+        hasRecentRealizado = true
+      }
+    }
+
+    return { hasActiveFuture: hasActiveFuture, hasRecentRealizado: hasRecentRealizado }
+  }
 
   for (var a = 0; a < accounts.length; a++) {
     var accountId = accounts[a].id
@@ -310,7 +355,10 @@ cronAdd('daily_reclassify', '0 9 * * *', () => {
       }
 
       var careStatus = 'em_dia'
-      if (contact.getBool('is_patient')) {
+      var agendaInfo = checkPatientAgendaStatus(contact)
+      var hasAgendaCoverage = agendaInfo.hasActiveFuture || agendaInfo.hasRecentRealizado
+
+      if (contact.getBool('is_patient') && !hasAgendaCoverage) {
         var convertedAt = contact.getString('converted_at')
         if (convertedAt) {
           var convTs = Math.floor(new Date(convertedAt).getTime() / 1000)

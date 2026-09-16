@@ -1,7 +1,53 @@
 cronAdd('post_consultation_followup', '0 9 * * *', () => {
   var nowTs = Math.floor(Date.now() / 1000)
+  var nowIso = new Date().toISOString()
+  var threeMonthsAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
   var nextDayIso = new Date(Date.now() + 86400000).toISOString()
   var cutoff36hIso = new Date(Date.now() - 36 * 3600 * 1000).toISOString()
+
+  // Helper para verificar se paciente já tem atendimento recente (últimos 3 meses) ou agendamento futuro ativo
+  function checkPatientAgendaStatus(contactRec) {
+    if (!contactRec) return { hasActiveFuture: false, hasRecentRealizado: false }
+    var cId = contactRec.id
+    var cPhone = (contactRec.getString('phone') || '').replace(/\D/g, '')
+    var cJid = (contactRec.getString('jid') || '').replace(/\D/g, '')
+    var suf1 = cPhone.length >= 8 ? cPhone.slice(-8) : ''
+    var suf2 = cJid.length >= 8 ? cJid.slice(-8) : ''
+
+    var filterParts = ["patient_id = '" + cId + "'"]
+    if (suf1) filterParts.push("patient_phone ~ '" + suf1 + "'")
+    if (suf2 && suf2 !== suf1) filterParts.push("patient_phone ~ '" + suf2 + "'")
+
+    var appts = []
+    try {
+      appts = $app.findRecordsByFilter(
+        'appointments',
+        '(' + filterParts.join(' || ') + ')',
+        '-starts_at',
+        50,
+        0,
+      )
+    } catch (_) {}
+
+    var hasActiveFuture = false
+    var hasRecentRealizado = false
+
+    for (var ai = 0; ai < appts.length; ai++) {
+      var ap = appts[ai]
+      var st = ap.getString('status')
+      var sAt = ap.getString('starts_at')
+      if (!sAt) continue
+
+      if (sAt > nowIso && (st === 'agendado' || st === 'confirmado')) {
+        hasActiveFuture = true
+      }
+      if (sAt <= nowIso && sAt >= threeMonthsAgoIso && st === 'realizado') {
+        hasRecentRealizado = true
+      }
+    }
+
+    return { hasActiveFuture: hasActiveFuture, hasRecentRealizado: hasRecentRealizado }
+  }
 
   var rulesById = {}
   try {
@@ -38,13 +84,17 @@ cronAdd('post_consultation_followup', '0 9 * * *', () => {
       var convertedAt = patient.getString('converted_at')
       var followupDays = getFollowupDays(patient)
 
+      // Consulta a agenda antes de marcar como precisa_retorno
+      var agendaInfo = checkPatientAgendaStatus(patient)
+      var hasAgendaCoverage = agendaInfo.hasActiveFuture || agendaInfo.hasRecentRealizado
+
       if (convertedAt) {
         var convertedTs = Math.floor(new Date(convertedAt).getTime() / 1000)
         var daysSinceConsultation = Math.floor((nowTs - convertedTs) / 86400)
-        if (daysSinceConsultation >= followupDays) {
+        if (daysSinceConsultation >= followupDays && !hasAgendaCoverage) {
           careStatus = 'precisa_retorno'
         }
-        if (daysSinceConsultation === followupDays) {
+        if (daysSinceConsultation === followupDays && !hasAgendaCoverage) {
           followupCandidates.push(patient)
         }
       }

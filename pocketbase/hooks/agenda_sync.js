@@ -1088,6 +1088,46 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
       if (!rec.getString('account_id') && linkedContact.getString('account_id')) {
         rec.set('account_id', linkedContact.getString('account_id'))
       }
+
+      // Sincronia de status de cuidado guiada pela agenda:
+      // Se este agendamento está ativo no futuro ou foi realizado nos últimos 3 meses,
+      // limpa pendência de agendamento/retorno deste contato no CRM
+      try {
+        var aStartsAt = rec.getString('starts_at')
+        var aStatus = rec.getString('status')
+        var nIso = new Date().toISOString()
+        var threeM = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+        var isFutureActive =
+          aStartsAt > nIso && (aStatus === 'agendado' || aStatus === 'confirmado')
+        var isRecentRealizado = aStartsAt <= nIso && aStartsAt >= threeM && aStatus === 'realizado'
+
+        if (isFutureActive || isRecentRealizado) {
+          var currCare = linkedContact.getString('care_status') || 'em_dia'
+          if (
+            currCare === 'precisa_retorno' ||
+            currCare === 'precisa_consulta' ||
+            currCare.indexOf('sem_contato') === 0
+          ) {
+            linkedContact.set('care_status', 'em_dia')
+            $app.saveNoValidate(linkedContact)
+          }
+
+          // Fecha eventuais tarefas pendentes de agendar consulta/retorno para este contato
+          var openTasks = $app.findRecordsByFilter(
+            'tasks',
+            "crm_contact_id = {:cid} && (status = 'pendente' || status = 'em_andamento') && (care_category = 'precisa_retorno' || care_category = 'precisa_consulta' || care_category = 'followup_10_15')",
+            '-created',
+            20,
+            0,
+            { cid: linkedContact.id },
+          )
+          for (var ot = 0; ot < openTasks.length; ot++) {
+            openTasks[ot].set('status', 'concluida')
+            openTasks[ot].set('completed_at', nIso)
+            $app.saveNoValidate(openTasks[ot])
+          }
+        }
+      } catch (_) {}
     }
 
     linkPatientAndConversation(rec)

@@ -464,6 +464,31 @@ export function PatientContextPanel({
                   {upcomingAppointment.location || upcomingAppointment.city} • Dr. Caio
                 </p>
               </div>
+            ) : pastAppointments2Months.length > 0 ? (
+              <div className="p-3 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800 text-xs space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-semibold">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    Cuidado em dia (atendido recentemente)
+                  </div>
+                  {onOpenSchedule && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={onOpenSchedule}
+                      className="h-7 text-xs px-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border-emerald-300 font-medium"
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Novo agendamento
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                  Atendimento realizado recentemente na agenda (
+                  {formatBrazilianDate(pastAppointments2Months[0].starts_at)}). Sem pendências em
+                  aberto.
+                </p>
+              </div>
             ) : (
               <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs space-y-1">
                 <div className="flex items-center justify-between">

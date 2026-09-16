@@ -164,11 +164,70 @@ routerAdd(
         }
       } catch (_) {}
 
-      function buildCard(c) {
+      var nowIso = new Date().toISOString()
+      var threeMonthsAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+
+      var allAppts = []
+      try {
+        allAppts = $app.findRecordsByFilter(
+          'appointments',
+          'account_id = {:accId} || account_id = "" || account_id = null',
+          '-starts_at',
+          1000,
+          0,
+          { accId: accountId },
+        )
+      } catch (_) {}
+
+      var apptsByPid = {}
+      var apptsBySuffix = {}
+      for (var apI = 0; apI < allAppts.length; apI++) {
+        var apRec = allAppts[apI]
+        var apPid = apRec.getString('patient_id')
+        var apP = (apRec.getString('patient_phone') || '').replace(/\D/g, '')
+        var apSuf = apP.length >= 8 ? apP.slice(-8) : ''
+        if (apPid) {
+          if (!apptsByPid[apPid]) apptsByPid[apPid] = []
+          apptsByPid[apPid].push(apRec)
+        }
+        if (apSuf) {
+          if (!apptsBySuffix[apSuf]) apptsBySuffix[apSuf] = []
+          apptsBySuffix[apSuf].push(apRec)
+        }
+      }
+
+      function isPatientCoveredByAgenda(contactRec) {
+        var cId = contactRec.id
+        var cP = (contactRec.getString('phone') || '').replace(/\D/g, '')
+        var cJ = (contactRec.getString('jid') || '').replace(/\D/g, '')
+        var sufA = cP.length >= 8 ? cP.slice(-8) : ''
+        var sufB = cJ.length >= 8 ? cJ.slice(-8) : ''
+
+        var candidateAppts = []
+        if (apptsByPid[cId]) candidateAppts = candidateAppts.concat(apptsByPid[cId])
+        if (sufA && apptsBySuffix[sufA]) candidateAppts = candidateAppts.concat(apptsBySuffix[sufA])
+        if (sufB && sufB !== sufA && apptsBySuffix[sufB])
+          candidateAppts = candidateAppts.concat(apptsBySuffix[sufB])
+
+        for (var ca = 0; ca < candidateAppts.length; ca++) {
+          var cand = candidateAppts[ca]
+          var sAt = cand.getString('starts_at')
+          var st = cand.getString('status')
+          if (!sAt) continue
+          if (sAt > nowIso && (st === 'agendado' || st === 'confirmado')) return true
+          if (sAt <= nowIso && sAt >= threeMonthsAgoIso && st === 'realizado') return true
+        }
+        return false
+      }
+
+      function buildCard(c, effectiveCareStatus) {
         var name =
           c.getString('contact_name') || c.getString('push_name') || c.getString('jid') || 'Contato'
         var stage = c.getString('stage') || ''
-        var careStatus = c.getString('care_status') || 'em_dia'
+        var careStatus =
+          effectiveCareStatus !== undefined
+            ? effectiveCareStatus
+            : c.getString('care_status') || 'em_dia'
         var phone = c.getString('phone') || ''
         var jid = c.getString('jid') || ''
         var instance = c.getString('instance_name') || ''
@@ -208,11 +267,20 @@ routerAdd(
       for (var i = 0; i < contacts.length; i++) {
         var contact = contacts[i]
         var careStatus = contact.getString('care_status') || 'em_dia'
-        var card = buildCard(contact)
+        var coveredByAgenda = isPatientCoveredByAgenda(contact)
+
+        if (
+          coveredByAgenda &&
+          (careStatus === 'precisa_retorno' || careStatus === 'precisa_consulta')
+        ) {
+          careStatus = 'em_dia'
+        }
+
+        var card = buildCard(contact, careStatus)
 
         if (careStatus === 'em_dia') {
           overview.em_dia++
-        } else if (careStatus === 'precisa_retorno') {
+        } else if (careStatus === 'precisa_retorno' && !coveredByAgenda) {
           overview.precisa_retorno++
         }
 
@@ -229,7 +297,7 @@ routerAdd(
           }
         }
 
-        if (careStatus === 'precisa_retorno') {
+        if (careStatus === 'precisa_retorno' && !coveredByAgenda) {
           groups.precisa_retorno.push(card)
         }
 
@@ -258,11 +326,11 @@ routerAdd(
 
         var stage = contact.getString('stage') || ''
         var convertedAt = contact.getString('converted_at') || ''
-        if (stage === 'em_atendimento' && !convertedAt) {
+        if (stage === 'em_atendimento' && !convertedAt && !coveredByAgenda) {
           groups.precisam_de_consulta.push(card)
         }
 
-        if (convertedAt && contact.getBool('is_patient')) {
+        if (convertedAt && contact.getBool('is_patient') && !coveredByAgenda) {
           var convTs = Math.floor(new Date(convertedAt).getTime() / 1000)
           if (!isNaN(convTs)) {
             var daysSince = Math.floor((nowTs - convTs) / 86400)

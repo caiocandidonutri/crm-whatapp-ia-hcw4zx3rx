@@ -287,6 +287,68 @@ routerAdd(
       followup_10_15: 'Follow-up 10-15 dias',
       alta_demanda: 'Alta demanda',
     }
+
+    var nowIso = new Date().toISOString()
+    var threeMonthsAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+
+    function checkPatientAgendaStatus(contactRec) {
+      if (!contactRec) return { hasActiveFuture: false, hasRecentRealizado: false }
+      var cId = contactRec.id
+      var cPhone = (contactRec.getString('phone') || '').replace(/\D/g, '')
+      var cJid = (contactRec.getString('jid') || '').replace(/\D/g, '')
+      var suf1 = cPhone.length >= 8 ? cPhone.slice(-8) : ''
+      var suf2 = cJid.length >= 8 ? cJid.slice(-8) : ''
+
+      var filterParts = ["patient_id = '" + cId + "'"]
+      if (suf1) filterParts.push("patient_phone ~ '" + suf1 + "'")
+      if (suf2 && suf2 !== suf1) filterParts.push("patient_phone ~ '" + suf2 + "'")
+
+      var appts = []
+      try {
+        appts = $app.findRecordsByFilter(
+          'appointments',
+          '(' + filterParts.join(' || ') + ')',
+          '-starts_at',
+          50,
+          0,
+        )
+      } catch (_) {}
+
+      var hasActiveFuture = false
+      var hasRecentRealizado = false
+
+      for (var ai = 0; ai < appts.length; ai++) {
+        var ap = appts[ai]
+        var st = ap.getString('status')
+        var sAt = ap.getString('starts_at')
+        if (!sAt) continue
+
+        if (sAt > nowIso && (st === 'agendado' || st === 'confirmado')) {
+          hasActiveFuture = true
+        }
+        if (sAt <= nowIso && sAt >= threeMonthsAgoIso && st === 'realizado') {
+          hasRecentRealizado = true
+        }
+      }
+
+      return { hasActiveFuture: hasActiveFuture, hasRecentRealizado: hasRecentRealizado }
+    }
+
+    // Normaliza care_status para 'em_dia' se paciente já estiver coberto pela agenda
+    for (var pre = 0; pre < contacts.length; pre++) {
+      var preContact = contacts[pre]
+      var preCare = preContact.getString('care_status') || 'em_dia'
+      if (preCare === 'precisa_retorno' || preCare === 'precisa_consulta') {
+        var preAgenda = checkPatientAgendaStatus(preContact)
+        if (preAgenda.hasActiveFuture || preAgenda.hasRecentRealizado) {
+          preContact.set('care_status', 'em_dia')
+          try {
+            $app.saveNoValidate(preContact)
+          } catch (_) {}
+        }
+      }
+    }
+
     var tasksCreated = 0,
       tasksUpdated = 0,
       tasksCompleted = 0
@@ -338,8 +400,15 @@ routerAdd(
         if (conv) convId = conv.id
       } catch (_) {}
 
+      var agendaCheck = checkPatientAgendaStatus(c)
+      var coveredByAgenda = agendaCheck.hasActiveFuture || agendaCheck.hasRecentRealizado
+
+      if (coveredByAgenda && (cCare === 'precisa_retorno' || cCare === 'precisa_consulta')) {
+        cCare = 'em_dia'
+      }
+
       var cats = []
-      if (cCare === 'precisa_retorno') cats.push('precisa_retorno')
+      if (cCare === 'precisa_retorno' && !coveredByAgenda) cats.push('precisa_retorno')
       var isNR = false
       var mInfo = lastMsgByJid[cJid]
       if (mInfo) {
@@ -355,8 +424,8 @@ routerAdd(
       }
       if (isNR) cats.push('nao_respondeu')
       if (cAction && cPri >= 5) cats.push('precisa_atencao')
-      if (cStage === 'em_atendimento' && !cConvAt) cats.push('precisa_consulta')
-      if (cPatient && cConvAt) {
+      if (cStage === 'em_atendimento' && !cConvAt && !coveredByAgenda) cats.push('precisa_consulta')
+      if (cPatient && cConvAt && !coveredByAgenda) {
         var ct = Math.floor(new Date(cConvAt).getTime() / 1000)
         if (!isNaN(ct)) {
           var ds = Math.floor((nowTs - ct) / 86400)
