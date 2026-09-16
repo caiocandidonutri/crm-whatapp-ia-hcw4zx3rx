@@ -792,8 +792,15 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
       return (n < 10 ? '0' : '') + n
     }
 
-    // Helper rigoroso para parsing de datas de agendamento no fuso de Brasília (-03:00)
-    // Retorna ISO UTC ("yyyy-MM-ddTHH:mm:ss.000Z") ou null se ausente/inválido
+    // Helper rigoroso para parsing de datas de agendamento da agenda externa
+    // Regra fundamental: os horários vindos da API da agenda externa (ex: 14:00, ou "14:00:00.000Z")
+    // representam o horário CIVIL de Brasília da consulta marcada (14:00 em Brasília = 14:00 local).
+    // O PocketBase armazena em UTC (ISO 8601 terminando em 'Z').
+    // Para que 14:00 de Brasília fique correto:
+    // UTC = Hora de Brasília + 3 horas (14:00 SP -> 17:00 UTC).
+    // Quando a agenda externa envia "2026-09-16 14:00:00.000Z" ou "2026-09-16T14:00:00.000Z",
+    // ela gravou o horário nominal da consulta diretamente como se fosse UTC, ou formatou sem timezone.
+    // Retornamos SEMPRE o UTC correto: year, month, day, hour + 3.
     function parseAppointmentDateUtc(rawDate, rawTime, isEndDate) {
       if (!rawDate) return null
       var s = String(rawDate).trim()
@@ -822,13 +829,15 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
           }
         }
 
-        // Brasília é UTC-3 (sem horário de verão atual no Brasil)
-        // Timestamp UTC = Date.UTC(year, month, day, hour + 3, min, sec)
+        // Brasília é UTC-3 (sem horário de verão).
+        // Para que uma consulta civil das 14:00 resulte em 14:00 em America/Sao_Paulo:
+        // UTC = Date.UTC(year, month, day, hour + 3, min, sec)
         var utcMs = Date.UTC(year, month, day, hour + 3, min, sec)
         return new Date(utcMs).toISOString()
       }
 
-      // Formato ISO estrito: yyyy-MM-dd ou yyyy-MM-dd HH:mm[:ss] ou yyyy-MM-ddTHH:mm[:ss]
+      // Formato ISO: yyyy-MM-dd ou yyyy-MM-dd[T ]HH:mm[:ss] (com ou sem Z / offset)
+      // Exemplo real da agenda: "2026-11-12 16:00:00.000Z" -> representa consulta às 16:00 em Brasília!
       var isoMatch = s.match(
         /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
       )
@@ -863,20 +872,20 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
           }
         }
 
-        // Se a string já tinha sufixo 'Z' ou offset explícito (+/-HH:mm)
-        if (s.endsWith('Z') || s.match(/[+-]\d{2}:?\d{2}$/)) {
-          var parsedWithTz = new Date(s)
-          if (!isNaN(parsedWithTz.getTime())) {
-            return parsedWithTz.toISOString()
+        // Se a string tem offset explícito diferente de Z (ex: -03:00)
+        if (s.match(/[+-]\d{2}:?\d{2}$/) && !s.endsWith('+00:00') && !s.endsWith('-00:00')) {
+          var parsedWithOffset = new Date(s)
+          if (!isNaN(parsedWithOffset.getTime())) {
+            return parsedWithOffset.toISOString()
           }
         }
 
-        // Caso sem timezone explícito: interpreta como horário civil de Brasília (UTC-3)
+        // Horário civil da agenda externa: 14:00 significa 14:00 Brasília (UTC-3).
+        // Gravamos em UTC: hour + 3.
         var iUtcMs = Date.UTC(iYear, iMonth, iDay, iHour + 3, iMin, iSec)
         return new Date(iUtcMs).toISOString()
       }
 
-      // Tenta fallback com Date parse convencional apenas se string contiver data reconhecível
       try {
         var genericD = new Date(s)
         if (!isNaN(genericD.getTime())) {
@@ -2043,7 +2052,7 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       var item = extAppointments[i]
       if (!item || typeof item !== 'object') continue
 
-      // Helper rigoroso para parsing de datas de agendamento no fuso de Brasília (-03:00)
+      // Helper rigoroso para parsing de datas de agendamento da agenda externa (manual)
       function parseAppointmentDateUtc(rawDate, rawTime, isEndDate) {
         if (!rawDate) return null
         var s = String(rawDate).trim()
@@ -2109,10 +2118,10 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
             }
           }
 
-          if (s.endsWith('Z') || s.match(/[+-]\d{2}:?\d{2}$/)) {
-            var parsedWithTz = new Date(s)
-            if (!isNaN(parsedWithTz.getTime())) {
-              return parsedWithTz.toISOString()
+          if (s.match(/[+-]\d{2}:?\d{2}$/) && !s.endsWith('+00:00') && !s.endsWith('-00:00')) {
+            var parsedWithOffset = new Date(s)
+            if (!isNaN(parsedWithOffset.getTime())) {
+              return parsedWithOffset.toISOString()
             }
           }
 

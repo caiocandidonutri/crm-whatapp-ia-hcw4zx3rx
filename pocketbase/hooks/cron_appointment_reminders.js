@@ -321,6 +321,75 @@ cronAdd('appointment_reminders_and_followup', '4,9,14,19,24,29,34,39,44,49,54,59
       var reminderDaySentAt = app.getString('reminder_day_sent_at')
       var followupSentAt = app.getString('followup_sent_at')
       var taskCreatedAt = app.getString('task_created_at')
+      var appStatus = app.getString('status')
+      var lastInterType = app.getString('last_interaction_type')
+
+      // Anti-duplicação Fabiana Humana / Paciente já interagiu:
+      // Se status já for 'confirmado', 'realizado', 'cancelado' ou 'remarcado', pular disparos de confirmação
+      if (
+        appStatus === 'confirmado' ||
+        appStatus === 'realizado' ||
+        appStatus === 'cancelado' ||
+        lastInterType === 'confirmado_paciente' ||
+        lastInterType === 'confirmado_manual'
+      ) {
+        continue
+      }
+
+      // Verificação no histórico do chat: se a Fabiana já enviou mensagem de confirmação/agendamento
+      // manualmente nas últimas 36h, marca como confirmado_manual e NÃO dispara duplicado!
+      var cleanPhoneDigits = cleanDigits(phone)
+      if (cleanPhoneDigits && !confirmationSentAt) {
+        try {
+          var pSuf = cleanPhoneDigits.length > 8 ? cleanPhoneDigits.slice(-8) : cleanPhoneDigits
+          var recentManualMsgs = $app.findRecordsByFilter(
+            'whatsapp_messages',
+            'from_me = true && remote_jid ~ {:suf} && created >= {:cutoff}',
+            '-created',
+            5,
+            0,
+            {
+              suf: pSuf,
+              cutoff: new Date(Date.now() - 36 * 3600 * 1000).toISOString(),
+            },
+          )
+          var humanAlreadySent = false
+          if (recentManualMsgs && recentManualMsgs.length > 0) {
+            for (var rmi = 0; rmi < recentManualMsgs.length; rmi++) {
+              var mContent = (recentManualMsgs[rmi].getString('content') || '').toLowerCase()
+              if (
+                mContent.indexOf('confirm') !== -1 ||
+                mContent.indexOf('consulta') !== -1 ||
+                mContent.indexOf('agendamento') !== -1 ||
+                mContent.indexOf('dr. caio') !== -1 ||
+                mContent.indexOf('dr caio') !== -1
+              ) {
+                humanAlreadySent = true
+                break
+              }
+            }
+          }
+          if (humanAlreadySent) {
+            $app
+              .logger()
+              .info(
+                'appointment_reminders: Fabiana already sent manual confirmation',
+                'app_id',
+                app.id,
+                'patient',
+                patientName,
+              )
+            app.set('confirmation_sent_at', new Date().toISOString())
+            app.set('last_interaction_type', 'confirmado_manual')
+            $app.saveNoValidate(app)
+            confirmationSentAt = app.getString('confirmation_sent_at')
+          }
+        } catch (manualChkErr) {
+          $app
+            .logger()
+            .warn('appointment_reminders: manual check error', 'error', String(manualChkErr))
+        }
+      }
 
       var appType = (app.getString('appointment_type') || '').toLowerCase()
       var notes = (app.getString('notes') || '').toLowerCase()
@@ -344,16 +413,22 @@ cronAdd('appointment_reminders_and_followup', '4,9,14,19,24,29,34,39,44,49,54,59
       if (!confirmationSentAt && diffHours >= 18 && diffHours <= 30) {
         instInfo = resolveEvolutionInstance(accountId)
         if (instInfo) {
+          // Mensagem de confirmação 24h alinhada ao tom da Fabiana (secretária da clínica)
+          // Tom humano, caloroso, profissional e acolhedor (sem auto-identificação como IA)
           var confText =
-            'Bom dia ' +
+            'Olá, ' +
             firstName +
-            '! Tudo bem? Um dia abençoado pra você! Passando para confirmar seu horário com o Dr. Caio amanhã às ' +
+            ', tudo bem? Aqui é da equipe do Dr. Caio!\n\n' +
+            'Estou passando para confirmar o seu horário de consulta amanhã às *' +
             hhmm +
-            '. Você nos confirma a presença? 🙏✨'
+            '*. Podemo contar com você? 🙏'
 
           if (isBioOrConsult) {
             confText += prepInstructions
           }
+
+          confText +=
+            '\n\nSó responder com um *SIM* para confirmar, ou nos avise por aqui se precisar remarcar. Tenha um excelente dia!'
 
           var okConf = sendWhatsAppText(instInfo, phone, confText, accountId, app)
           if (okConf) {
@@ -421,9 +496,9 @@ cronAdd('appointment_reminders_and_followup', '4,9,14,19,24,29,34,39,44,49,54,59
             instInfo = instInfo || resolveEvolutionInstance(accountId)
             if (instInfo) {
               var followText =
-                'Oi ' +
+                'Oi, ' +
                 firstName +
-                '! Só confirmando se você vai conseguir vir amanhã, tá bom? Me avisa por aqui 🙏'
+                '! Tudo bem? Passando só para confirmar se você vai conseguir vir à consulta com o Dr. Caio amanhã, tá bom? Se puder me responder por aqui eu já deixo confirmado na agenda. Obrigada! 🙏'
               var okFollow = sendWhatsAppText(instInfo, phone, followText, accountId, app)
               if (okFollow) {
                 app.set('followup_sent_at', new Date().toISOString())

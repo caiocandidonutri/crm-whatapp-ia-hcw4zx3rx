@@ -165,13 +165,15 @@ cronAdd('confirmation_24h', '0 * * * *', () => {
           }
 
           if (!confirmText) {
+            var cFirstName = contactName.trim().split(' ')[0]
             confirmText =
-              'Ola ' +
-              contactName +
-              '! Passando para confirmar sua consulta dia ' +
+              'Olá, ' +
+              cFirstName +
+              ', tudo bem? Aqui é da equipe do Dr. Caio!\n\n' +
+              'Passando para confirmar sua consulta amanhã (' +
               formattedDate +
-              (timePart ? ' as ' + timePart : '') +
-              '. Estamos te esperando! 🙏'
+              (timePart ? ' às ' + timePart : '') +
+              '). Podemos confirmar sua presença? É só responder com *SIM* por aqui. Tenha um ótimo dia! 🙏'
           }
         }
 

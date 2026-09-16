@@ -29,17 +29,14 @@ import {
 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { getCareAlertSettings, saveCareAlertSettings } from '@/services/care_alerts_service'
-import {
-  format,
-  addDays,
-  startOfWeek,
-  endOfWeek,
-  isSameDay,
-  parseISO,
-  startOfDay,
-  endOfDay,
-} from 'date-fns'
+import { format, addDays, startOfWeek, endOfWeek, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import {
+  formatTimeSaoPaulo,
+  formatBrazilianDate,
+  getDayKeySaoPaulo,
+  getSaoPauloDateParts,
+} from '@/lib/datetime'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -384,6 +381,7 @@ export default function Agenda() {
   }, [loadAppointments])
 
   // Filtragem e agrupamento no cliente derivados de allAppointments
+  // Usa getDayKeySaoPaulo para garantir correspondência exata no fuso de Brasília
   const appointmentsForCurrentView = useMemo(() => {
     if (viewMode === 'report') {
       // Janela de relatório (dois meses atrás até futuro)
@@ -399,11 +397,10 @@ export default function Agenda() {
     }
 
     if (viewMode === 'day') {
-      const dayStart = startOfDay(currentDate).getTime()
-      const dayEnd = endOfDay(currentDate).getTime()
+      const targetDayKey = getDayKeySaoPaulo(currentDate)
       return allAppointments.filter((a) => {
-        const appTime = new Date(a.starts_at).getTime()
-        if (appTime < dayStart || appTime > dayEnd) return false
+        const appDayKey = getDayKeySaoPaulo(a.starts_at)
+        if (appDayKey !== targetDayKey) return false
         if (selectedCity !== 'all' && a.city !== selectedCity) return false
         if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
         if (selectedType !== 'all') {
@@ -414,12 +411,14 @@ export default function Agenda() {
       })
     }
 
-    // Visão semana
-    const weekStart = startOfDay(startOfWeek(currentDate, { weekStartsOn: 1 })).getTime()
-    const weekEnd = endOfDay(endOfWeek(currentDate, { weekStartsOn: 1 })).getTime()
+    // Visão semana (segunda a domingo no fuso de Brasília)
+    const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
+    const weekDaysKeys = new Set(
+      Array.from({ length: 7 }, (_, i) => getDayKeySaoPaulo(addDays(weekStart, i))),
+    )
     return allAppointments.filter((a) => {
-      const appTime = new Date(a.starts_at).getTime()
-      if (appTime < weekStart || appTime > weekEnd) return false
+      const appDayKey = getDayKeySaoPaulo(a.starts_at)
+      if (!weekDaysKeys.has(appDayKey)) return false
       if (selectedCity !== 'all' && a.city !== selectedCity) return false
       if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
       if (selectedType !== 'all') {
@@ -536,10 +535,21 @@ export default function Agenda() {
     }
 
     try {
-      const startsAtDate = new Date(`${formData.date}T${formData.startTime}:00`)
-      const endsAtDate = new Date(`${formData.date}T${formData.endTime}:00`)
+      // Interpreta a data e hora digitados como horário civil de Brasília (UTC-3)
+      // Ex: 2026-11-12 14:00 Brasília -> UTC = Date.UTC(2026, 10, 12, 14 + 3) = 17:00 UTC
+      const [dYear, dMonth, dDay] = formData.date.split('-').map(Number)
+      const [sHour, sMin] = formData.startTime.split(':').map(Number)
+      const [eHour, eMin] = formData.endTime.split(':').map(Number)
 
-      if (isNaN(startsAtDate.getTime()) || isNaN(endsAtDate.getTime())) {
+      if (
+        !dYear ||
+        !dMonth ||
+        !dDay ||
+        isNaN(sHour) ||
+        isNaN(sMin) ||
+        isNaN(eHour) ||
+        isNaN(eMin)
+      ) {
         toast({
           title: 'Data/hora inválida',
           description: 'Verifique os horários informados.',
@@ -547,6 +557,9 @@ export default function Agenda() {
         })
         return
       }
+
+      const startsAtUtcMs = Date.UTC(dYear, dMonth - 1, dDay, sHour + 3, sMin, 0)
+      const endsAtUtcMs = Date.UTC(dYear, dMonth - 1, dDay, eHour + 3, eMin, 0)
 
       const input: CreateAppointmentInput = {
         patient_name: formData.patient_name.trim(),
@@ -556,8 +569,8 @@ export default function Agenda() {
         doctor: formData.doctor.trim() || 'Dr. Caio',
         city: formData.city,
         location: formData.location || CITY_DEFAULT_LOCATIONS[formData.city],
-        starts_at: startsAtDate.toISOString(),
-        ends_at: endsAtDate.toISOString(),
+        starts_at: new Date(startsAtUtcMs).toISOString(),
+        ends_at: new Date(endsAtUtcMs).toISOString(),
         status: formData.status,
         appointment_type: formData.appointment_type.trim(),
         notes: formData.notes.trim(),
@@ -1151,8 +1164,8 @@ export default function Agenda() {
           {filteredAppointments.map((app) => {
             const statusConfig = STATUS_CONFIG[app.status] || STATUS_CONFIG.agendado
             const StatusIcon = statusConfig.icon
-            const startTimeStr = format(parseISO(app.starts_at), 'HH:mm')
-            const endTimeStr = format(parseISO(app.ends_at), 'HH:mm')
+            const startTimeStr = formatTimeSaoPaulo(app.starts_at)
+            const endTimeStr = formatTimeSaoPaulo(app.ends_at)
 
             return (
               <Card
@@ -1337,9 +1350,11 @@ export default function Agenda() {
         /* VISÃO SEMANA */
         <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
           {weekDays.map((day) => {
-            const isToday = isSameDay(day, new Date())
-            const dayAppointments = filteredAppointments.filter((a) =>
-              isSameDay(parseISO(a.starts_at), day),
+            const dayKey = getDayKeySaoPaulo(day)
+            const todayKey = getDayKeySaoPaulo(new Date())
+            const isToday = dayKey === todayKey
+            const dayAppointments = filteredAppointments.filter(
+              (a) => getDayKeySaoPaulo(a.starts_at) === dayKey,
             )
 
             return (
@@ -1372,7 +1387,7 @@ export default function Agenda() {
                   ) : (
                     dayAppointments.map((app) => {
                       const statusConfig = STATUS_CONFIG[app.status] || STATUS_CONFIG.agendado
-                      const startTimeStr = format(parseISO(app.starts_at), 'HH:mm')
+                      const startTimeStr = formatTimeSaoPaulo(app.starts_at)
 
                       return (
                         <div
@@ -1668,7 +1683,8 @@ export default function Agenda() {
                 <div>
                   <span className="text-xs text-muted-foreground block">Data e Horário</span>
                   <span className="font-medium text-foreground">
-                    {format(parseISO(selectedAppointment.starts_at), "dd/MM/yyyy 'às' HH:mm")}
+                    {formatBrazilianDate(selectedAppointment.starts_at)} às{' '}
+                    {formatTimeSaoPaulo(selectedAppointment.starts_at)}
                   </span>
                 </div>
                 <div>
@@ -1734,10 +1750,7 @@ export default function Agenda() {
                     <span>Confirmação da véspera (~24h):</span>
                     <span className="font-medium text-foreground">
                       {selectedAppointment.confirmation_sent_at
-                        ? format(
-                            parseISO(selectedAppointment.confirmation_sent_at),
-                            "dd/MM/yyyy 'às' HH:mm",
-                          )
+                        ? `${formatBrazilianDate(selectedAppointment.confirmation_sent_at)} às ${formatTimeSaoPaulo(selectedAppointment.confirmation_sent_at)}`
                         : 'Não enviada'}
                     </span>
                   </div>
@@ -1745,10 +1758,7 @@ export default function Agenda() {
                     <span>Lembrete do dia (2-3h antes):</span>
                     <span className="font-medium text-foreground">
                       {selectedAppointment.reminder_day_sent_at
-                        ? format(
-                            parseISO(selectedAppointment.reminder_day_sent_at),
-                            "dd/MM/yyyy 'às' HH:mm",
-                          )
+                        ? `${formatBrazilianDate(selectedAppointment.reminder_day_sent_at)} às ${formatTimeSaoPaulo(selectedAppointment.reminder_day_sent_at)}`
                         : 'Não enviado'}
                     </span>
                   </div>
@@ -1756,10 +1766,8 @@ export default function Agenda() {
                     <div className="flex items-center justify-between text-amber-700 dark:text-amber-400">
                       <span>Follow-up leve (+6h):</span>
                       <span className="font-medium">
-                        {format(
-                          parseISO(selectedAppointment.followup_sent_at),
-                          "dd/MM/yyyy 'às' HH:mm",
-                        )}
+                        {formatBrazilianDate(selectedAppointment.followup_sent_at)} às{' '}
+                        {formatTimeSaoPaulo(selectedAppointment.followup_sent_at)}
                       </span>
                     </div>
                   )}
@@ -1767,10 +1775,8 @@ export default function Agenda() {
                     <div className="flex items-center justify-between text-rose-600 dark:text-rose-400">
                       <span>Tarefa humana criada:</span>
                       <span className="font-medium">
-                        {format(
-                          parseISO(selectedAppointment.task_created_at),
-                          "dd/MM/yyyy 'às' HH:mm",
-                        )}
+                        {formatBrazilianDate(selectedAppointment.task_created_at)} às{' '}
+                        {formatTimeSaoPaulo(selectedAppointment.task_created_at)}
                       </span>
                     </div>
                   )}
@@ -1821,7 +1827,8 @@ export default function Agenda() {
                 </span>
                 {selectedAppointment.last_synced_at && (
                   <span>
-                    Sync: {format(parseISO(selectedAppointment.last_synced_at), 'dd/MM HH:mm')}
+                    Sync: {formatBrazilianDate(selectedAppointment.last_synced_at)}{' '}
+                    {formatTimeSaoPaulo(selectedAppointment.last_synced_at)}
                   </span>
                 )}
               </div>

@@ -24,6 +24,7 @@ import { getCareCategoryMeta, getPriorityMeta, getStatusMeta } from '@/lib/task-
 import { format } from 'date-fns'
 import { listAppointments } from '@/services/appointments'
 import { ptBR } from 'date-fns/locale'
+import { formatBrazilianDate, formatTimeSaoPaulo } from '@/lib/datetime'
 
 interface PatientContextPanelProps {
   open: boolean
@@ -207,9 +208,8 @@ export function PatientContextPanel({
                   </Badge>
                 </div>
                 <p className="text-emerald-900 dark:text-emerald-100 font-medium">
-                  {format(new Date(upcomingAppointment.starts_at), "dd 'de' MMMM, HH:mm", {
-                    locale: ptBR,
-                  })}
+                  {formatBrazilianDate(upcomingAppointment.starts_at)} às{' '}
+                  {formatTimeSaoPaulo(upcomingAppointment.starts_at)}
                 </p>
                 <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
                   {upcomingAppointment.location || upcomingAppointment.city} • Dr. Caio
@@ -348,7 +348,7 @@ export function PatientContextPanel({
                       <div>
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium text-foreground">
-                            {format(new Date(apt.starts_at), 'dd/MM/yyyy HH:mm')}
+                            {formatBrazilianDate(apt.starts_at)} {formatTimeSaoPaulo(apt.starts_at)}
                           </span>
                           <Badge
                             variant="outline"

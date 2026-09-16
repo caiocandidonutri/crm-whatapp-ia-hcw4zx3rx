@@ -71,11 +71,14 @@ onRecordAfterCreateSuccess((e) => {
     }
 
     function formatBRDate(d) {
-      var day = String(d.getDate())
+      // Formata a data considerando fuso de Brasília (UTC-3)
+      var spOffsetMs = -3 * 3600 * 1000
+      var spDate = new Date(d.getTime() + spOffsetMs)
+      var day = String(spDate.getUTCDate())
       if (day.length < 2) day = '0' + day
-      var month = String(d.getMonth() + 1)
+      var month = String(spDate.getUTCMonth() + 1)
       if (month.length < 2) month = '0' + month
-      var year = d.getFullYear()
+      var year = spDate.getUTCFullYear()
       return day + '/' + month + '/' + year
     }
 
@@ -217,11 +220,14 @@ onRecordAfterUpdateSuccess((e) => {
     }
 
     function formatBRDate(d) {
-      var day = String(d.getDate())
+      // Formata a data considerando fuso de Brasília (UTC-3)
+      var spOffsetMs = -3 * 3600 * 1000
+      var spDate = new Date(d.getTime() + spOffsetMs)
+      var day = String(spDate.getUTCDate())
       if (day.length < 2) day = '0' + day
-      var month = String(d.getMonth() + 1)
+      var month = String(spDate.getUTCMonth() + 1)
       if (month.length < 2) month = '0' + month
-      var year = d.getFullYear()
+      var year = spDate.getUTCFullYear()
       return day + '/' + month + '/' + year
     }
 
