@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-16T02:43:58.938Z",
+  "generatedAt": "2026-09-16T03:08:57.969Z",
   "collections": [
     {
       "name": "users",
@@ -367,6 +367,24 @@
         {
           "name": "ai_conversation_id",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_after_hours_sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "awaiting_contact_reason",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "awaiting_survey_response",
+          "type": "bool",
           "required": false,
           "system": false
         }
@@ -824,6 +842,18 @@
         },
         {
           "name": "birth_date",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contact_reason",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "contact_reason_category",
           "type": "text",
           "required": false,
           "system": false
@@ -1519,6 +1549,30 @@
         {
           "name": "recall_daily_limit",
           "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "after_hours_enabled",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "survey_enabled",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "survey_q1",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "survey_q2",
+          "type": "text",
           "required": false,
           "system": false
         }
@@ -2248,6 +2302,18 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "survey_sent",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "survey_sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -2256,6 +2322,311 @@
         "CREATE INDEX idx_appointments_patient_phone ON appointments (patient_phone)",
         "CREATE INDEX idx_appointments_city ON appointments (city)",
         "CREATE INDEX idx_appointments_status ON appointments (status)"
+      ]
+    },
+    {
+      "name": "quick_replies",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "shortcut",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "body",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sort_order",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_quick_replies_account ON quick_replies (account_id)",
+        "CREATE INDEX idx_quick_replies_category ON quick_replies (category)"
+      ]
+    },
+    {
+      "name": "business_hours",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "dia_semana",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "abre",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "fecha",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "unidade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_business_hours_account ON business_hours (account_id)",
+        "CREATE INDEX idx_business_hours_dia ON business_hours (dia_semana)"
+      ]
+    },
+    {
+      "name": "waitlist",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "contact_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "crm_contacts"
+        },
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "telefone",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "tipo_desejado",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Consulta", "Retorno", "Consultoria", "Bioimpedância", "Outro"]
+        },
+        {
+          "name": "cidade_preferida",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Carmo do Rio Claro", "Alfenas", "Monte Belo", "Online", "Qualquer"]
+        },
+        {
+          "name": "periodo_preferido",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["manha", "tarde", "qualquer"]
+        },
+        {
+          "name": "observacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["aguardando", "avisado", "agendado", "cancelado"]
+        },
+        {
+          "name": "avisado_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_waitlist_account ON waitlist (account_id)",
+        "CREATE INDEX idx_waitlist_status ON waitlist (status)",
+        "CREATE INDEX idx_waitlist_created ON waitlist (created)"
+      ]
+    },
+    {
+      "name": "satisfaction_surveys",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "view": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "create": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "update": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id",
+        "delete": "@request.auth.id != '' && account_id.account_members_via_account_id.user_id ?= @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "contact_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "crm_contacts"
+        },
+        {
+          "name": "appointment_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "appointments"
+        },
+        {
+          "name": "score",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "feedback",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "recebida_em",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_surveys_account ON satisfaction_surveys (account_id)",
+        "CREATE INDEX idx_surveys_appointment ON satisfaction_surveys (appointment_id)",
+        "CREATE INDEX idx_surveys_contact ON satisfaction_surveys (contact_id)"
       ]
     }
   ]

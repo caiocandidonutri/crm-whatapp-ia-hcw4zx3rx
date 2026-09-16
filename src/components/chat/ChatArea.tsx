@@ -59,6 +59,8 @@ import { Task, CrmContact } from '@/types/models'
 import { useRealtime } from '@/hooks/use-realtime'
 import { CategoryPicker } from '@/components/categories/CategoryPicker'
 import { TemplatePicker } from '@/components/chat/TemplatePicker'
+import { QuickRepliesPicker } from '@/components/chat/QuickRepliesPicker'
+import { QuickRepliesManager } from '@/components/crm/QuickRepliesManager'
 import { MessageTemplatesSection } from '@/components/crm/MessageTemplatesSection'
 import { useCategories } from '@/hooks/use-categories'
 import { useCurrentAccount } from '@/hooks/use-current-account'
@@ -180,6 +182,9 @@ export function ChatArea({
   }
 
   const [isTemplateManageOpen, setIsTemplateManageOpen] = useState(false)
+  const [isQuickRepliesManageOpen, setIsQuickRepliesManageOpen] = useState(false)
+  const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false)
+  const [quickRepliesQuery, setQuickRepliesQuery] = useState('')
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -1189,6 +1194,18 @@ export function ChatArea({
               </DropdownMenuContent>
             </DropdownMenu>
 
+            <QuickRepliesPicker
+              accountId={account?.id}
+              isOpen={isQuickRepliesOpen}
+              onOpenChange={setIsQuickRepliesOpen}
+              filterQuery={quickRepliesQuery}
+              onSelect={(body) => {
+                setInputText(body)
+                setIsQuickRepliesOpen(false)
+              }}
+              onManage={() => setIsQuickRepliesManageOpen(true)}
+            />
+
             <TemplatePicker
               accountId={account?.id}
               hasMessages={(chat?.messages || []).length > 0}
@@ -1208,9 +1225,21 @@ export function ChatArea({
               {' '}
               <textarea
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setInputText(val)
+                  // Se digitar "/" ou "/algo", abre o popover de respostas rápidas com busca
+                  if (val.startsWith('/')) {
+                    setQuickRepliesQuery(val.slice(1))
+                    setIsQuickRepliesOpen(true)
+                  } else if (isQuickRepliesOpen && !val.includes('/')) {
+                    setIsQuickRepliesOpen(false)
+                  }
+                }}
                 disabled={isSending}
-                placeholder={isSending ? 'Enviando...' : 'Digite sua mensagem...'}
+                placeholder={
+                  isSending ? 'Enviando...' : 'Digite sua mensagem ou "/" para respostas rápidas...'
+                }
                 className="w-full bg-transparent border-none focus:outline-none resize-none max-h-32 py-3 px-3 min-h-[44px] text-[15px] scrollbar-thin scrollbar-thumb-border disabled:opacity-50"
                 rows={1}
                 onKeyDown={(e) => {
@@ -1486,6 +1515,18 @@ export function ChatArea({
             <DialogDescription>Gerencie os modelos disponíveis no chat.</DialogDescription>
           </DialogHeader>
           {account?.id && <MessageTemplatesSection accountId={account.id} />}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isQuickRepliesManageOpen} onOpenChange={setIsQuickRepliesManageOpen}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle>Respostas Rápidas da Fabiana</DialogTitle>
+            <DialogDescription>
+              Gerencie templates salvos (valores, local, preparo) para acesso rápido no chat.
+            </DialogDescription>
+          </DialogHeader>
+          {account?.id && <QuickRepliesManager accountId={account.id} />}
         </DialogContent>
       </Dialog>
 

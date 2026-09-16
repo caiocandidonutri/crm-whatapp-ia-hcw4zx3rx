@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AgendaLogisticsReport } from '@/components/AgendaLogisticsReport'
+import { WaitlistSection } from '@/components/crm/WaitlistSection'
 import { buildPatientAppointmentsMap, getAppointmentHistoryInfo } from '@/lib/appointment-history'
 import { PatientBirthDateBadge } from '@/components/PatientBirthDateBadge'
 import {
@@ -138,7 +139,7 @@ export default function Agenda() {
   const { accountId } = useCurrentAccount()
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
-  const [viewMode, setViewMode] = useState<'day' | 'week' | 'report'>('day')
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'report' | 'waitlist'>('day')
   const [selectedCity, setSelectedCity] = useState<AppointmentCity | 'all'>('all')
   const [selectedStatus, setSelectedStatus] = useState<AppointmentStatus | 'all'>('all')
   const [selectedType, setSelectedType] = useState<string>('all')
@@ -1103,7 +1104,7 @@ export default function Agenda() {
 
           <Tabs
             value={viewMode}
-            onValueChange={(v) => setViewMode(v as 'day' | 'week' | 'report')}
+            onValueChange={(v) => setViewMode(v as 'day' | 'week' | 'report' | 'waitlist')}
             className="w-auto"
           >
             <TabsList className="h-9">
@@ -1119,6 +1120,13 @@ export default function Agenda() {
               >
                 <CalendarDays className="w-3.5 h-3.5" />
                 <span>Últimos 2 meses</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="waitlist"
+                className="text-xs px-3 flex items-center gap-1.5 font-semibold text-amber-700 dark:text-amber-400"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Lista de espera</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -1184,8 +1192,15 @@ export default function Agenda() {
         </div>
       )}
 
-      {/* Conteúdo Principal: Visão Dia, Semana ou Painel dos Últimos 2 meses */}
-      {viewMode === 'report' ? (
+      {/* Conteúdo Principal: Visão Dia, Semana, Painel dos Últimos 2 meses ou Lista de Espera */}
+      {viewMode === 'waitlist' ? (
+        account?.id ? (
+          <WaitlistSection
+            accountId={account.id}
+            onOpenChat={(jid) => navigate(`/conversas?chat=${jid}`)}
+          />
+        ) : null
+      ) : viewMode === 'report' ? (
         <AgendaLogisticsReport
           appointments={appointmentsForCurrentView}
           onOpenConversation={handleOpenConversation}

@@ -613,6 +613,285 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       // DETECÇÃO AUTOMÁTICA DE RESPOSTAS A AGENDAMENTOS (Anti-atropelamento: não dispara mensagens)
       // Se mensagem recebida do paciente (fromMe = false, !isGroup, texto não vazio),
       // verifica se há agendamento futuro para este paciente (pelo telefone/remote_jid).
+      // =========================================================================
+      // RESPOSTA FORA DO HORÁRIO + COLETA DO MOTIVO + PESQUISA DE SATISFAÇÃO
+      // =========================================================================
+      if (
+        !fromMe &&
+        !isGroup &&
+        content &&
+        (msgType === 'conversation' || msgType === 'extendedTextMessage')
+      ) {
+        try {
+          var convForCheck = null
+          try {
+            convForCheck = $app.findFirstRecordByFilter(
+              'conversations',
+              'remote_jid = {:jid} && instance_name = {:name}',
+              { jid: remoteJid, name: instanceName },
+            )
+          } catch (_) {}
+
+          // 1. CAPTURA DE MOTIVO DE CONTATO SE A CONVERSA ESTIVER AGUARDANDO MOTIVO
+          if (convForCheck && convForCheck.getBool('awaiting_contact_reason')) {
+            var reasonText = content.trim()
+            var rLower = reasonText.toLowerCase()
+            var detectedCategory = 'outro'
+            if (
+              rLower.indexOf('consulta') !== -1 ||
+              rLower.indexOf('agendar') !== -1 ||
+              rLower.indexOf('marcar') !== -1
+            ) {
+              detectedCategory = 'consulta'
+            } else if (rLower.indexOf('retorno') !== -1 || rLower.indexOf('reavalia') !== -1) {
+              detectedCategory = 'retorno'
+            } else if (
+              rLower.indexOf('valor') !== -1 ||
+              rLower.indexOf('preço') !== -1 ||
+              rLower.indexOf('preco') !== -1 ||
+              rLower.indexOf('quanto custa') !== -1
+            ) {
+              detectedCategory = 'valor'
+            } else if (
+              rLower.indexOf('exame') !== -1 ||
+              rLower.indexOf('bioimped') !== -1 ||
+              rLower.indexOf('sangue') !== -1
+            ) {
+              detectedCategory = 'exame'
+            }
+
+            try {
+              var crmContactRec = $app.findFirstRecordByFilter(
+                'crm_contacts',
+                'jid = {:jid} || phone ~ {:ph}',
+                { jid: remoteJid, ph: remoteJid.split('@')[0] },
+              )
+              if (crmContactRec) {
+                crmContactRec.set('contact_reason', reasonText)
+                crmContactRec.set('contact_reason_category', detectedCategory)
+                $app.saveNoValidate(crmContactRec)
+              }
+            } catch (_) {}
+
+            convForCheck.set('awaiting_contact_reason', false)
+            $app.saveNoValidate(convForCheck)
+          }
+
+          // 2. CAPTURA DE RESPOSTA DA PESQUISA DE SATISFAÇÃO (PARSER NOTA 0-10 + FEEDBACK)
+          if (convForCheck && convForCheck.getBool('awaiting_survey_response')) {
+            var surveyScore = -1
+            var surveyFeedback = ''
+            var trimmedContent = content.trim()
+
+            // Busca número de 0 a 10 no início ou no corpo
+            var numMatch = trimmedContent.match(/\b(10|[0-9])\b/)
+            if (numMatch) {
+              surveyScore = parseInt(numMatch[1], 10)
+              surveyFeedback = trimmedContent
+                .replace(numMatch[0], '')
+                .replace(/^[\s,.\-–—:]+/, '')
+                .trim()
+            } else {
+              surveyFeedback = trimmedContent
+            }
+
+            var patDigits = remoteJid.split('@')[0].replace(/\D/g, '')
+            var sSuf = patDigits.length > 8 ? patDigits.slice(-8) : patDigits
+            var recentApp = null
+            try {
+              var sApps = $app.findRecordsByFilter(
+                'appointments',
+                '(patient_phone ~ {:suf} || patient_id.phone ~ {:suf}) && survey_sent = true',
+                '-starts_at',
+                1,
+                0,
+                { suf: sSuf },
+              )
+              if (sApps && sApps.length > 0) recentApp = sApps[0]
+            } catch (_) {}
+
+            try {
+              var survCol = $app.findCollectionByNameOrId('satisfaction_surveys')
+              var sRec = new Record(survCol)
+              if (accountId) sRec.set('account_id', accountId)
+              if (recentApp && recentApp.getString('patient_id')) {
+                sRec.set('contact_id', recentApp.getString('patient_id'))
+              }
+              if (recentApp) {
+                sRec.set('appointment_id', recentApp.id)
+              }
+              if (surveyScore >= 0 && surveyScore <= 10) {
+                sRec.set('score', surveyScore)
+              }
+              sRec.set('feedback', surveyFeedback)
+              sRec.set('recebida_em', new Date().toISOString())
+              $app.save(sRec)
+            } catch (sErr) {
+              $app.logger().error('survey_save_error', 'err', String(sErr))
+            }
+
+            convForCheck.set('awaiting_survey_response', false)
+            $app.saveNoValidate(convForCheck)
+          }
+
+          // 3. VERIFICAÇÃO DE RESPOSTA FORA DO HORÁRIO
+          // Checar se recurso está ativo na conta
+          var ahSettings = null
+          if (accountId) {
+            try {
+              ahSettings = $app.findFirstRecordByFilter(
+                'care_alert_settings',
+                'account_id = {:aid}',
+                { aid: accountId },
+              )
+            } catch (_) {}
+          }
+          var isAhEnabled = !ahSettings || ahSettings.get('after_hours_enabled') !== false
+
+          if (isAhEnabled) {
+            // Calcular data/hora atual no timezone de São Paulo (UTC-3)
+            var nowUtc = new Date()
+            var spMs = nowUtc.getTime() - 3 * 3600 * 1000
+            var spDateObj = new Date(spMs)
+            var spDay = spDateObj.getUTCDay() // 0..6
+            var spHour = spDateObj.getUTCHours()
+            var spMin = spDateObj.getUTCMinutes()
+            var spHHMM = ('0' + spHour).slice(-2) + ':' + ('0' + spMin).slice(-2)
+
+            // Buscar horários de business_hours da conta para este dia
+            var isOpen = true
+            try {
+              var bhDay = $app.findFirstRecordByFilter(
+                'business_hours',
+                'account_id = {:aid} && dia_semana = {:d}',
+                { aid: accountId, d: spDay },
+              )
+              if (bhDay) {
+                if (!bhDay.getBool('ativo')) {
+                  isOpen = false
+                } else {
+                  var openTime = bhDay.getString('abre') || '08:00'
+                  var closeTime = bhDay.getString('fecha') || '18:00'
+                  if (spHHMM < openTime || spHHMM >= closeTime) {
+                    isOpen = false
+                  }
+                }
+              } else {
+                // Padrão: seg-sex 08:00-18:00, sáb 08:00-12:00, dom fechado
+                if (spDay === 0) isOpen = false
+                else if (spDay === 6 && (spHHMM < '08:00' || spHHMM >= '12:00')) isOpen = false
+                else if (spDay >= 1 && spDay <= 5 && (spHHMM < '08:00' || spHHMM >= '18:00'))
+                  isOpen = false
+              }
+            } catch (_) {}
+
+            // Se estiver FORA do expediente:
+            if (!isOpen) {
+              // Anti-atropelamento humano: verificar se houve mensagem from_me nos últimos 60 minutos
+              var sixtyMinAgoSec = Math.floor(Date.now() / 1000) - 3600
+              var hasRecentStaffMsg = false
+              try {
+                var recentStaff = $app.findRecordsByFilter(
+                  'whatsapp_messages',
+                  'remote_jid = {:jid} && from_me = true && timestamp >= {:since}',
+                  '-timestamp',
+                  1,
+                  0,
+                  { jid: remoteJid, since: sixtyMinAgoSec },
+                )
+                if (recentStaff && recentStaff.length > 0) {
+                  hasRecentStaffMsg = true
+                }
+              } catch (_) {}
+
+              // Idempotência na janela fora do expediente:
+              // Só envia se NÃO enviou resposta fora de horário nas últimas 12h
+              var twelveHoursAgoIso = new Date(Date.now() - 12 * 3600 * 1000).toISOString()
+              var alreadySentInWindow = false
+              if (convForCheck) {
+                var lastAh = convForCheck.getString('last_after_hours_sent_at')
+                if (lastAh && lastAh >= twelveHoursAgoIso) {
+                  alreadySentInWindow = true
+                }
+              }
+
+              if (!hasRecentStaffMsg && !alreadySentInWindow) {
+                var patientGreetingName =
+                  validPatientPushName ||
+                  (convForCheck ? convForCheck.getString('contact_name') : '') ||
+                  'Paciente'
+                var pFirstName = patientGreetingName.trim().split(' ')[0]
+
+                var afterHoursText =
+                  'Olá, ' +
+                  pFirstName +
+                  '! Recebemos sua mensagem 💚 Neste momento a equipe do Dr. Caio está fora do horário de atendimento, mas já te respondemos no primeiro horário de amanhã. Enquanto isso, pode nos contar rapidinho o motivo do seu contato? (ex: consulta, retorno, valor, exame, outro)'
+
+                // Disparar envio via Evolution API
+                var evoUrl = $secrets.get('EVOLUTION_API_URL') || ''
+                var evoKey = $secrets.get('EVOLUTION_API_KEY') || ''
+                if (evoUrl && evoKey) {
+                  var baseUrl = evoUrl.endsWith('/') ? evoUrl.slice(0, -1) : evoUrl
+                  var cleanNum = remoteJid.split('@')[0].replace(/\D/g, '')
+                  if (cleanNum.length === 10 || cleanNum.length === 11) cleanNum = '55' + cleanNum
+
+                  try {
+                    var sendRes = $http.send({
+                      url: baseUrl + '/message/sendText/' + instanceName,
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', apikey: evoKey },
+                      body: JSON.stringify({ number: cleanNum, text: afterHoursText }),
+                      timeout: 15,
+                    })
+
+                    if (sendRes.statusCode >= 200 && sendRes.statusCode < 300) {
+                      var outMsgId = 'ah_' + $security.randomString(16)
+                      try {
+                        outMsgId = sendRes.json && sendRes.json.key && sendRes.json.key.id
+                      } catch (_) {}
+
+                      var ahMsgRecord = new Record(
+                        $app.findCollectionByNameOrId('whatsapp_messages'),
+                      )
+                      ahMsgRecord.set('user_id', userId)
+                      if (accountId) ahMsgRecord.set('account_id', accountId)
+                      ahMsgRecord.set('instance_name', instanceName)
+                      ahMsgRecord.set('remote_jid', remoteJid)
+                      ahMsgRecord.set('from_me', true)
+                      ahMsgRecord.set('message_id', outMsgId)
+                      ahMsgRecord.set('push_name', 'Assistente')
+                      ahMsgRecord.set('content', afterHoursText)
+                      ahMsgRecord.set('message_type', 'conversation')
+                      ahMsgRecord.set('status', 'pending')
+                      ahMsgRecord.set('timestamp', Math.floor(Date.now() / 1000))
+                      $app.save(ahMsgRecord)
+
+                      if (convForCheck) {
+                        convForCheck.set('last_after_hours_sent_at', new Date().toISOString())
+                        convForCheck.set('awaiting_contact_reason', true)
+                        convForCheck.set('last_message', afterHoursText)
+                        convForCheck.set('last_message_timestamp', Math.floor(Date.now() / 1000))
+                        $app.saveNoValidate(convForCheck)
+                      }
+                      $app
+                        .logger()
+                        .info('after_hours_reply_sent', 'jid', remoteJid, 'patient', pFirstName)
+                    }
+                  } catch (sendAhErr) {
+                    $app.logger().error('after_hours_send_failed', 'err', String(sendAhErr))
+                  }
+                }
+              }
+            }
+          }
+        } catch (ahErr) {
+          $app.logger().warn('after_hours_processing_error', 'err', String(ahErr))
+        }
+      }
+
+      // DETECÇÃO AUTOMÁTICA DE RESPOSTAS A AGENDAMENTOS (Anti-atropelamento: não dispara mensagens)
+      // Se mensagem recebida do paciente (fromMe = false, !isGroup, texto não vazio),
+      // verifica se há agendamento futuro para este paciente (pelo telefone/remote_jid).
       if (
         !fromMe &&
         !isGroup &&

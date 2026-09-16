@@ -263,6 +263,29 @@ export function PatientContextPanel({
               </div>
             </div>
 
+            {/* Motivo do Contato (Fora de Horário / Recepção) */}
+            {contact.contact_reason && (
+              <div className="p-3 rounded-lg bg-indigo-50/80 border border-indigo-200/80 text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-indigo-900 font-semibold flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-indigo-600" />
+                    Motivo do Contato
+                  </span>
+                  {contact.contact_reason_category && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] h-4.5 px-2 font-medium bg-indigo-100 text-indigo-800 border-indigo-300 capitalize"
+                    >
+                      {contact.contact_reason_category}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-indigo-950 font-normal leading-relaxed italic bg-white/60 p-2 rounded border border-indigo-100">
+                  &quot;{contact.contact_reason}&quot;
+                </p>
+              </div>
+            )}
+
             <Separator />
 
             {/* Estágio do Pipeline & Cuidado */}

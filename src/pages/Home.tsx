@@ -32,6 +32,7 @@ import { useTasks } from '@/hooks/use-tasks'
 import { getPriorityMeta, CARE_CATEGORIES } from '@/lib/task-meta'
 import { stageStyle } from '@/lib/stage-colors'
 import { FollowupRecoveryReport } from '@/components/crm/FollowupRecoveryReport'
+import { getSatisfactionSummary, type SurveySummaryStats } from '@/services/satisfaction_surveys'
 import pb from '@/lib/pocketbase/client'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -92,6 +93,7 @@ export default function Home() {
   }, [instance?.instance_name, instance?.status, checkInstanceStatus])
 
   const [sessionExpired, setSessionExpired] = useState(false)
+  const [surveyStats, setSurveyStats] = useState<SurveySummaryStats | null>(null)
 
   const loadMetrics = useCallback(
     async (silent = false, signal?: AbortSignal) => {
@@ -102,9 +104,13 @@ export default function Home() {
       }
       setError(null)
       try {
-        const data = await fetchHomeMetrics(signal, metrics || undefined)
+        const [data, sStats] = await Promise.all([
+          fetchHomeMetrics(signal, metrics || undefined),
+          account?.id ? getSatisfactionSummary(account.id) : Promise.resolve(null),
+        ])
         if (signal?.aborted) return
         setMetrics(data)
+        if (sStats) setSurveyStats(sStats)
         setSessionExpired(false)
       } catch (err: any) {
         if (err?.isAbort || err?.name === 'AbortError' || signal?.aborted) {
@@ -844,6 +850,79 @@ export default function Home() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ═══ CARD DE PESQUISA DE SATISFAÇÃO (NPS E TAXA DE RESPOSTA) ═══ */}
+      <Card
+        onClick={() => navigate('/integracoes')}
+        className="border-border/50 bg-gradient-to-r from-emerald-50/60 via-white/80 to-teal-50/40 backdrop-blur-md shadow-sm hover:shadow-md hover:border-emerald-300 transition-all cursor-pointer rounded-2xl p-5"
+      >
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+              <HeartHandshake className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-serif font-bold text-base text-primary">
+                  Pesquisa de Satisfação Pós-Consulta
+                </h3>
+                <Badge
+                  variant="outline"
+                  className="text-[10px] bg-emerald-50 text-emerald-800 border-emerald-300"
+                >
+                  Disparo 14:37 (3h pós)
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Avaliação de 0 a 10 e sugestões coletadas pela Fabiana com resumo mensal para o Dr.
+                Caio
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 sm:gap-6 text-xs divide-x divide-border/60 flex-wrap sm:flex-nowrap">
+            <div className="flex flex-col items-center">
+              <span className="text-lg sm:text-2xl font-bold font-serif text-emerald-700">
+                {surveyStats?.averageScore !== null && surveyStats?.averageScore !== undefined
+                  ? `${surveyStats.averageScore} / 10`
+                  : '-'}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Nota Média
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center pl-3 sm:pl-6">
+              <span className="text-lg sm:text-2xl font-bold font-serif text-primary">
+                {surveyStats ? `${surveyStats.responseRate}%` : '0%'}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Taxa de Resposta
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center pl-3 sm:pl-6">
+              <span className="text-lg sm:text-2xl font-bold font-serif text-teal-700">
+                {surveyStats?.nps !== null && surveyStats?.nps !== undefined
+                  ? `${surveyStats.nps > 0 ? '+' : ''}${surveyStats.nps}`
+                  : '-'}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                NPS Estimado
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center pl-3 sm:pl-6">
+              <span className="text-lg sm:text-2xl font-bold font-serif text-foreground">
+                {surveyStats ? surveyStats.totalReceived : 0}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                Respostas ({surveyStats?.totalSent || 0} enviadas)
+              </span>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       {/* ═══ CARD DE RECALL DE PACIENTES INATIVOS ═══ */}
       <Card

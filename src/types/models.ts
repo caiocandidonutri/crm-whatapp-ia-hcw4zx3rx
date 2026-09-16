@@ -107,6 +107,9 @@ export interface Conversation extends RecordModel {
   ai_enabled?: boolean
   ai_conversation_id?: string
   category_ids?: string[]
+  last_after_hours_sent_at?: string
+  awaiting_contact_reason?: boolean
+  awaiting_survey_response?: boolean
 }
 
 export interface CrmContact extends RecordModel {
@@ -131,6 +134,8 @@ export interface CrmContact extends RecordModel {
   role?: string
   email?: string
   birth_date?: string
+  contact_reason?: string
+  contact_reason_category?: string
   assigned_to?: string
   category_ids?: string[]
   followup_rule_id?: string
@@ -230,6 +235,10 @@ export interface CareAlertSettings extends RecordModel {
   recall_enabled?: boolean
   recall_days_inactive?: number
   recall_daily_limit?: number
+  after_hours_enabled?: boolean
+  survey_enabled?: boolean
+  survey_q1?: string
+  survey_q2?: string
 }
 
 export interface CareAlert extends RecordModel {
@@ -316,6 +325,57 @@ export interface Appointment extends RecordModel {
   followup_sent_at?: string
   task_created_at?: string
   last_interaction_type?: string
+  survey_sent?: boolean
+  survey_sent_at?: string
+}
+
+export interface QuickReply extends RecordModel {
+  account_id: string
+  title: string
+  shortcut?: string
+  body: string
+  category?: string
+  sort_order?: number
+}
+
+export interface BusinessHour extends RecordModel {
+  account_id: string
+  dia_semana: number
+  ativo: boolean
+  abre: string
+  fecha: string
+  unidade?: string
+}
+
+export type WaitlistStatus = 'aguardando' | 'avisado' | 'agendado' | 'cancelado'
+
+export interface WaitlistEntry extends RecordModel {
+  account_id: string
+  contact_id?: string
+  nome: string
+  telefone: string
+  tipo_desejado: 'Consulta' | 'Retorno' | 'Consultoria' | 'Bioimpedância' | 'Outro'
+  cidade_preferida?: 'Carmo do Rio Claro' | 'Alfenas' | 'Monte Belo' | 'Online' | 'Qualquer'
+  periodo_preferido?: 'manha' | 'tarde' | 'qualquer'
+  observacao?: string
+  status: WaitlistStatus
+  avisado_em?: string
+  expand?: {
+    contact_id?: CrmContact
+  }
+}
+
+export interface SatisfactionSurvey extends RecordModel {
+  account_id: string
+  contact_id?: string
+  appointment_id?: string
+  score?: number
+  feedback?: string
+  recebida_em?: string
+  expand?: {
+    contact_id?: CrmContact
+    appointment_id?: Appointment
+  }
 }
 
 export interface SyncState extends RecordModel {

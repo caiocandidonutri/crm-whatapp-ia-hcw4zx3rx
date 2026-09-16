@@ -283,19 +283,26 @@ export function CrmContactDetail({
                   <Phone className="w-3.5 h-3.5 shrink-0" />
                   <span className="text-sm">{formatPhoneBR(contact.phone) || '-'}</span>
                 </div>
-                <div className="mt-1">
+                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                   <Badge
                     variant="secondary"
                     className={cn('text-xs border-0', stageStyle(headerStage?.color).badge)}
                   >
                     {headerStage?.label || contact.stage}
                   </Badge>
+                  {contact.contact_reason_category && (
+                    <Badge
+                      variant="outline"
+                      className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200 capitalize"
+                    >
+                      Motivo: {contact.contact_reason_category}
+                    </Badge>
+                  )}
                 </div>
               </div>
             </div>
           ) : null}
         </div>
-
         <ScrollArea className="flex-1 overflow-y-auto">
           <div className="p-6 flex flex-col gap-8">
             <div className="space-y-4">
@@ -351,9 +358,29 @@ export function CrmContactDetail({
                   </span>
                   <PatientBirthDateBadge birthDate={contact?.birth_date} />
                 </div>
+
+                {contact?.contact_reason && (
+                  <div className="p-3 rounded-lg border border-indigo-200 bg-indigo-50/50 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-indigo-900">
+                        Motivo do Contato (Fora de Horário):
+                      </span>
+                      {contact?.contact_reason_category && (
+                        <Badge
+                          variant="secondary"
+                          className="text-[10px] bg-indigo-100 text-indigo-800 capitalize"
+                        >
+                          {contact.contact_reason_category}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-indigo-950 italic">
+                      &quot;{contact.contact_reason}&quot;
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
-
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-primary uppercase tracking-wider">
                 Empresa & Responsável

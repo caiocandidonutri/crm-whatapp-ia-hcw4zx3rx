@@ -33,6 +33,9 @@ import {
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { QuickRepliesManager } from '@/components/crm/QuickRepliesManager'
+import { BusinessHoursManager } from '@/components/crm/BusinessHoursManager'
+import { SurveySettingsManager } from '@/components/crm/SurveySettingsManager'
 
 export default function Integracoes() {
   const { role, loading: accountLoading } = useCurrentAccount()
@@ -805,6 +808,15 @@ export default function Integracoes() {
           </CardContent>
         </Card>
       </div>
+
+      {/* 1. Respostas Rápidas (Templates da Fabiana) */}
+      {account?.id && <QuickRepliesManager accountId={account.id} />}
+
+      {/* 2. Horário de Atendimento e Resposta Fora do Horário */}
+      {account?.id && <BusinessHoursManager accountId={account.id} />}
+
+      {/* 3. Pesquisa de Satisfação Pós-Consulta */}
+      {account?.id && <SurveySettingsManager accountId={account.id} />}
     </div>
   )
 }
