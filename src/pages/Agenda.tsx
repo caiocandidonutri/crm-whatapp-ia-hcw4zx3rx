@@ -610,6 +610,17 @@ export default function Agenda() {
       }
     }
 
+    if (syncStatus.last_status === 'external_error') {
+      return {
+        label: 'Erro na agenda externa (HTTP 400)',
+        variant: 'outline' as const,
+        icon: AlertTriangle,
+        tooltip:
+          syncStatus.last_error ||
+          'O backend da agenda respondeu com erro interno no crm-dados. O problema é na agenda externa, não no CRM.',
+      }
+    }
+
     if (
       syncStatus.last_status === 'auth_failed' ||
       syncStatus.last_status === 'connection_error' ||

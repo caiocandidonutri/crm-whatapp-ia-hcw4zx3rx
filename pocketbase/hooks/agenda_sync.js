@@ -220,17 +220,94 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
   var effectivePullUrl = cfg.pullUrl
   var effectiveBaseUrl = cfg.baseUrl
   var usedFallback = false
-  var pullRes = null
+  function pause(ms) {
+    try {
+      if (typeof sleep === 'function') {
+        sleep(ms)
+        return
+      }
+    } catch (_) {}
+    var until = Date.now() + ms
+    while (Date.now() < until) {}
+  }
 
-  try {
-    pullRes = $http.send({
-      url: effectivePullUrl,
-      method: 'GET',
-      headers: headers,
-      timeout: 20,
-    })
-  } catch (netErr) {
-    var conMsg = 'Erro de conexão ao chamar ' + effectivePullUrl + ': ' + String(netErr)
+  function fetchWithRetry(url, reqHeaders, maxRetries) {
+    var delays = [3000, 8000]
+    var attempts = 0
+    var lastError = null
+    var res = null
+
+    while (attempts <= maxRetries) {
+      try {
+        res = $http.send({
+          url: url,
+          method: 'GET',
+          headers: reqHeaders,
+          timeout: 20,
+        })
+
+        var code = res.statusCode
+        var isTransient =
+          code === 400 ||
+          code === 429 ||
+          code === 500 ||
+          code === 502 ||
+          code === 503 ||
+          code === 504
+
+        if (code === 200 || !isTransient || attempts === maxRetries) {
+          return { res: res, error: null, attempts: attempts + 1 }
+        }
+
+        $app
+          .logger()
+          .warn(
+            'agenda_sync cron: transient HTTP ' +
+              code +
+              ' on ' +
+              url +
+              '. Retrying in ' +
+              delays[attempts] +
+              'ms (attempt ' +
+              (attempts + 1) +
+              '/' +
+              (maxRetries + 1) +
+              ')',
+          )
+      } catch (err) {
+        lastError = err
+        if (attempts === maxRetries) {
+          return { res: null, error: err, attempts: attempts + 1 }
+        }
+        $app
+          .logger()
+          .warn(
+            'agenda_sync cron: network error on ' +
+              url +
+              ': ' +
+              String(err) +
+              '. Retrying in ' +
+              delays[attempts] +
+              'ms',
+          )
+      }
+
+      pause(delays[attempts] || 3000)
+      attempts++
+    }
+
+    return { res: res, error: lastError, attempts: attempts }
+  }
+
+  var pullAttempt = fetchWithRetry(effectivePullUrl, headers, 2)
+  var pullRes = pullAttempt.res
+
+  if (!pullRes) {
+    var conMsg =
+      'Erro de conexão ao chamar ' +
+      effectivePullUrl +
+      ': ' +
+      String(pullAttempt.error || 'sem resposta')
     if (syncStateRec) {
       try {
         syncStateRec.set('last_status', 'connection_error')
@@ -239,7 +316,8 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
           'details',
           JSON.stringify({
             url: effectivePullUrl,
-            error: String(netErr),
+            error: String(pullAttempt.error),
+            attempts: pullAttempt.attempts,
             checked_at: new Date().toISOString(),
           }),
         )
@@ -262,27 +340,26 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
           'url',
           effectivePullUrl,
         )
-      try {
-        var fbRes = $http.send({
-          url: RECOMMENDED_URL,
-          method: 'GET',
-          headers: headers,
-          timeout: 20,
-        })
-        if (fbRes.statusCode === 200 && !isHtmlContent(fbRes.raw)) {
-          pullRes = fbRes
-          effectivePullUrl = RECOMMENDED_URL
-          effectiveBaseUrl = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
-          usedFallback = true
-          isHtml = false
-          $app
-            .logger()
-            .info(
-              'agenda_sync cron: fallback to RECOMMENDED_URL succeeded! Continuing sync with recommended backend.',
-            )
-        }
-      } catch (fbErr) {
-        $app.logger().warn('agenda_sync cron: fallback to RECOMMENDED_URL failed: ' + String(fbErr))
+      var fbAttempt = fetchWithRetry(RECOMMENDED_URL, headers, 1)
+      if (fbAttempt.res && fbAttempt.res.statusCode === 200 && !isHtmlContent(fbAttempt.res.raw)) {
+        pullRes = fbAttempt.res
+        effectivePullUrl = RECOMMENDED_URL
+        effectiveBaseUrl = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
+        usedFallback = true
+        isHtml = false
+        $app
+          .logger()
+          .info(
+            'agenda_sync cron: fallback to RECOMMENDED_URL succeeded! Continuing sync with recommended backend.',
+          )
+      } else {
+        $app
+          .logger()
+          .warn(
+            'agenda_sync cron: fallback to RECOMMENDED_URL failed (status=' +
+              (fbAttempt.res ? fbAttempt.res.statusCode : 'network_error') +
+              ')',
+          )
       }
     }
   }
@@ -334,18 +411,45 @@ cronAdd('agenda_external_sync', '2,7,12,17,22,27,32,37,42,47,52,57 * * * *', () 
     return
   }
 
+  // HTTP 400 ou 5xx: erro interno do backend da agenda
+  if (pullRes.statusCode === 400 || (pullRes.statusCode >= 500 && pullRes.statusCode <= 599)) {
+    var extErrMsg =
+      'O backend da agenda respondeu com erro interno (HTTP ' +
+      pullRes.statusCode +
+      '). O problema está no projeto da AGENDA (endpoint crm-dados), não no CRM. O /api/health dele está OK. Corrija o endpoint no projeto da agenda ou peça para o suporte da agenda verificar.'
+    if (syncStateRec) {
+      try {
+        syncStateRec.set('last_status', 'external_error')
+        syncStateRec.set('last_error', extErrMsg)
+        syncStateRec.set(
+          'details',
+          JSON.stringify({
+            url: effectivePullUrl,
+            status: pullRes.statusCode,
+            classification: 'external_error',
+            raw: (pullRes.raw || '').slice(0, 500),
+            attempts: pullAttempt.attempts,
+            checked_at: new Date().toISOString(),
+          }),
+        )
+        $app.save(syncStateRec)
+      } catch (_) {}
+    }
+    return
+  }
+
   if (pullRes.statusCode !== 200) {
-    var httpErrMsg =
-      pullRes.statusCode === 404 || pullRes.statusCode === 405
-        ? 'URL incorreta ou rota inexistente na agenda externa (HTTP ' +
-          pullRes.statusCode +
-          '). Troque o secret AGENDA_SYNC_URL para ' +
-          RECOMMENDED_URL
-        : 'Resposta inesperada do endpoint crm-dados (HTTP ' +
-          pullRes.statusCode +
-          '): ' +
-          (pullRes.raw || '').slice(0, 300)
-    var st = pullRes.statusCode === 404 || pullRes.statusCode === 405 ? 'wrong_url' : 'error'
+    var is404or405 = pullRes.statusCode === 404 || pullRes.statusCode === 405
+    var httpErrMsg = is404or405
+      ? 'URL incorreta ou rota inexistente na agenda externa (HTTP ' +
+        pullRes.statusCode +
+        '). Troque o secret AGENDA_SYNC_URL para ' +
+        RECOMMENDED_URL
+      : 'Resposta inesperada do endpoint crm-dados (HTTP ' +
+        pullRes.statusCode +
+        '): ' +
+        (pullRes.raw || '').slice(0, 300)
+    var st = is404or405 ? 'wrong_url' : 'error'
     if (syncStateRec) {
       try {
         syncStateRec.set('last_status', st)
@@ -895,17 +999,94 @@ routerAdd(
       var effectivePullUrl = cfg.pullUrl
       var effectiveBaseUrl = cfg.baseUrl
       var usedFallback = false
-      var pullRes = null
+      function pause(ms) {
+        try {
+          if (typeof sleep === 'function') {
+            sleep(ms)
+            return
+          }
+        } catch (_) {}
+        var until = Date.now() + ms
+        while (Date.now() < until) {}
+      }
 
-      try {
-        pullRes = $http.send({
-          url: effectivePullUrl,
-          method: 'GET',
-          headers: headers,
-          timeout: 20,
-        })
-      } catch (netErr) {
-        var conMsg = 'Erro de conexão ao chamar ' + effectivePullUrl + ': ' + String(netErr)
+      function fetchWithRetry(url, reqHeaders, maxRetries) {
+        var delays = [3000, 8000]
+        var attempts = 0
+        var lastError = null
+        var res = null
+
+        while (attempts <= maxRetries) {
+          try {
+            res = $http.send({
+              url: url,
+              method: 'GET',
+              headers: reqHeaders,
+              timeout: 20,
+            })
+
+            var code = res.statusCode
+            var isTransient =
+              code === 400 ||
+              code === 429 ||
+              code === 500 ||
+              code === 502 ||
+              code === 503 ||
+              code === 504
+
+            if (code === 200 || !isTransient || attempts === maxRetries) {
+              return { res: res, error: null, attempts: attempts + 1 }
+            }
+
+            $app
+              .logger()
+              .warn(
+                'agenda_sync POST: transient HTTP ' +
+                  code +
+                  ' on ' +
+                  url +
+                  '. Retrying in ' +
+                  delays[attempts] +
+                  'ms (attempt ' +
+                  (attempts + 1) +
+                  '/' +
+                  (maxRetries + 1) +
+                  ')',
+              )
+          } catch (err) {
+            lastError = err
+            if (attempts === maxRetries) {
+              return { res: null, error: err, attempts: attempts + 1 }
+            }
+            $app
+              .logger()
+              .warn(
+                'agenda_sync POST: network error on ' +
+                  url +
+                  ': ' +
+                  String(err) +
+                  '. Retrying in ' +
+                  delays[attempts] +
+                  'ms',
+              )
+          }
+
+          pause(delays[attempts] || 3000)
+          attempts++
+        }
+
+        return { res: res, error: lastError, attempts: attempts }
+      }
+
+      var pullAttempt = fetchWithRetry(effectivePullUrl, headers, 2)
+      var pullRes = pullAttempt.res
+
+      if (!pullRes) {
+        var conMsg =
+          'Erro de conexão ao chamar ' +
+          effectivePullUrl +
+          ': ' +
+          String(pullAttempt.error || 'sem resposta')
         if (syncStateRec) {
           try {
             syncStateRec.set('last_status', 'connection_error')
@@ -914,7 +1095,8 @@ routerAdd(
               'details',
               JSON.stringify({
                 url: effectivePullUrl,
-                error: String(netErr),
+                error: String(pullAttempt.error),
+                attempts: pullAttempt.attempts,
                 checked_at: new Date().toISOString(),
               }),
             )
@@ -943,29 +1125,30 @@ routerAdd(
               'url',
               effectivePullUrl,
             )
-          try {
-            var fbRes = $http.send({
-              url: RECOMMENDED_URL,
-              method: 'GET',
-              headers: headers,
-              timeout: 20,
-            })
-            if (fbRes.statusCode === 200 && !isHtmlContent(fbRes.raw)) {
-              pullRes = fbRes
-              effectivePullUrl = RECOMMENDED_URL
-              effectiveBaseUrl = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
-              usedFallback = true
-              isHtml = false
-              $app
-                .logger()
-                .info(
-                  'agenda_sync POST: fallback to RECOMMENDED_URL succeeded! Continuing sync with recommended backend.',
-                )
-            }
-          } catch (fbErr) {
+          var fbAttempt = fetchWithRetry(RECOMMENDED_URL, headers, 1)
+          if (
+            fbAttempt.res &&
+            fbAttempt.res.statusCode === 200 &&
+            !isHtmlContent(fbAttempt.res.raw)
+          ) {
+            pullRes = fbAttempt.res
+            effectivePullUrl = RECOMMENDED_URL
+            effectiveBaseUrl = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
+            usedFallback = true
+            isHtml = false
             $app
               .logger()
-              .warn('agenda_sync POST: fallback to RECOMMENDED_URL failed: ' + String(fbErr))
+              .info(
+                'agenda_sync POST: fallback to RECOMMENDED_URL succeeded! Continuing sync with recommended backend.',
+              )
+          } else {
+            $app
+              .logger()
+              .warn(
+                'agenda_sync POST: fallback to RECOMMENDED_URL failed (status=' +
+                  (fbAttempt.res ? fbAttempt.res.statusCode : 'network_error') +
+                  ')',
+              )
           }
         }
       }
@@ -1028,6 +1211,40 @@ routerAdd(
           pulled: 0,
           pushed: 0,
           errors: [wrongUrlMsg],
+        })
+      }
+
+      // HTTP 400 ou 5xx: erro interno do backend da agenda
+      if (pullRes.statusCode === 400 || (pullRes.statusCode >= 500 && pullRes.statusCode <= 599)) {
+        var extErrMsg =
+          'O backend da agenda respondeu com erro interno (HTTP ' +
+          pullRes.statusCode +
+          '). O problema está no projeto da AGENDA (endpoint crm-dados), não no CRM. O /api/health dele está OK. Corrija o endpoint no projeto da agenda ou peça para o suporte da agenda verificar.'
+        if (syncStateRec) {
+          try {
+            syncStateRec.set('last_status', 'external_error')
+            syncStateRec.set('last_error', extErrMsg)
+            syncStateRec.set(
+              'details',
+              JSON.stringify({
+                url: effectivePullUrl,
+                status: pullRes.statusCode,
+                classification: 'external_error',
+                raw: (pullRes.raw || '').slice(0, 500),
+                attempts: pullAttempt.attempts,
+                checked_at: new Date().toISOString(),
+              }),
+            )
+            $app.save(syncStateRec)
+          } catch (_) {}
+        }
+        return e.json(200, {
+          success: false,
+          status: 'external_error',
+          message: extErrMsg,
+          pulled: 0,
+          pushed: 0,
+          errors: [extErrMsg],
         })
       }
 
@@ -1566,6 +1783,18 @@ routerAdd(
                 RECOMMENDED_URL,
               status_code: testRes.statusCode,
             }
+          } else if (
+            testRes.statusCode === 400 ||
+            (testRes.statusCode >= 500 && testRes.statusCode <= 599)
+          ) {
+            liveTest = {
+              status: 'external_error',
+              message:
+                'O backend da agenda respondeu com erro interno (HTTP ' +
+                testRes.statusCode +
+                '). O problema está no projeto da AGENDA (endpoint crm-dados), não no CRM. O /api/health dele está OK. Corrija o endpoint no projeto da agenda ou peça para o suporte da agenda verificar.',
+              status_code: testRes.statusCode,
+            }
           } else {
             liveTest = {
               status: 'http_error',
@@ -1690,6 +1919,22 @@ routerAdd(
             contacts_found: 0,
             sample: null,
             message: 'Rota não encontrada na URL recomendada (HTTP ' + recRes.statusCode + ').',
+          }
+        } else if (
+          recRes.statusCode === 400 ||
+          (recRes.statusCode >= 500 && recRes.statusCode <= 599)
+        ) {
+          recommendedCheck = {
+            url: RECOMMENDED_URL,
+            status: 'external_error',
+            status_code: recRes.statusCode,
+            appointments_found: 0,
+            contacts_found: 0,
+            sample: null,
+            message:
+              'O backend da agenda respondeu com erro interno (HTTP ' +
+              recRes.statusCode +
+              '). O problema está no projeto da AGENDA (endpoint crm-dados), não no CRM. O /api/health dele está OK. Corrija o endpoint no projeto da agenda ou peça para o suporte da agenda verificar.',
           }
         } else {
           recommendedCheck = {

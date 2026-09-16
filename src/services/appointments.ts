@@ -33,7 +33,13 @@ export interface UpdateAppointmentInput {
 }
 
 export interface AgendaSyncDiagnostic {
-  status: 'ok' | 'invalid_token' | 'wrong_url' | 'connection_error' | 'http_error'
+  status:
+    | 'ok'
+    | 'invalid_token'
+    | 'wrong_url'
+    | 'connection_error'
+    | 'http_error'
+    | 'external_error'
   message: string
   status_code?: number
   content_type_hint?: string
@@ -41,7 +47,13 @@ export interface AgendaSyncDiagnostic {
 
 export interface RecommendedUrlCheck {
   url: string
-  status: 'ok' | 'invalid_token' | 'wrong_url' | 'connection_error' | 'http_error'
+  status:
+    | 'ok'
+    | 'invalid_token'
+    | 'wrong_url'
+    | 'connection_error'
+    | 'http_error'
+    | 'external_error'
   status_code?: number
   appointments_found: number
   contacts_found: number
@@ -68,6 +80,7 @@ export interface AgendaSyncStatus {
     | 'success'
     | 'partial'
     | 'error'
+    | 'external_error'
     | 'wrong_url'
     | 'missing_credentials'
     | 'auth_failed'

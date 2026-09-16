@@ -447,6 +447,15 @@ export default function Integracoes() {
                   <span className="text-emerald-600 flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5" /> Conexão Ok (Token Válido)
                   </span>
+                ) : agendaSync?.diagnostic?.status === 'external_error' ||
+                  agendaSync?.last_status === 'external_error' ? (
+                  <span
+                    className="text-amber-600 dark:text-amber-400 flex items-center gap-1"
+                    title="O problema está no projeto da Agenda, não no CRM"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" /> Erro na Agenda Externa (HTTP{' '}
+                    {agendaSync?.diagnostic?.status_code || 400})
+                  </span>
                 ) : agendaSync?.diagnostic?.status === 'invalid_token' ||
                   agendaSync?.last_status === 'auth_failed' ? (
                   <span className="text-rose-600 flex items-center gap-1">
@@ -528,10 +537,42 @@ export default function Integracoes() {
               </Alert>
             )}
 
-          {/* Banner de Alerta Crítico: Ambas as URLs falharam */}
+          {/* Banner de Erro Externo: O backend da Agenda externa está falhando no endpoint crm-dados */}
+          {(agendaSync?.diagnostic?.status === 'external_error' ||
+            agendaSync?.recommended_url_check?.status === 'external_error' ||
+            agendaSync?.last_status === 'external_error') && (
+            <Alert className="border-amber-300 bg-amber-50/90 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <div className="space-y-1">
+                <AlertTitle className="text-amber-950 dark:text-amber-100 font-semibold text-xs sm:text-sm">
+                  Atenção: O problema está no projeto da AGENDA, não no CRM
+                </AlertTitle>
+                <AlertDescription className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+                  O backend da agenda respondeu com erro interno (HTTP{' '}
+                  {agendaSync?.diagnostic?.status_code ||
+                    agendaSync?.recommended_url_check?.status_code ||
+                    400}
+                  ) no endpoint{' '}
+                  <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono text-[11px]">
+                    crm-dados
+                  </code>
+                  . O serviço{' '}
+                  <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono text-[11px]">
+                    /api/health
+                  </code>{' '}
+                  da agenda está saudável. Os dados e agendamentos locais permanecem preservados e a
+                  fila de push continuará ativa normalmente.
+                </AlertDescription>
+              </div>
+            </Alert>
+          )}
+
+          {/* Banner de Alerta Crítico: Ambas as URLs falharam por conexão ou credencial */}
           {agendaSync?.diagnostic?.status !== 'ok' &&
+            agendaSync?.diagnostic?.status !== 'external_error' &&
             agendaSync?.recommended_url_check &&
-            agendaSync.recommended_url_check.status !== 'ok' && (
+            agendaSync.recommended_url_check.status !== 'ok' &&
+            agendaSync.recommended_url_check.status !== 'external_error' && (
               <Alert className="border-rose-300 bg-rose-50/90 text-rose-900">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                 <div className="space-y-1">
@@ -554,11 +595,13 @@ export default function Integracoes() {
                 'p-3 rounded-xl border text-xs flex items-start gap-2.5',
                 agendaSync.diagnostic.status === 'ok'
                   ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900 dark:bg-emerald-950/20 dark:border-emerald-800 dark:text-emerald-300'
-                  : agendaSync.diagnostic.status === 'invalid_token'
-                    ? 'bg-rose-50/70 border-rose-200 text-rose-900 dark:bg-rose-950/20 dark:border-rose-800 dark:text-rose-300'
-                    : agendaSync.diagnostic.status === 'wrong_url'
-                      ? 'bg-amber-50/70 border-amber-200 text-amber-900 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-300'
-                      : 'bg-muted/50 border-border text-foreground',
+                  : agendaSync.diagnostic.status === 'external_error'
+                    ? 'bg-amber-50/70 border-amber-300 text-amber-900 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-300'
+                    : agendaSync.diagnostic.status === 'invalid_token'
+                      ? 'bg-rose-50/70 border-rose-200 text-rose-900 dark:bg-rose-950/20 dark:border-rose-800 dark:text-rose-300'
+                      : agendaSync.diagnostic.status === 'wrong_url'
+                        ? 'bg-amber-50/70 border-amber-200 text-amber-900 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-300'
+                        : 'bg-muted/50 border-border text-foreground',
               )}
             >
               {agendaSync.diagnostic.status === 'ok' ? (
@@ -572,11 +615,13 @@ export default function Integracoes() {
                 <span className="font-semibold block">
                   {agendaSync.diagnostic.status === 'ok'
                     ? 'URL Configurada: Conexão OK'
-                    : agendaSync.diagnostic.status === 'invalid_token'
-                      ? 'URL Configurada: Token Inválido ou Não Autorizado'
-                      : agendaSync.diagnostic.status === 'wrong_url'
-                        ? 'URL Configurada: Aponta para Site / Rota Incorreta'
-                        : 'Status da URL Configurada'}
+                    : agendaSync.diagnostic.status === 'external_error'
+                      ? 'URL Configurada: Erro no Backend da Agenda (Problema Externo)'
+                      : agendaSync.diagnostic.status === 'invalid_token'
+                        ? 'URL Configurada: Token Inválido ou Não Autorizado'
+                        : agendaSync.diagnostic.status === 'wrong_url'
+                          ? 'URL Configurada: Aponta para Site / Rota Incorreta'
+                          : 'Status da URL Configurada'}
                 </span>
                 <p className="opacity-90 leading-relaxed">{agendaSync.diagnostic.message}</p>
                 {agendaSync.external_url && (
@@ -614,12 +659,16 @@ export default function Integracoes() {
                       'text-[10px] h-4.5 font-medium',
                       agendaSync.recommended_url_check.status === 'ok'
                         ? 'border-emerald-500 bg-emerald-100/70 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
-                        : 'border-amber-400 bg-amber-100/70 text-amber-800',
+                        : agendaSync.recommended_url_check.status === 'external_error'
+                          ? 'border-amber-500 bg-amber-100/70 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200'
+                          : 'border-amber-400 bg-amber-100/70 text-amber-800',
                     )}
                   >
                     {agendaSync.recommended_url_check.status === 'ok'
                       ? 'Disponível & Válida'
-                      : 'Falhou'}
+                      : agendaSync.recommended_url_check.status === 'external_error'
+                        ? 'Erro Externo da Agenda (HTTP 400)'
+                        : 'Falhou'}
                   </Badge>
                 </div>
 
