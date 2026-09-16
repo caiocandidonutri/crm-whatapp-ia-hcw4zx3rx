@@ -477,13 +477,16 @@ routerAdd(
     }
     try {
       var sixtyDaysAgoIso = new Date(Date.now() - 60 * 86400 * 1000).toISOString()
+      var careFilter = accountId
+        ? 'starts_at >= {:since} && (account_id = {:accId} || account_id = "" || account_id = null)'
+        : 'starts_at >= {:since}'
       var careAppts = $app.findRecordsByFilter(
         'appointments',
-        'starts_at >= {:since}',
+        careFilter,
         '-starts_at',
-        500,
+        1000,
         0,
-        { since: sixtyDaysAgoIso },
+        accountId ? { since: sixtyDaysAgoIso, accId: accountId } : { since: sixtyDaysAgoIso },
       )
       if (careAppts && careAppts.length > 0) {
         care2Months.total = careAppts.length
@@ -509,39 +512,36 @@ routerAdd(
     var recallSentToday = 0
     var recallReengaged = 0
     try {
-      // 1. Detectados / elegíveis para recall: clientes ou com consulta realizada, sem mensagem recente
-      var recallInactiveCutoffIso = new Date(Date.now() - 14 * 86400 * 1000).toISOString()
+      // 1. Detectados / elegíveis para recall: clientes ou com is_patient = 1, sem recall enviado
       var detRow = new DynamicModel({ cnt: 0 })
-      $app
-        .db()
-        .newQuery(
-          'SELECT COUNT(*) as cnt FROM crm_contacts WHERE account_id = {:accId} AND (stage = "cliente" OR is_patient = 1) AND (last_recall_sent_at IS NULL OR last_recall_sent_at = "")',
-        )
-        .bind({ accId: accountId })
-        .one(detRow)
+      var detQuery = accountId
+        ? 'SELECT COUNT(*) as cnt FROM crm_contacts WHERE (account_id = {:accId} OR account_id = "" OR account_id IS NULL) AND (stage = "cliente" OR is_patient = 1) AND (last_recall_sent_at IS NULL OR last_recall_sent_at = "")'
+        : 'SELECT COUNT(*) as cnt FROM crm_contacts WHERE (stage = "cliente" OR is_patient = 1) AND (last_recall_sent_at IS NULL OR last_recall_sent_at = "")'
+      var q1 = $app.db().newQuery(detQuery)
+      if (accountId) q1.bind({ accId: accountId })
+      q1.one(detRow)
       recallDetected = detRow.cnt
 
       // 2. Enviados hoje: last_recall_sent_at começando com a data de hoje
       var todayPrefix = todayIso + '%'
       var sentRow = new DynamicModel({ cnt: 0 })
-      $app
-        .db()
-        .newQuery(
-          'SELECT COUNT(*) as cnt FROM crm_contacts WHERE account_id = {:accId} AND last_recall_sent_at LIKE {:todayPfx}',
-        )
-        .bind({ accId: accountId, todayPfx: todayPrefix })
-        .one(sentRow)
+      var sentQuery = accountId
+        ? 'SELECT COUNT(*) as cnt FROM crm_contacts WHERE (account_id = {:accId} OR account_id = "" OR account_id IS NULL) AND last_recall_sent_at LIKE {:todayPfx}'
+        : 'SELECT COUNT(*) as cnt FROM crm_contacts WHERE last_recall_sent_at LIKE {:todayPfx}'
+      var q2 = $app.db().newQuery(sentQuery)
+      if (accountId) q2.bind({ accId: accountId, todayPfx: todayPrefix })
+      else q2.bind({ todayPfx: todayPrefix })
+      q2.one(sentRow)
       recallSentToday = sentRow.cnt
 
-      // 3. Reengajados: recall_count > 0 e care_status != "reengajamento" ou stage != "nao_respondido"
+      // 3. Reengajados: recall_count > 0 e status de cuidado em dia ou em atendimento
       var reengRow = new DynamicModel({ cnt: 0 })
-      $app
-        .db()
-        .newQuery(
-          'SELECT COUNT(*) as cnt FROM crm_contacts WHERE account_id = {:accId} AND recall_count > 0 AND (stage = "cliente" OR stage = "em_atendimento" OR care_status = "precisa_retorno")',
-        )
-        .bind({ accId: accountId })
-        .one(reengRow)
+      var reengQuery = accountId
+        ? 'SELECT COUNT(*) as cnt FROM crm_contacts WHERE (account_id = {:accId} OR account_id = "" OR account_id IS NULL) AND recall_count > 0 AND (stage = "cliente" OR stage = "em_atendimento" OR care_status = "precisa_retorno")'
+        : 'SELECT COUNT(*) as cnt FROM crm_contacts WHERE recall_count > 0 AND (stage = "cliente" OR stage = "em_atendimento" OR care_status = "precisa_retorno")'
+      var q3 = $app.db().newQuery(reengQuery)
+      if (accountId) q3.bind({ accId: accountId })
+      q3.one(reengRow)
       recallReengaged = reengRow.cnt
     } catch (_) {}
 

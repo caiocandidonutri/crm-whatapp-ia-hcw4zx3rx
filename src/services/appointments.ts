@@ -137,6 +137,9 @@ export async function listAppointments(options?: {
   endDate?: string
   city?: AppointmentCity | 'all'
   status?: AppointmentStatus | 'all'
+  appointment_type?: string | 'all'
+  patient_phone?: string
+  patient_id?: string
 }): Promise<Appointment[]> {
   const filters: string[] = []
 
@@ -151,6 +154,19 @@ export async function listAppointments(options?: {
   }
   if (options?.status && options.status !== 'all') {
     filters.push(`status = "${options.status}"`)
+  }
+  if (options?.appointment_type && options.appointment_type !== 'all') {
+    filters.push(`appointment_type ~ "${options.appointment_type}"`)
+  }
+  if (options?.patient_phone) {
+    const cleanDigits = options.patient_phone.replace(/\D/g, '')
+    if (cleanDigits.length >= 8) {
+      const suffix = cleanDigits.slice(-8)
+      filters.push(`patient_phone ~ "${suffix}"`)
+    }
+  }
+  if (options?.patient_id) {
+    filters.push(`patient_id = "${options.patient_id}"`)
   }
 
   const filterStr = filters.join(' && ')

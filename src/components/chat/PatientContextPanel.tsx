@@ -17,11 +17,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
-import { CrmContact, Task } from '@/types/models'
+import { CrmContact, Task, Appointment } from '@/types/models'
 import pb from '@/lib/pocketbase/client'
 import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { getCareCategoryMeta, getPriorityMeta, getStatusMeta } from '@/lib/task-meta'
 import { format } from 'date-fns'
+import { listAppointments } from '@/services/appointments'
 import { ptBR } from 'date-fns/locale'
 
 interface PatientContextPanelProps {
@@ -31,6 +32,7 @@ interface PatientContextPanelProps {
   contactName?: string
   instanceName?: string
   onOpenAddToCrm?: () => void
+  onOpenSchedule?: () => void
 }
 
 export function PatientContextPanel({
@@ -40,10 +42,12 @@ export function PatientContextPanel({
   contactName,
   instanceName,
   onOpenAddToCrm,
+  onOpenSchedule,
 }: PatientContextPanelProps) {
   const [loading, setLoading] = useState(false)
   const [contact, setContact] = useState<CrmContact | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [patientAppointments, setPatientAppointments] = useState<Appointment[]>([])
 
   useEffect(() => {
     if (!open || !remoteJid) return
@@ -66,17 +70,37 @@ export function PatientContextPanel({
           const c = contacts[0]
           setContact(c)
 
-          // Buscar tarefas vinculadas ao contato
+          // Buscar tarefas e agendamentos vinculados ao contato
           try {
-            const taskList = await pb.collection('tasks').getFullList<Task>({
-              filter: `crm_contact_id = "${c.id}"`,
-              sort: '-created',
-            })
-            if (!cancelled) setTasks(taskList)
+            const [taskList, appts] = await Promise.all([
+              pb.collection('tasks').getFullList<Task>({
+                filter: `crm_contact_id = "${c.id}"`,
+                sort: '-created',
+              }),
+              listAppointments({
+                patient_phone: c.phone || cleanPhone,
+                patient_id: c.id,
+              }),
+            ])
+            if (!cancelled) {
+              setTasks(taskList)
+              setPatientAppointments(appts)
+            }
           } catch {
             /* intentionally ignored */
           }
         } else {
+          // Mesmo se ainda não for cadastrado no CRM, verificar se já tem agendamento espelhado pelo telefone
+          try {
+            const appts = await listAppointments({
+              patient_phone: cleanPhone,
+            })
+            if (!cancelled) {
+              setPatientAppointments(appts)
+            }
+          } catch {
+            /* intentionally ignored */
+          }
           setContact(null)
           setTasks([])
         }
@@ -103,6 +127,17 @@ export function PatientContextPanel({
   const displayPhone = formatPhoneBR(contact?.phone || remoteJid)
 
   const careMeta = contact?.care_status ? getCareCategoryMeta(contact.care_status) : null
+
+  // Identificar próximo agendamento ativo e histórico dos últimos 2 meses
+  const nowIso = new Date().toISOString()
+  const upcomingAppointment = patientAppointments
+    .filter((a) => a.starts_at >= nowIso && a.status !== 'cancelado')
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
+
+  const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+  const pastAppointments2Months = patientAppointments
+    .filter((a) => a.starts_at < nowIso && a.starts_at >= twoMonthsAgo && a.status !== 'cancelado')
+    .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
 
   return (
     <aside className="fixed inset-0 md:static md:inset-auto md:w-80 w-full bg-white flex flex-col h-full z-50 md:z-20 border-l border-border shadow-lg md:shadow-sm shrink-0 animate-in slide-in-from-right duration-200">
@@ -156,6 +191,55 @@ export function PatientContextPanel({
           </div>
         ) : (
           <div className="contents">
+            {/* Banner de Próximo Agendamento / Status de Cuidado */}
+            {upcomingAppointment ? (
+              <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300 font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    Consulta Agendada
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border-0"
+                  >
+                    {upcomingAppointment.appointment_type || 'Consulta'}
+                  </Badge>
+                </div>
+                <p className="text-emerald-900 dark:text-emerald-100 font-medium">
+                  {format(new Date(upcomingAppointment.starts_at), "dd 'de' MMMM, HH:mm", {
+                    locale: ptBR,
+                  })}
+                </p>
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                  {upcomingAppointment.location || upcomingAppointment.city} • Dr. Caio
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 font-semibold">
+                    <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    Sem agendamento ativo
+                  </div>
+                  {onOpenSchedule && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={onOpenSchedule}
+                      className="h-7 text-xs px-2.5 bg-amber-100 hover:bg-amber-200 text-amber-900 border-amber-300 font-medium"
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Agendar
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  Paciente precisa de cuidado/recall. Ofereça Consulta, Retorno ou Consultoria.
+                </p>
+              </div>
+            )}
+
             {/* Informações Básicas do Paciente */}
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12 border">
@@ -244,6 +328,50 @@ export function PatientContextPanel({
                 <p className="text-purple-900 leading-relaxed">{contact.ai_suggested_action}</p>
               </div>
             )}
+
+            {/* Histórico dos Últimos 2 Meses (Espelhamento da Agenda) */}
+            <div className="space-y-2">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+                Histórico (Últimos 2 Meses - {pastAppointments2Months.length})
+              </span>
+              {pastAppointments2Months.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic py-1">
+                  Nenhum atendimento registrado nos últimos 2 meses.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {pastAppointments2Months.slice(0, 4).map((apt) => (
+                    <div
+                      key={apt.id}
+                      className="p-2 rounded-md border bg-muted/20 text-xs flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium text-foreground">
+                            {format(new Date(apt.starts_at), 'dd/MM/yyyy HH:mm')}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className={
+                              (apt.appointment_type || '').toLowerCase().includes('retorno')
+                                ? 'bg-amber-50 text-amber-800 border-amber-200 text-[9px] py-0'
+                                : (apt.appointment_type || '').toLowerCase().includes('consultoria')
+                                  ? 'bg-purple-50 text-purple-800 border-purple-200 text-[9px] py-0'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200 text-[9px] py-0'
+                            }
+                          >
+                            {apt.appointment_type || 'Consulta'}
+                          </Badge>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {apt.location || apt.city} • Status: {apt.status}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <Separator />
 

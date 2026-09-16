@@ -63,6 +63,7 @@ export function AgendaLogisticsReport({
 }: AgendaLogisticsReportProps) {
   const [filterCity, setFilterCity] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterType, setFilterType] = useState<string>('all')
   const [filterCare, setFilterCare] = useState<'all' | 'triggered' | 'not_triggered'>('all')
   const [search, setSearch] = useState<string>('')
 
@@ -108,6 +109,13 @@ export function AgendaLogisticsReport({
       Outros: 0,
     }
 
+    const porTipo: Record<string, number> = {
+      Consulta: 0,
+      Retorno: 0,
+      Consultoria: 0,
+      Outros: 0,
+    }
+
     last2MonthsAppointments.forEach((a) => {
       // Status
       if (a.status === 'confirmado') confirmados++
@@ -115,6 +123,18 @@ export function AgendaLogisticsReport({
       else if (a.status === 'realizado') realizados++
       else if (a.status === 'faltou') faltas++
       else if (a.status === 'cancelado') cancelados++
+
+      // Tipo (Consulta, Retorno, Consultoria)
+      const tRaw = (a.appointment_type || '').toLowerCase()
+      if (tRaw.includes('retorno') || tRaw.includes('reavalia')) {
+        porTipo.Retorno = (porTipo.Retorno || 0) + 1
+      } else if (tRaw.includes('consultoria')) {
+        porTipo.Consultoria = (porTipo.Consultoria || 0) + 1
+      } else if (tRaw.includes('consulta') || tRaw.includes('primeira') || !tRaw) {
+        porTipo.Consulta = (porTipo.Consulta || 0) + 1
+      } else {
+        porTipo.Outros = (porTipo.Outros || 0) + 1
+      }
 
       // Acionamento de cuidado
       if (isPatientTriggered(a)) {
@@ -150,6 +170,7 @@ export function AgendaLogisticsReport({
       naoAcionados,
       taxaAcionamento: total > 0 ? Math.round((acionados / total) * 100) : 0,
       porCidade,
+      porTipo,
     }
   }, [last2MonthsAppointments])
 
@@ -158,6 +179,19 @@ export function AgendaLogisticsReport({
     return upcomingAppointments.filter((a) => {
       if (filterCity !== 'all' && a.city !== filterCity) return false
       if (filterStatus !== 'all' && a.status !== filterStatus) return false
+
+      if (filterType !== 'all') {
+        const tLower = (a.appointment_type || '').toLowerCase()
+        if (
+          filterType === 'Consulta' &&
+          !tLower.includes('consulta') &&
+          !tLower.includes('primeira') &&
+          tLower !== ''
+        )
+          return false
+        if (filterType === 'Retorno' && !tLower.includes('retorno')) return false
+        if (filterType === 'Consultoria' && !tLower.includes('consultoria')) return false
+      }
 
       const triggered = isPatientTriggered(a)
       if (filterCare === 'triggered' && !triggered) return false
@@ -218,7 +252,63 @@ export function AgendaLogisticsReport({
         </div>
       </div>
 
-      {/* Cards de Métricas Principais */}
+      {/* Cards de Métricas Principais: Total, Consultas, Retornos, Consultorias */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="bg-card/50 backdrop-blur-sm border-border/60">
+          <CardHeader className="pb-2">
+            <CardDescription className="text-xs">Consultas</CardDescription>
+            <CardTitle className="text-2xl font-bold text-blue-600 dark:text-blue-400 flex items-center justify-between">
+              <span>{stats.porTipo.Consulta}</span>
+              <CalendarDays className="h-4 w-4 text-blue-500" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs text-muted-foreground pt-0">
+            {stats.total > 0 ? Math.round((stats.porTipo.Consulta / stats.total) * 100) : 0}% do
+            total
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/50 backdrop-blur-sm border-border/60">
+          <CardHeader className="pb-2">
+            <CardDescription className="text-xs">Retornos</CardDescription>
+            <CardTitle className="text-2xl font-bold text-amber-600 dark:text-amber-400 flex items-center justify-between">
+              <span>{stats.porTipo.Retorno}</span>
+              <Clock className="h-4 w-4 text-amber-500" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs text-muted-foreground pt-0">
+            Reavaliações / retornos periódicos
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/50 backdrop-blur-sm border-border/60">
+          <CardHeader className="pb-2">
+            <CardDescription className="text-xs">Consultorias</CardDescription>
+            <CardTitle className="text-2xl font-bold text-purple-600 dark:text-purple-400 flex items-center justify-between">
+              <span>{stats.porTipo.Consultoria}</span>
+              <Sparkles className="h-4 w-4 text-purple-500" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs text-muted-foreground pt-0">
+            Consultorias e acompanhamentos
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/50 backdrop-blur-sm border-border/60">
+          <CardHeader className="pb-2">
+            <CardDescription className="text-xs">Taxa de Cuidado Ativo</CardDescription>
+            <CardTitle className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
+              <span>{stats.taxaAcionamento}%</span>
+              <ShieldCheck className="h-4 w-4 text-emerald-500" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs text-muted-foreground pt-0">
+            {stats.acionados} acionados / {stats.naoAcionados} pendentes
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Cards de Métricas Secundárias */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="bg-card/50 backdrop-blur-sm border-border/60">
           <CardHeader className="pb-2">
@@ -386,6 +476,18 @@ export function AgendaLogisticsReport({
                 />
               </div>
 
+              <Select value={filterType} onValueChange={setFilterType}>
+                <SelectTrigger className="h-8 text-xs w-[130px]">
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os tipos</SelectItem>
+                  <SelectItem value="Consulta">Consulta</SelectItem>
+                  <SelectItem value="Retorno">Retorno</SelectItem>
+                  <SelectItem value="Consultoria">Consultoria</SelectItem>
+                </SelectContent>
+              </Select>
+
               <Select value={filterCity} onValueChange={setFilterCity}>
                 <SelectTrigger className="h-8 text-xs w-[140px]">
                   <SelectValue placeholder="Localidade" />
@@ -485,9 +587,18 @@ export function AgendaLogisticsReport({
                           )}
 
                           {item.appointment_type && (
-                            <span className="text-[11px] bg-secondary/50 px-1.5 py-0.5 rounded">
+                            <Badge
+                              variant="secondary"
+                              className={
+                                item.appointment_type.toLowerCase().includes('retorno')
+                                  ? 'bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0'
+                                  : item.appointment_type.toLowerCase().includes('consultoria')
+                                    ? 'bg-purple-100 text-purple-800 border-purple-300 text-[10px] py-0'
+                                    : 'bg-blue-100 text-blue-800 border-blue-300 text-[10px] py-0'
+                              }
+                            >
                               {item.appointment_type}
-                            </span>
+                            </Badge>
                           )}
                         </div>
                       </div>

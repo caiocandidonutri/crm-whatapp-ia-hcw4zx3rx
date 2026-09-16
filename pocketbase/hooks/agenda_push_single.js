@@ -70,19 +70,34 @@ onRecordAfterCreateSuccess((e) => {
       return e.next()
     }
 
+    function formatBRDate(d) {
+      var day = String(d.getDate())
+      if (day.length < 2) day = '0' + day
+      var month = String(d.getMonth() + 1)
+      if (month.length < 2) month = '0' + month
+      var year = d.getFullYear()
+      return day + '/' + month + '/' + year
+    }
+
     var extIdForPush = record.getString('external_id')
+    var startsAtIso = record.getString('starts_at')
+    var startsAtDate = startsAtIso ? new Date(startsAtIso) : new Date()
+    var dateBR = formatBRDate(startsAtDate)
+
     var payload = {
       patient_name: record.getString('patient_name'),
       patient_phone: record.getString('patient_phone'),
       doctor: record.getString('doctor') || 'Dr. Caio',
       city: record.getString('city'),
       location: record.getString('location'),
-      starts_at: record.getString('starts_at'),
+      starts_at: startsAtIso,
       ends_at: record.getString('ends_at'),
       status: record.getString('status'),
-      appointment_type: record.getString('appointment_type'),
+      appointment_type: record.getString('appointment_type') || 'Consulta',
       notes: record.getString('notes'),
       source: 'crm',
+      data_inicio: dateBR,
+      data_agendamento: dateBR,
     }
 
     var pushHeaders = {
@@ -201,19 +216,34 @@ onRecordAfterUpdateSuccess((e) => {
       return e.next()
     }
 
+    function formatBRDate(d) {
+      var day = String(d.getDate())
+      if (day.length < 2) day = '0' + day
+      var month = String(d.getMonth() + 1)
+      if (month.length < 2) month = '0' + month
+      var year = d.getFullYear()
+      return day + '/' + month + '/' + year
+    }
+
     var extIdForPush = record.getString('external_id')
+    var startsAtIso = record.getString('starts_at')
+    var startsAtDate = startsAtIso ? new Date(startsAtIso) : new Date()
+    var dateBR = formatBRDate(startsAtDate)
+
     var payload = {
       patient_name: record.getString('patient_name'),
       patient_phone: record.getString('patient_phone'),
       doctor: record.getString('doctor') || 'Dr. Caio',
       city: record.getString('city'),
       location: record.getString('location'),
-      starts_at: record.getString('starts_at'),
+      starts_at: startsAtIso,
       ends_at: record.getString('ends_at'),
       status: record.getString('status'),
-      appointment_type: record.getString('appointment_type'),
+      appointment_type: record.getString('appointment_type') || 'Consulta',
       notes: record.getString('notes'),
       source: 'crm',
+      data_inicio: dateBR,
+      data_agendamento: dateBR,
     }
 
     var pushHeaders = {

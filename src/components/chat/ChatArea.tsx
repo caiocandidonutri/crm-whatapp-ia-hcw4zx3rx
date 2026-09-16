@@ -62,6 +62,7 @@ import { TemplatePicker } from '@/components/chat/TemplatePicker'
 import { MessageTemplatesSection } from '@/components/crm/MessageTemplatesSection'
 import { useCategories } from '@/hooks/use-categories'
 import { useCurrentAccount } from '@/hooks/use-current-account'
+import { useNavigate } from 'react-router-dom'
 import {
   Dialog,
   DialogContent,
@@ -110,6 +111,7 @@ export function ChatArea({
   isArchived,
   conversations = [],
 }: ChatAreaProps) {
+  const navigate = useNavigate()
   const [inputText, setInputText] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
@@ -1514,6 +1516,9 @@ export function ChatArea({
         contactName={chat.name}
         instanceName={chat.instance_name}
         onOpenAddToCrm={handleOpenAddToCrm}
+        onOpenSchedule={() => {
+          navigate('/agenda')
+        }}
       />
     </div>
   )

@@ -157,6 +157,101 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
     return 'agendado'
   }
 
+  function normalizeAppointmentType(item) {
+    var raw = String(
+      item.appointment_type ||
+        item.tipo_consulta ||
+        item.tipo ||
+        item.servico ||
+        item.procedimento ||
+        item.valor ||
+        item.notes ||
+        item.observacoes ||
+        '',
+    ).toLowerCase()
+
+    if (raw.indexOf('consultoria') !== -1 || raw.indexOf('consultoria nutricional') !== -1) {
+      return 'Consultoria'
+    }
+    if (raw.indexOf('retorno') !== -1 || raw.indexOf('reavalia') !== -1) {
+      return 'Retorno'
+    }
+    if (
+      raw.indexOf('consulta') !== -1 ||
+      raw.indexOf('primeira') !== -1 ||
+      raw.indexOf('avalia') !== -1
+    ) {
+      return 'Consulta'
+    }
+    if (raw.indexOf('bioimped') !== -1) {
+      return 'Bioimpedância'
+    }
+    // Fallback padrão se não detectado
+    return 'Consulta'
+  }
+
+  function ensureCrmContactForPatient(patientName, patientPhone, accountId) {
+    if (!patientPhone) return null
+    var digits = cleanDigits(patientPhone)
+    if (!digits || digits.length < 8) return null
+    var suffix = digits.slice(-8)
+
+    try {
+      var contact = $app.findFirstRecordByFilter('crm_contacts', 'phone ~ {:suf} || jid ~ {:suf}', {
+        suf: suffix,
+      })
+      if (contact) {
+        var needsUpdate = false
+        var currentName = contact.getString('contact_name')
+        if (
+          (!currentName || currentName === 'Novo Contato' || currentName.indexOf('@') !== -1) &&
+          patientName &&
+          patientName !== 'Paciente sem nome'
+        ) {
+          contact.set('contact_name', patientName)
+          needsUpdate = true
+        }
+        if (!contact.getBool('is_patient')) {
+          contact.set('is_patient', true)
+          needsUpdate = true
+        }
+        if (!contact.getString('account_id') && accountId) {
+          contact.set('account_id', accountId)
+          needsUpdate = true
+        }
+        if (needsUpdate) {
+          try {
+            $app.save(contact)
+          } catch (_) {}
+        }
+        return contact
+      }
+
+      // Se não encontrou, criar novo contato
+      var crmCol = $app.findCollectionByNameOrId('crm_contacts')
+      var newContact = new Record(crmCol)
+      newContact.set('phone', digits)
+      newContact.set('jid', digits + '@s.whatsapp.net')
+      newContact.set('contact_name', patientName || 'Paciente')
+      newContact.set('is_patient', true)
+      newContact.set('stage', 'cliente')
+      newContact.set('care_status', 'em_dia')
+      newContact.set('last_synced_at', new Date().toISOString())
+      if (accountId) {
+        newContact.set('account_id', accountId)
+      }
+
+      try {
+        $app.save(newContact)
+        return newContact
+      } catch (createErr) {
+        return null
+      }
+    } catch (_) {
+      return null
+    }
+  }
+
   function linkPatientAndConversation(record) {
     var phone = record.getString('patient_phone')
     if (!phone) return
@@ -612,18 +707,24 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
     rec.set('starts_at', startsAt)
     rec.set('ends_at', endsAt)
     rec.set('status', normalizeStatus(item.status || item.situacao || item.estado || 'agendado'))
-    rec.set(
-      'appointment_type',
-      item.appointment_type ||
-        item.tipo_consulta ||
-        item.tipo ||
-        item.servico ||
-        'Primeira consulta',
-    )
+    var normalizedType = normalizeAppointmentType(item)
+    rec.set('appointment_type', normalizedType)
     rec.set('notes', item.notes || item.observacoes || item.descricao || '')
     rec.set('sync_hash', item.updated || item.updated_at || item.id || extId)
     rec.set('last_synced_at', new Date().toISOString())
     rec.set('sync_error', '')
+
+    // Vincular / Criar contato no CRM
+    var patPhone = rec.getString('patient_phone')
+    var patName = rec.getString('patient_name')
+    var accId = rec.getString('account_id')
+    var linkedContact = ensureCrmContactForPatient(patName, patPhone, accId)
+    if (linkedContact) {
+      rec.set('patient_id', linkedContact.id)
+      if (!rec.getString('account_id') && linkedContact.getString('account_id')) {
+        rec.set('account_id', linkedContact.getString('account_id'))
+      }
+    }
 
     linkPatientAndConversation(rec)
 
@@ -769,6 +870,9 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
   var finalStatus =
     syncErrors.length === 0 ? 'success' : pulledCount > 0 || pushedCount > 0 ? 'partial' : 'error'
 
+  var rawBodySample = pullRes && pullRes.raw ? pullRes.raw.slice(0, 400) : ''
+  var bodyKeys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : []
+
   if (syncStateRec) {
     try {
       syncStateRec.set('last_sync', new Date().toISOString())
@@ -791,6 +895,8 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
           raw_snippet: pullRes ? String(pullRes.raw || '').slice(0, 500) : '',
           raw_status: pullRes ? pullRes.statusCode : 0,
           ext_appts_found: extAppointments ? extAppointments.length : 0,
+          debug_keys: bodyKeys,
+          debug_sample: rawBodySample,
         }),
       )
       $app.save(syncStateRec)
@@ -960,6 +1066,101 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       if (s.indexOf('remarc') !== -1) return 'remarcado'
       if (s.indexOf('cancel') !== -1 || s.indexOf('desmarc') !== -1) return 'cancelado'
       return 'agendado'
+    }
+
+    function normalizeAppointmentType(item) {
+      var raw = String(
+        item.appointment_type ||
+          item.tipo_consulta ||
+          item.tipo ||
+          item.servico ||
+          item.procedimento ||
+          item.valor ||
+          item.notes ||
+          item.observacoes ||
+          '',
+      ).toLowerCase()
+
+      if (raw.indexOf('consultoria') !== -1 || raw.indexOf('consultoria nutricional') !== -1) {
+        return 'Consultoria'
+      }
+      if (raw.indexOf('retorno') !== -1 || raw.indexOf('reavalia') !== -1) {
+        return 'Retorno'
+      }
+      if (
+        raw.indexOf('consulta') !== -1 ||
+        raw.indexOf('primeira') !== -1 ||
+        raw.indexOf('avalia') !== -1
+      ) {
+        return 'Consulta'
+      }
+      if (raw.indexOf('bioimped') !== -1) {
+        return 'Bioimpedância'
+      }
+      return 'Consulta'
+    }
+
+    function ensureCrmContactForPatient(patientName, patientPhone, accountId) {
+      if (!patientPhone) return null
+      var digits = cleanDigits(patientPhone)
+      if (!digits || digits.length < 8) return null
+      var suffix = digits.slice(-8)
+
+      try {
+        var contact = $app.findFirstRecordByFilter(
+          'crm_contacts',
+          'phone ~ {:suf} || jid ~ {:suf}',
+          { suf: suffix },
+        )
+        if (contact) {
+          var needsUpdate = false
+          var currentName = contact.getString('contact_name')
+          if (
+            (!currentName || currentName === 'Novo Contato' || currentName.indexOf('@') !== -1) &&
+            patientName &&
+            patientName !== 'Paciente sem nome'
+          ) {
+            contact.set('contact_name', patientName)
+            needsUpdate = true
+          }
+          if (!contact.getBool('is_patient')) {
+            contact.set('is_patient', true)
+            needsUpdate = true
+          }
+          if (!contact.getString('account_id') && accountId) {
+            contact.set('account_id', accountId)
+            needsUpdate = true
+          }
+          if (needsUpdate) {
+            try {
+              $app.save(contact)
+            } catch (_) {}
+          }
+          return contact
+        }
+
+        var crmCol = $app.findCollectionByNameOrId('crm_contacts')
+        var newContact = new Record(crmCol)
+        newContact.set('phone', digits)
+        newContact.set('jid', digits + '@s.whatsapp.net')
+        newContact.set('contact_name', patientName || 'Paciente')
+        newContact.set('is_patient', true)
+        newContact.set('stage', 'cliente')
+        newContact.set('care_status', 'em_dia')
+        newContact.set('last_synced_at', new Date().toISOString())
+        if (accountId) {
+          newContact.set('account_id', accountId)
+        }
+
+        try {
+          $app.save(newContact)
+          return newContact
+        } catch (createErr) {
+          return null
+        }
+      } catch (_) {
+        return null
+      }
     }
 
     function linkPatientAndConversation(record) {
@@ -1443,18 +1644,23 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       rec.set('starts_at', startsAt)
       rec.set('ends_at', endsAt)
       rec.set('status', normalizeStatus(item.status || item.situacao || item.estado || 'agendado'))
-      rec.set(
-        'appointment_type',
-        item.appointment_type ||
-          item.tipo_consulta ||
-          item.tipo ||
-          item.servico ||
-          'Primeira consulta',
-      )
+      var normalizedType = normalizeAppointmentType(item)
+      rec.set('appointment_type', normalizedType)
       rec.set('notes', item.notes || item.observacoes || item.descricao || '')
       rec.set('sync_hash', item.updated || item.updated_at || item.id || extId)
       rec.set('last_synced_at', new Date().toISOString())
       rec.set('sync_error', '')
+
+      var patPhone = rec.getString('patient_phone')
+      var patName = rec.getString('patient_name')
+      var accId = rec.getString('account_id')
+      var linkedContact = ensureCrmContactForPatient(patName, patPhone, accId)
+      if (linkedContact) {
+        rec.set('patient_id', linkedContact.id)
+        if (!rec.getString('account_id') && linkedContact.getString('account_id')) {
+          rec.set('account_id', linkedContact.getString('account_id'))
+        }
+      }
 
       linkPatientAndConversation(rec)
 
@@ -1599,6 +1805,10 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
     var finalStatus =
       syncErrors.length === 0 ? 'success' : pulledCount > 0 || pushedCount > 0 ? 'partial' : 'error'
 
+    var manualRawSample = pullRes && pullRes.raw ? pullRes.raw.slice(0, 400) : ''
+    var manualBodyKeys =
+      body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : []
+
     if (syncStateRec) {
       try {
         syncStateRec.set('last_sync', new Date().toISOString())
@@ -1618,6 +1828,9 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
             pushed: pushedCount,
             errors: syncErrors.slice(0, 5),
             synced_at: new Date().toISOString(),
+            ext_appts_found: extAppointments ? extAppointments.length : 0,
+            debug_keys: manualBodyKeys,
+            debug_sample: manualRawSample,
           }),
         )
         $app.save(syncStateRec)
@@ -1640,6 +1853,9 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       errors: syncErrors,
       used_fallback: usedFallback,
       pull_url: effectivePullUrl,
+      ext_appts_found: extAppointments ? extAppointments.length : 0,
+      debug_sample: manualRawSample,
+      debug_keys: manualBodyKeys,
     })
   } catch (err) {
     $app.logger().error('agenda_sync: error in /backend/v1/agenda/sync', 'error', String(err))
@@ -1839,7 +2055,8 @@ routerAdd('GET', '/backend/v1/agenda/sync-status', (e) => {
         })
 
         diagnostic.last_tested_status = testRes.statusCode
-        diagnostic.raw_snippet = (testRes.raw || '').slice(0, 300)
+        diagnostic.raw_snippet = (testRes.raw || '').slice(0, 500)
+        recDetails.direct_test_raw = (testRes.raw || '').slice(0, 500)
 
         var testIsHtml = isHtmlContent(testRes.raw)
         diagnostic.url_is_site_frontend = testIsHtml

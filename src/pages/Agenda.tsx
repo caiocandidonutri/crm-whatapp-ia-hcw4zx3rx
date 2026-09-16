@@ -141,6 +141,7 @@ export default function Agenda() {
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'report'>('day')
   const [selectedCity, setSelectedCity] = useState<AppointmentCity | 'all'>('all')
   const [selectedStatus, setSelectedStatus] = useState<AppointmentStatus | 'all'>('all')
+  const [selectedType, setSelectedType] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -276,7 +277,7 @@ export default function Agenda() {
     date: format(new Date(), 'yyyy-MM-dd'),
     startTime: '09:00',
     endTime: '10:00',
-    appointment_type: 'Primeira consulta',
+    appointment_type: 'Consulta',
     status: 'agendado',
     notes: '',
   })
@@ -309,6 +310,7 @@ export default function Agenda() {
           endDate: future90d.toISOString(),
           city: selectedCity,
           status: selectedStatus,
+          appointment_type: selectedType !== 'all' ? selectedType : undefined,
         })
       } else if (viewMode === 'day') {
         startDateIso = startOfDay(currentDate).toISOString()
@@ -318,6 +320,7 @@ export default function Agenda() {
           endDate: endDateIso,
           city: selectedCity,
           status: selectedStatus,
+          appointment_type: selectedType !== 'all' ? selectedType : undefined,
         })
       } else {
         const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
@@ -329,6 +332,7 @@ export default function Agenda() {
           endDate: endDateIso,
           city: selectedCity,
           status: selectedStatus,
+          appointment_type: selectedType !== 'all' ? selectedType : undefined,
         })
       }
 
@@ -342,7 +346,7 @@ export default function Agenda() {
     } finally {
       setLoading(false)
     }
-  }, [currentDate, viewMode, selectedCity, selectedStatus, toast])
+  }, [currentDate, viewMode, selectedCity, selectedStatus, selectedType, toast])
 
   useEffect(() => {
     loadAppointments()
@@ -523,7 +527,7 @@ export default function Agenda() {
         date: format(currentDate, 'yyyy-MM-dd'),
         startTime: '09:00',
         endTime: '10:00',
-        appointment_type: 'Primeira consulta',
+        appointment_type: 'Consulta',
         status: 'agendado',
         notes: '',
       })
@@ -937,6 +941,18 @@ export default function Agenda() {
             />
           </div>
 
+          <Select value={selectedType} onValueChange={(val) => setSelectedType(val)}>
+            <SelectTrigger className="h-9 w-36 text-xs">
+              <SelectValue placeholder="Tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os tipos</SelectItem>
+              <SelectItem value="Consulta">Consulta</SelectItem>
+              <SelectItem value="Retorno">Retorno</SelectItem>
+              <SelectItem value="Consultoria">Consultoria</SelectItem>
+            </SelectContent>
+          </Select>
+
           <Select
             value={selectedStatus}
             onValueChange={(val) => setSelectedStatus(val as AppointmentStatus | 'all')}
@@ -1072,15 +1088,27 @@ export default function Agenda() {
                       <h4 className="font-semibold text-base text-foreground leading-tight">
                         {app.patient_name}
                       </h4>
-                      {app.appointment_type && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {app.appointment_type}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        {app.appointment_type && (
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              'text-[10px] font-medium py-0 px-1.5 border',
+                              app.appointment_type.toLowerCase().includes('retorno')
+                                ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300'
+                                : app.appointment_type.toLowerCase().includes('consultoria')
+                                  ? 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300',
+                            )}
+                          >
+                            {app.appointment_type}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                     <Badge
                       variant="outline"
-                      className={cn('text-[11px] gap-1', statusConfig.badgeClass)}
+                      className={cn('text-[11px] gap-1 shrink-0', statusConfig.badgeClass)}
                     >
                       <StatusIcon className="w-3 h-3" />
                       <span>{statusConfig.label}</span>
@@ -1297,6 +1325,20 @@ export default function Agenda() {
                           <p className="text-xs font-medium text-foreground truncate">
                             {app.patient_name}
                           </p>
+                          {app.appointment_type && (
+                            <span
+                              className={cn(
+                                'inline-block text-[9px] px-1 py-0.2 rounded border font-medium',
+                                app.appointment_type.toLowerCase().includes('retorno')
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : app.appointment_type.toLowerCase().includes('consultoria')
+                                    ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                    : 'bg-blue-50 text-blue-800 border-blue-200',
+                              )}
+                            >
+                              {app.appointment_type}
+                            </span>
+                          )}
                           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                             <span className="truncate">{app.city}</span>
                             <span className="font-mono text-[9px] shrink-0">
@@ -1455,15 +1497,23 @@ export default function Agenda() {
             {/* Tipo de Consulta e Status */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="app_type">Tipo de Atendimento</Label>
-                <Input
-                  id="app_type"
+                <Label htmlFor="app_type">Tipo de Atendimento *</Label>
+                <Select
                   value={formData.appointment_type}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, appointment_type: e.target.value }))
+                  onValueChange={(val) =>
+                    setFormData((prev) => ({ ...prev, appointment_type: val }))
                   }
-                  placeholder="Ex: Primeira consulta, retorno, bioimpedância"
-                />
+                >
+                  <SelectTrigger id="app_type">
+                    <SelectValue placeholder="Selecione o tipo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Consulta">Consulta</SelectItem>
+                    <SelectItem value="Retorno">Retorno</SelectItem>
+                    <SelectItem value="Consultoria">Consultoria</SelectItem>
+                    <SelectItem value="Bioimpedância">Bioimpedância</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1.5">
