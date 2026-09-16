@@ -14,8 +14,8 @@
  * Toda a lógica, helpers e variáveis PRECISAM estar declarados DENTRO do respectivo callback.
  */
 
-// 1. CRON DE SINCRONIZAÇÃO A CADA 2 MINUTOS
-cronAdd('agenda_external_sync', '*/2 * * * *', () => {
+// 1. CRON DE SINCRONIZAÇÃO A CADA 15 MINUTOS (otimizado para não sobrecarregar com 429)
+cronAdd('agenda_external_sync', '*/15 * * * *', () => {
   $app.logger().info('agenda_external_sync cron started')
 
   function formatBRDate(d) {
@@ -2629,29 +2629,22 @@ routerAdd('GET', '/backend/v1/agenda/sync-status', (e) => {
       sync_errors: 0,
     }
 
+    // Contagem rápida e leve via banco local
     try {
-      var allAppts = $app.findRecordsByFilter('appointments', '1=1', '', 500, 0)
-      counts.total = allAppts.length
-      for (var i = 0; i < allAppts.length; i++) {
-        var a = allAppts[i]
-        var src = a.getString('source')
-        if (src === 'agenda_externa') counts.agenda_externa++
-        else if (src === 'crm') counts.crm++
-
-        if (
-          src === 'crm' &&
-          (!a.getString('last_synced_at') || a.getString('updated') > a.getString('last_synced_at'))
-        ) {
-          counts.pending_push++
-        }
-        if (a.getString('sync_error')) {
-          counts.sync_errors++
-        }
-      }
+      counts.total = $app.countRecords('appointments')
+      counts.agenda_externa = $app.countRecords('appointments', 'source = "agenda_externa"')
+      counts.crm = $app.countRecords('appointments', 'source = "crm"')
+      counts.pending_push = $app.countRecords(
+        'appointments',
+        'source = "crm" && (last_synced_at = "" || updated > last_synced_at || sync_error != "")',
+      )
+      counts.sync_errors = $app.countRecords('appointments', 'sync_error != ""')
     } catch (_) {}
 
-    // Adicionar visualização do raw_sample armazenado no details para inspeção
     var rawSampleStored = recDetails && recDetails.raw_sample ? recDetails.raw_sample : ''
+
+    // Por padrão NÃO faz probes HTTP externos caros no GET /sync-status a menos que ?probe=true
+    var shouldProbe = e.request.url.query().get('probe') === 'true'
 
     var diagnostic = {
       configured: cfg.configured,
@@ -2660,14 +2653,28 @@ routerAdd('GET', '/backend/v1/agenda/sync-status', (e) => {
       recommended_url: RECOMMENDED_URL,
       url_is_recommended: cfg.pullUrl === RECOMMENDED_URL,
       url_is_site_frontend: false,
-      last_tested_status: null,
-      classification: 'unknown',
-      explanation: '',
-      raw_snippet: '',
+      last_tested_status: recDetails ? recDetails.status : 200,
+      classification:
+        stateRec && stateRec.getString('last_status') === 'success' ? 'ok' : 'unknown',
+      explanation:
+        stateRec && stateRec.getString('last_status') === 'success'
+          ? 'Sincronia operacional baseada no último ciclo executado.'
+          : stateRec
+            ? stateRec.getString('last_error')
+            : '',
+      raw_snippet: recDetails ? recDetails.raw_snippet || '' : '',
       raw_sample: rawSampleStored,
     }
 
-    if (cfg.configured) {
+    var recCheck = {
+      tested: false,
+      status_code: null,
+      classification: 'unknown',
+      explanation: '',
+      raw_snippet: '',
+    }
+
+    if (shouldProbe && cfg.configured) {
       try {
         var testRes = $http.send({
           url: cfg.pullUrl,
@@ -2685,7 +2692,6 @@ routerAdd('GET', '/backend/v1/agenda/sync-status', (e) => {
         diagnostic.raw_sample = (testRes.raw || '').slice(0, 3000)
         recDetails.direct_test_raw = (testRes.raw || '').slice(0, 3000)
 
-        // Também salvar em sync_state imediatamente se obtivemos resposta
         if (stateRec && testRes.raw) {
           try {
             recDetails.raw_sample = (testRes.raw || '').slice(0, 3000)
@@ -2704,89 +2710,17 @@ routerAdd('GET', '/backend/v1/agenda/sync-status', (e) => {
         } else if (testIsHtml || testRes.statusCode === 404 || testRes.statusCode === 405) {
           diagnostic.classification = 'wrong_url'
           diagnostic.explanation =
-            'A URL configurada (' +
-            (cfg.rawConfiguredUrl || cfg.pullUrl) +
-            ') aponta para o SITE da agenda, não para o BACKEND dela. Troque o secret AGENDA_SYNC_URL para ' +
-            RECOMMENDED_URL
+            'A URL configurada aponta para o SITE da agenda, não para o BACKEND dela.'
         } else if (testRes.statusCode === 401 || testRes.statusCode === 403) {
           diagnostic.classification = 'invalid_token'
-          diagnostic.explanation =
-            'Token de acesso rejeitado (HTTP ' +
-            testRes.statusCode +
-            '). Verifique AGENDA_CRM_TOKEN.'
-        } else if (
-          testRes.statusCode === 400 ||
-          (testRes.statusCode >= 500 && testRes.statusCode <= 599)
-        ) {
-          diagnostic.classification = 'external_error'
-          diagnostic.explanation =
-            'O backend da agenda respondeu com erro interno (HTTP ' +
-            testRes.statusCode +
-            '). O problema está no projeto da AGENDA (endpoint crm-dados), não no CRM. O /api/health dele está OK. Corrija o endpoint no projeto da agenda ou peça para o suporte da agenda verificar.'
+          diagnostic.explanation = 'Token de acesso rejeitado (HTTP ' + testRes.statusCode + ').'
         } else {
-          diagnostic.classification = 'unexpected_response'
-          diagnostic.explanation =
-            'Resposta inesperada do endpoint crm-dados (HTTP ' + testRes.statusCode + ').'
+          diagnostic.classification = 'external_error'
+          diagnostic.explanation = 'Resposta da agenda externa: HTTP ' + testRes.statusCode
         }
       } catch (diagErr) {
         diagnostic.classification = 'connection_error'
-        diagnostic.explanation =
-          'Não foi possível conectar ao endpoint da agenda externa: ' + String(diagErr)
-      }
-    } else {
-      diagnostic.classification = 'missing_credentials'
-      diagnostic.explanation =
-        'Sincronia não configurada: faltam credenciais (' + cfg.missing.join(', ') + ')'
-    }
-
-    var recCheck = {
-      tested: false,
-      status_code: null,
-      classification: 'unknown',
-      explanation: '',
-      raw_snippet: '',
-    }
-
-    if (RECOMMENDED_URL) {
-      recCheck.tested = true
-      try {
-        var recRes = $http.send({
-          url: RECOMMENDED_URL,
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            'X-CRM-Token': cfg.token,
-            Authorization: 'Bearer ' + cfg.token,
-          },
-          timeout: 10,
-        })
-        recCheck.status_code = recRes.statusCode
-        recCheck.raw_snippet = (recRes.raw || '').slice(0, 300)
-        var recIsHtml = isHtmlContent(recRes.raw)
-        if (recRes.statusCode === 200 && !recIsHtml) {
-          recCheck.classification = 'ok'
-          recCheck.explanation =
-            'A URL recomendada respondeu HTTP 200 JSON com sucesso! Troque seu secret AGENDA_SYNC_URL para ela.'
-        } else if (
-          recRes.statusCode === 400 ||
-          (recRes.statusCode >= 500 && recRes.statusCode <= 599)
-        ) {
-          recCheck.classification = 'external_error'
-          recCheck.explanation =
-            'A URL recomendada respondeu HTTP ' +
-            recRes.statusCode +
-            '. O backend da agenda externa precisa de correção no endpoint crm-dados.'
-        } else if (recRes.statusCode === 401 || recRes.statusCode === 403) {
-          recCheck.classification = 'invalid_token'
-          recCheck.explanation =
-            'A URL recomendada foi alcançada mas rejeitou o token (HTTP ' + recRes.statusCode + ').'
-        } else {
-          recCheck.classification = 'error'
-          recCheck.explanation = 'A URL recomendada retornou status HTTP ' + recRes.statusCode + '.'
-        }
-      } catch (recErr) {
-        recCheck.classification = 'connection_error'
-        recCheck.explanation = 'Falha de rede ao testar URL recomendada: ' + String(recErr)
+        diagnostic.explanation = 'Não foi possível conectar ao endpoint: ' + String(diagErr)
       }
     }
 
@@ -2800,7 +2734,7 @@ routerAdd('GET', '/backend/v1/agenda/sync-status', (e) => {
       counts: counts,
       diagnostic: diagnostic,
       recommended_url_check: recCheck,
-      cron_schedule: 'A cada 2 minutos',
+      cron_schedule: 'A cada 15 minutos',
       direction: 'bidirectional (pull + push)',
     })
   } catch (err) {

@@ -171,11 +171,38 @@ export async function listAppointments(options?: {
 
   const filterStr = filters.join(' && ')
 
-  return pb.collection('appointments').getFullList<Appointment>({
-    filter: filterStr || undefined,
-    sort: 'starts_at',
-    requestKey: null,
-  })
+  const maxRetries = 3
+  const delays = [1500, 3500, 7000]
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await pb.collection('appointments').getFullList<Appointment>({
+        filter: filterStr || undefined,
+        sort: 'starts_at',
+        requestKey: null,
+      })
+    } catch (err: unknown) {
+      const is429 =
+        (err &&
+          typeof err === 'object' &&
+          'status' in err &&
+          (err as { status: number }).status === 429) ||
+        String(err).includes('429') ||
+        String(err).toLowerCase().includes('too many requests')
+
+      if (is429 && attempt < maxRetries) {
+        const delay = delays[attempt] + Math.floor(Math.random() * 400)
+        console.warn(
+          `[listAppointments] 429 Too Many Requests detectado. Tentativa ${attempt + 1}/${maxRetries} aguardando ${delay}ms...`,
+        )
+        await new Promise((resolve) => setTimeout(resolve, delay))
+        continue
+      }
+      throw err
+    }
+  }
+
+  return []
 }
 
 export async function createAppointment(data: CreateAppointmentInput): Promise<Appointment> {
@@ -244,9 +271,14 @@ export async function deleteAppointment(id: string): Promise<boolean> {
   return pb.collection('appointments').delete(id)
 }
 
-export async function getAgendaSyncStatus(): Promise<AgendaSyncStatus> {
+export async function getAgendaSyncStatus(options?: {
+  probe?: boolean
+}): Promise<AgendaSyncStatus> {
   try {
-    return await pb.send<AgendaSyncStatus>('/backend/v1/agenda/sync-status', {
+    const url = options?.probe
+      ? '/backend/v1/agenda/sync-status?probe=true'
+      : '/backend/v1/agenda/sync-status'
+    return await pb.send<AgendaSyncStatus>(url, {
       method: 'GET',
     })
   } catch (err) {

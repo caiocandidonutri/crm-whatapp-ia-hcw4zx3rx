@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AgendaLogisticsReport } from '@/components/AgendaLogisticsReport'
 import {
@@ -65,7 +65,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useToast } from '@/hooks/use-toast'
 import { useCurrentAccount } from '@/hooks/use-current-account'
-import pb from '@/lib/pocketbase/client'
+import pb, { isAppointmentRateLimited } from '@/lib/pocketbase/client'
 import { cn } from '@/lib/utils'
 import type { Appointment, AppointmentCity, AppointmentStatus } from '@/types/models'
 import {
@@ -144,10 +144,17 @@ export default function Agenda() {
   const [selectedType, setSelectedType] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
-  const [appointments, setAppointments] = useState<Appointment[]>([])
+  // Cache consolidado de todos os agendamentos na janela ampla (últimos 90 dias até +90 dias)
+  const [allAppointments, setAllAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
+  const [isRateLimited, setIsRateLimited] = useState(false)
   const [syncStatus, setSyncStatus] = useState<AgendaSyncStatus | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
+
+  // Controle de carregamento em andamento para evitar chamadas duplicadas simultâneas
+  const isLoadingRef = useRef(false)
+  const lastFetchedTimeRef = useRef<number>(0)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Dialogs
   const [newDialogOpen, setNewDialogOpen] = useState(false)
@@ -282,96 +289,145 @@ export default function Agenda() {
     notes: '',
   })
 
-  // Carregar Status da Sincronia
-  const loadSyncStatus = useCallback(async () => {
+  // Carregar Status da Sincronia (leve, sem disparar probes externos por padrão)
+  const loadSyncStatus = useCallback(async (probe = false) => {
     try {
-      const status = await getAgendaSyncStatus()
+      const status = await getAgendaSyncStatus({ probe })
       setSyncStatus(status)
     } catch {
       /* intentionally ignored */
     }
   }, [])
 
-  // Carregar Agendamentos do Período
-  const loadAppointments = useCallback(async () => {
-    try {
-      setLoading(true)
-      let startDateIso: string
-      let endDateIso: string
-
-      let list: Appointment[] = []
-
-      if (viewMode === 'report') {
-        // Para a aba 'Últimos 2 meses', buscamos janela ampla de 90 dias atrás até 90 dias no futuro
-        const past90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
-        const future90d = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
-        list = await listAppointments({
-          startDate: past90d.toISOString(),
-          endDate: future90d.toISOString(),
-          city: selectedCity,
-          status: selectedStatus,
-          appointment_type: selectedType !== 'all' ? selectedType : undefined,
-        })
-      } else if (viewMode === 'day') {
-        startDateIso = startOfDay(currentDate).toISOString()
-        endDateIso = endOfDay(currentDate).toISOString()
-        list = await listAppointments({
-          startDate: startDateIso,
-          endDate: endDateIso,
-          city: selectedCity,
-          status: selectedStatus,
-          appointment_type: selectedType !== 'all' ? selectedType : undefined,
-        })
-      } else {
-        const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
-        const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 })
-        startDateIso = startOfDay(weekStart).toISOString()
-        endDateIso = endOfDay(weekEnd).toISOString()
-        list = await listAppointments({
-          startDate: startDateIso,
-          endDate: endDateIso,
-          city: selectedCity,
-          status: selectedStatus,
-          appointment_type: selectedType !== 'all' ? selectedType : undefined,
-        })
+  // Carregar Agendamentos em Janela Única Consolidada
+  // Busca uma ÚNICA vez a janela ampla (passado 90d até futuro 90d)
+  // Todas as visões (Dia, Semana, Últimos 2 meses) e filtros (cidade, status, tipo) operam em cima desse mesmo cache na memória
+  const loadAppointments = useCallback(
+    async (force = false) => {
+      const nowMs = Date.now()
+      // Se foi buscado há menos de 10s e não é force, reusa sem disparar request
+      if (!force && lastFetchedTimeRef.current > 0 && nowMs - lastFetchedTimeRef.current < 10000) {
+        return
       }
 
-      setAppointments(list)
-    } catch (err) {
-      toast({
-        title: 'Erro ao carregar agendamentos',
-        description: err instanceof Error ? err.message : 'Falha ao buscar dados da agenda.',
-        variant: 'destructive',
-      })
-    } finally {
-      setLoading(false)
-    }
-  }, [currentDate, viewMode, selectedCity, selectedStatus, selectedType, toast])
+      if (isLoadingRef.current) return
+      isLoadingRef.current = true
 
+      try {
+        setLoading(true)
+        setIsRateLimited(false)
+
+        const past90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+        const future90d = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+
+        const list = await listAppointments({
+          startDate: past90d.toISOString(),
+          endDate: future90d.toISOString(),
+        })
+
+        setAllAppointments(list)
+        lastFetchedTimeRef.current = Date.now()
+        setIsRateLimited(false)
+      } catch (err) {
+        const is429 = isAppointmentRateLimited(err)
+        if (is429) {
+          setIsRateLimited(true)
+        } else {
+          toast({
+            title: 'Erro ao carregar agendamentos',
+            description: err instanceof Error ? err.message : 'Falha ao buscar dados da agenda.',
+            variant: 'destructive',
+          })
+        }
+      } finally {
+        isLoadingRef.current = false
+        setLoading(false)
+      }
+    },
+    [toast],
+  )
+
+  // Carga inicial (montagem única)
   useEffect(() => {
-    loadAppointments()
+    loadAppointments(true)
     loadSyncStatus()
   }, [loadAppointments, loadSyncStatus])
 
-  // Realtime subscription para appointments
+  // Realtime subscription para appointments com debounce de 2 segundos para evitar tempestades
   useEffect(() => {
     let isMounted = true
     const unsubscribe = pb
       .collection('appointments')
       .subscribe('*', () => {
-        if (isMounted) {
-          loadAppointments()
+        if (!isMounted) return
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
         }
+        debounceTimerRef.current = setTimeout(() => {
+          if (isMounted) {
+            loadAppointments(true)
+          }
+        }, 2000)
       })
       .catch(() => {})
 
     return () => {
       isMounted = false
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
       unsubscribe.then((unsub) => {
         if (typeof unsub === 'function') unsub()
       })
     }
   }, [loadAppointments])
+
+  // Filtragem e agrupamento no cliente derivados de allAppointments
+  const appointmentsForCurrentView = useMemo(() => {
+    if (viewMode === 'report') {
+      // Janela de relatório (dois meses atrás até futuro)
+      return allAppointments.filter((a) => {
+        if (selectedCity !== 'all' && a.city !== selectedCity) return false
+        if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
+        if (selectedType !== 'all') {
+          const t = (a.appointment_type || '').toLowerCase()
+          if (!t.includes(selectedType.toLowerCase())) return false
+        }
+        return true
+      })
+    }
+
+    if (viewMode === 'day') {
+      const dayStart = startOfDay(currentDate).getTime()
+      const dayEnd = endOfDay(currentDate).getTime()
+      return allAppointments.filter((a) => {
+        const appTime = new Date(a.starts_at).getTime()
+        if (appTime < dayStart || appTime > dayEnd) return false
+        if (selectedCity !== 'all' && a.city !== selectedCity) return false
+        if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
+        if (selectedType !== 'all') {
+          const t = (a.appointment_type || '').toLowerCase()
+          if (!t.includes(selectedType.toLowerCase())) return false
+        }
+        return true
+      })
+    }
+
+    // Visão semana
+    const weekStart = startOfDay(startOfWeek(currentDate, { weekStartsOn: 1 })).getTime()
+    const weekEnd = endOfDay(endOfWeek(currentDate, { weekStartsOn: 1 })).getTime()
+    return allAppointments.filter((a) => {
+      const appTime = new Date(a.starts_at).getTime()
+      if (appTime < weekStart || appTime > weekEnd) return false
+      if (selectedCity !== 'all' && a.city !== selectedCity) return false
+      if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
+      if (selectedType !== 'all') {
+        const t = (a.appointment_type || '').toLowerCase()
+        if (!t.includes(selectedType.toLowerCase())) return false
+      }
+      return true
+    })
+  }, [allAppointments, viewMode, currentDate, selectedCity, selectedStatus, selectedType])
 
   // Forçar Sincronização Manual
   const handleManualSync = async () => {
@@ -390,8 +446,8 @@ export default function Agenda() {
           variant: 'destructive',
         })
       }
-      await loadSyncStatus()
-      await loadAppointments()
+      await loadSyncStatus(true)
+      await loadAppointments(true)
     } catch (err) {
       toast({
         title: 'Falha na sincronização',
@@ -532,7 +588,7 @@ export default function Agenda() {
         notes: '',
       })
 
-      await loadAppointments()
+      await loadAppointments(true)
     } catch (err) {
       toast({
         title: 'Erro ao criar agendamento',
@@ -554,7 +610,7 @@ export default function Agenda() {
         title: 'Status atualizado',
         description: `Agendamento marcado como "${STATUS_CONFIG[newStatus].label}".`,
       })
-      await loadAppointments()
+      await loadAppointments(true)
     } catch (err) {
       toast({
         title: 'Erro ao atualizar status',
@@ -580,9 +636,9 @@ export default function Agenda() {
 
   // Filtragem local por texto de busca
   const filteredAppointments = useMemo(() => {
-    if (!searchQuery.trim()) return appointments
+    if (!searchQuery.trim()) return appointmentsForCurrentView
     const q = searchQuery.toLowerCase().trim()
-    return appointments.filter((a) => {
+    return appointmentsForCurrentView.filter((a) => {
       return (
         a.patient_name?.toLowerCase().includes(q) ||
         a.patient_phone?.includes(q) ||
@@ -592,7 +648,7 @@ export default function Agenda() {
         a.doctor?.toLowerCase().includes(q)
       )
     })
-  }, [appointments, searchQuery])
+  }, [appointmentsForCurrentView, searchQuery])
 
   // Agrupamento por dia na visão semanal
   const weekDays = useMemo(() => {
@@ -1027,15 +1083,42 @@ export default function Agenda() {
         })}
       </div>
 
+      {/* Banner de recuperação graciosa caso tenha ocorrido rate limit temporário (429) */}
+      {isRateLimited && (
+        <div className="p-4 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 flex items-center justify-between gap-3 text-sm">
+          <div className="flex items-center gap-2.5">
+            <RefreshCw className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-spin" />
+            <div>
+              <p className="font-semibold text-amber-900 dark:text-amber-200">
+                Aguardando conexão com o servidor (429 - Limite de requisições)
+              </p>
+              <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
+                Muitas consultas recentes ao backend. O sistema está reconectando com espera
+                exponencial automática.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => loadAppointments(true)}
+            disabled={loading}
+            className="text-xs shrink-0"
+          >
+            Tentar agora
+          </Button>
+        </div>
+      )}
+
       {/* Conteúdo Principal: Visão Dia, Semana ou Painel dos Últimos 2 meses */}
       {viewMode === 'report' ? (
         <AgendaLogisticsReport
-          appointments={appointments}
+          appointments={appointmentsForCurrentView}
           onOpenConversation={handleOpenConversation}
           onRefreshSync={handleManualSync}
           syncing={isSyncing}
         />
-      ) : loading ? (
+      ) : loading && allAppointments.length === 0 ? (
         <div className="py-20 flex flex-col items-center justify-center text-muted-foreground gap-3">
           <RefreshCw className="w-8 h-8 animate-spin text-primary" />
           <p className="text-sm">Carregando consultas da agenda...</p>
