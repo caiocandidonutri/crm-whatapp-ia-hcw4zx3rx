@@ -965,8 +965,8 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
     ).trim()
 
     if (!extId) {
-      // Cria ID estável usando paciente + data/hora início
-      extId = patientNameVal + '_' + startsAtIso.slice(0, 16)
+      // Cria ID determinístico usando hash seguro/limpo (sem espaços nem underscore no final)
+      extId = 'ext_' + $security.md5(patientNameVal + '_' + startsAtIso)
     }
 
     // Buscar agendamento existente por external_id
@@ -978,18 +978,6 @@ cronAdd('agenda_external_sync', '*/2 * * * *', () => {
         { eid: extId },
       )
     } catch (_) {}
-
-    // Fallback de busca caso o external_id prévio tenha sido criado no formato paciente_data_inicio
-    if (!existing) {
-      try {
-        var legacyExtIdPrefix = patientNameVal + '_'
-        existing = $app.findFirstRecordByFilter(
-          'appointments',
-          'external_id ~ {:legacyPref} && source = "agenda_externa"',
-          { legacyPref: legacyExtIdPrefix },
-        )
-      } catch (_) {}
-    }
 
     if (existing) {
       var localUpdated = existing.getString('updated')
@@ -2055,69 +2043,6 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       var item = extAppointments[i]
       if (!item || typeof item !== 'object') continue
 
-      var extId = String(
-        item.id ||
-          item.external_id ||
-          item._id ||
-          item.codigo ||
-          item.agendamento_id ||
-          (item.patient_name || item.paciente_nome || item.paciente || '') +
-            '_' +
-            (item.starts_at || item.data || item.data_hora || ''),
-      ).trim()
-      if (!extId) continue
-
-      var existing = null
-      try {
-        existing = $app.findFirstRecordByFilter(
-          'appointments',
-          'external_id = {:eid} && source = "agenda_externa"',
-          { eid: extId },
-        )
-      } catch (_) {}
-
-      if (existing) {
-        var localUpdated = existing.getString('updated')
-        var remoteUpdated = item.updated || item.updated_at || item.data_modificacao || ''
-        // Regra de "registro mais recentemente editado vence" para campos locais (ex: notas, status editado manualmente),
-        // MAS a data real da consulta SEMPRE vem da agenda externa.
-        // Portanto, NÃO pulamos o registro existente se a data gravada for diferente de startsAtIso.
-        var existingStartsAt = existing.getString('starts_at')
-        var hasDateMismatch =
-          !existingStartsAt || existingStartsAt.slice(0, 16) !== startsAtIso.slice(0, 16)
-        if (!hasDateMismatch && localUpdated && remoteUpdated && localUpdated > remoteUpdated) {
-          continue
-        }
-      }
-      var rec = existing || new Record(appointmentsCol)
-      rec.set('source', 'agenda_externa')
-      rec.set('external_id', extId)
-      rec.set(
-        'patient_name',
-        item.patient_name ||
-          item.paciente_nome ||
-          item.patient ||
-          item.paciente ||
-          item.name ||
-          item.nome ||
-          'Paciente sem nome',
-      )
-      rec.set(
-        'patient_phone',
-        item.patient_phone ||
-          item.paciente_telefone ||
-          item.phone ||
-          item.telefone ||
-          item.whatsapp ||
-          '',
-      )
-      rec.set(
-        'doctor',
-        item.doctor || item.medico || item.nutricionista || item.profissional || 'Dr. Caio',
-      )
-      rec.set('city', normalizeCity(item.city || item.cidade || item.location || item.local))
-      rec.set('location', item.location || item.local || item.clinica || 'Climed')
-
       // Helper rigoroso para parsing de datas de agendamento no fuso de Brasília (-03:00)
       function parseAppointmentDateUtc(rawDate, rawTime, isEndDate) {
         if (!rawDate) return null
@@ -2224,6 +2149,7 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       var startsAtIso = parseAppointmentDateUtc(rawStartVal, rawTimeVal, false)
 
       // NUNCA usar updated, created ou momento da sync como data da consulta!
+      // Registros sem data válida não viram agendamento jamais!
       if (!startsAtIso) {
         $app
           .logger()
@@ -2236,6 +2162,63 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
           )
         continue
       }
+
+      var extId = String(
+        item.id || item.external_id || item._id || item.codigo || item.agendamento_id || '',
+      ).trim()
+
+      var patientNameVal = (
+        item.patient_name ||
+        item.paciente_nome ||
+        item.patient ||
+        item.paciente ||
+        item.name ||
+        item.nome ||
+        'Paciente sem nome'
+      ).trim()
+
+      if (!extId) {
+        extId = 'ext_' + $security.md5(patientNameVal + '_' + startsAtIso)
+      }
+
+      var existing = null
+      try {
+        existing = $app.findFirstRecordByFilter(
+          'appointments',
+          'external_id = {:eid} && source = "agenda_externa"',
+          { eid: extId },
+        )
+      } catch (_) {}
+
+      if (existing) {
+        var localUpdated = existing.getString('updated')
+        var remoteUpdated = item.updated || item.updated_at || item.data_modificacao || ''
+        var existingStartsAt = existing.getString('starts_at')
+        var hasDateMismatch =
+          !existingStartsAt || existingStartsAt.slice(0, 16) !== startsAtIso.slice(0, 16)
+        if (!hasDateMismatch && localUpdated && remoteUpdated && localUpdated > remoteUpdated) {
+          continue
+        }
+      }
+      var rec = existing || new Record(appointmentsCol)
+      rec.set('source', 'agenda_externa')
+      rec.set('external_id', extId)
+      rec.set('patient_name', patientNameVal)
+      rec.set(
+        'patient_phone',
+        item.patient_phone ||
+          item.paciente_telefone ||
+          item.phone ||
+          item.telefone ||
+          item.whatsapp ||
+          '',
+      )
+      rec.set(
+        'doctor',
+        item.doctor || item.medico || item.nutricionista || item.profissional || 'Dr. Caio',
+      )
+      rec.set('city', normalizeCity(item.city || item.cidade || item.location || item.local))
+      rec.set('location', item.location || item.local || item.clinica || 'Climed')
 
       var rawEndVal =
         item.data_fim ||
