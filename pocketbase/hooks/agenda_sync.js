@@ -206,7 +206,41 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
     return 'Consulta'
   }
 
-  function ensureCrmContactForPatient(patientName, patientPhone, accountId) {
+  function extractBirthDateFromItem(item) {
+    if (!item || typeof item !== 'object') return ''
+    var b =
+      item.nascimento ||
+      item.data_nascimento ||
+      item.dataNascimento ||
+      item.birthday ||
+      item.aniversario ||
+      item.data_aniversario ||
+      item.birth_date ||
+      (item.paciente && typeof item.paciente === 'object'
+        ? item.paciente.nascimento || item.paciente.data_nascimento || item.paciente.birthday
+        : '') ||
+      ''
+    if (!b) return ''
+    var str = String(b).trim()
+    // Normalizar caso venha ISO: "1990-05-15T00:00:00Z" ou "1990-05-15"
+    var isoMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+    if (isoMatch) {
+      var d = isoMatch[3].padStart
+        ? isoMatch[3].padStart(2, '0')
+        : isoMatch[3].length === 1
+          ? '0' + isoMatch[3]
+          : isoMatch[3]
+      var m = isoMatch[2].padStart
+        ? isoMatch[2].padStart(2, '0')
+        : isoMatch[2].length === 1
+          ? '0' + isoMatch[2]
+          : isoMatch[2]
+      return d + '/' + m + '/' + isoMatch[1]
+    }
+    return str
+  }
+
+  function ensureCrmContactForPatient(patientName, patientPhone, accountId, birthDateVal) {
     if (!patientPhone) return null
     var digits = cleanDigits(patientPhone)
     if (!digits || digits.length < 8) return null
@@ -235,6 +269,10 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
           contact.set('account_id', accountId)
           needsUpdate = true
         }
+        if (birthDateVal && !contact.getString('birth_date')) {
+          contact.set('birth_date', birthDateVal)
+          needsUpdate = true
+        }
         if (needsUpdate) {
           try {
             $app.save(contact)
@@ -253,6 +291,9 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
       newContact.set('stage', 'cliente')
       newContact.set('care_status', 'em_dia')
       newContact.set('last_synced_at', new Date().toISOString())
+      if (birthDateVal) {
+        newContact.set('birth_date', birthDateVal)
+      }
       if (accountId) {
         newContact.set('account_id', accountId)
       }
@@ -1040,7 +1081,8 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
     var patPhone = rec.getString('patient_phone')
     var patName = rec.getString('patient_name')
     var accId = rec.getString('account_id')
-    var linkedContact = ensureCrmContactForPatient(patName, patPhone, accId)
+    var itemBirthDate = extractBirthDateFromItem(item)
+    var linkedContact = ensureCrmContactForPatient(patName, patPhone, accId, itemBirthDate)
     if (linkedContact) {
       rec.set('patient_id', linkedContact.id)
       if (!rec.getString('account_id') && linkedContact.getString('account_id')) {
@@ -1096,6 +1138,11 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
 
         if (cItem.email && !contactRec.getString('email')) {
           contactRec.set('email', cItem.email)
+        }
+
+        var cBirth = extractBirthDateFromItem(cItem)
+        if (cBirth && !contactRec.getString('birth_date')) {
+          contactRec.set('birth_date', cBirth)
         }
 
         contactRec.set('last_synced_at', new Date().toISOString())
@@ -1452,7 +1499,40 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       return 'Consulta'
     }
 
-    function ensureCrmContactForPatient(patientName, patientPhone, accountId) {
+    function extractBirthDateFromItem(item) {
+      if (!item || typeof item !== 'object') return ''
+      var b =
+        item.nascimento ||
+        item.data_nascimento ||
+        item.dataNascimento ||
+        item.birthday ||
+        item.aniversario ||
+        item.data_aniversario ||
+        item.birth_date ||
+        (item.paciente && typeof item.paciente === 'object'
+          ? item.paciente.nascimento || item.paciente.data_nascimento || item.paciente.birthday
+          : '') ||
+        ''
+      if (!b) return ''
+      var str = String(b).trim()
+      var isoMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+      if (isoMatch) {
+        var d = isoMatch[3].padStart
+          ? isoMatch[3].padStart(2, '0')
+          : isoMatch[3].length === 1
+            ? '0' + isoMatch[3]
+            : isoMatch[3]
+        var m = isoMatch[2].padStart
+          ? isoMatch[2].padStart(2, '0')
+          : isoMatch[2].length === 1
+            ? '0' + isoMatch[2]
+            : isoMatch[2]
+        return d + '/' + m + '/' + isoMatch[1]
+      }
+      return str
+    }
+
+    function ensureCrmContactForPatient(patientName, patientPhone, accountId, birthDateVal) {
       if (!patientPhone) return null
       var digits = cleanDigits(patientPhone)
       if (!digits || digits.length < 8) return null
@@ -1483,6 +1563,10 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
             contact.set('account_id', accountId)
             needsUpdate = true
           }
+          if (birthDateVal && !contact.getString('birth_date')) {
+            contact.set('birth_date', birthDateVal)
+            needsUpdate = true
+          }
           if (needsUpdate) {
             try {
               $app.save(contact)
@@ -1500,6 +1584,9 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
         newContact.set('stage', 'cliente')
         newContact.set('care_status', 'em_dia')
         newContact.set('last_synced_at', new Date().toISOString())
+        if (birthDateVal) {
+          newContact.set('birth_date', birthDateVal)
+        }
         if (accountId) {
           newContact.set('account_id', accountId)
         }
@@ -2265,7 +2352,8 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       var patPhone = rec.getString('patient_phone')
       var patName = rec.getString('patient_name')
       var accId = rec.getString('account_id')
-      var linkedContact = ensureCrmContactForPatient(patName, patPhone, accId)
+      var itemBirthDate = extractBirthDateFromItem(item)
+      var linkedContact = ensureCrmContactForPatient(patName, patPhone, accId, itemBirthDate)
       if (linkedContact) {
         rec.set('patient_id', linkedContact.id)
         if (!rec.getString('account_id') && linkedContact.getString('account_id')) {
@@ -2321,6 +2409,11 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
 
           if (cItem.email && !contactRec.getString('email')) {
             contactRec.set('email', cItem.email)
+          }
+
+          var cBirth = extractBirthDateFromItem(cItem)
+          if (cBirth && !contactRec.getString('birth_date')) {
+            contactRec.set('birth_date', cBirth)
           }
 
           contactRec.set('last_synced_at', new Date().toISOString())

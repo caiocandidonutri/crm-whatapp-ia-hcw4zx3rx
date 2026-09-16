@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-16T02:36:06.108Z",
+  "generatedAt": "2026-09-16T02:43:58.938Z",
   "collections": [
     {
       "name": "users",
@@ -819,6 +819,12 @@
         {
           "name": "recall_count",
           "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "birth_date",
+          "type": "text",
           "required": false,
           "system": false
         }

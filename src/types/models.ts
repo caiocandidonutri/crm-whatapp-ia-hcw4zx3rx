@@ -130,6 +130,7 @@ export interface CrmContact extends RecordModel {
   company_id?: string
   role?: string
   email?: string
+  birth_date?: string
   assigned_to?: string
   category_ids?: string[]
   followup_rule_id?: string

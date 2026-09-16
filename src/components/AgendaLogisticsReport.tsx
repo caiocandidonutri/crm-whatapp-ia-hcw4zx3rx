@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/select'
 import { Appointment } from '@/types/models'
 import { formatTimeSaoPaulo, formatBrazilianDate } from '@/lib/datetime'
+import { buildPatientAppointmentsMap, getAppointmentHistoryInfo } from '@/lib/appointment-history'
 
 interface AgendaLogisticsReportProps {
   appointments: Appointment[]
@@ -66,6 +67,11 @@ export function AgendaLogisticsReport({
   const [filterType, setFilterType] = useState<string>('all')
   const [filterCare, setFilterCare] = useState<'all' | 'triggered' | 'not_triggered'>('all')
   const [search, setSearch] = useState<string>('')
+
+  // Mapa de histórico por paciente para inferência de tipos e 1ª consulta
+  const patientHistoryMap = useMemo(() => {
+    return buildPatientAppointmentsMap(appointments)
+  }, [appointments])
 
   // Janela de últimos 2 meses: de 60 dias atrás até agora
   const now = useMemo(() => new Date(), [])
@@ -124,13 +130,14 @@ export function AgendaLogisticsReport({
       else if (a.status === 'faltou') faltas++
       else if (a.status === 'cancelado') cancelados++
 
-      // Tipo (Consulta, Retorno, Consultoria)
-      const tRaw = (a.appointment_type || '').toLowerCase()
-      if (tRaw.includes('retorno') || tRaw.includes('reavalia')) {
+      // Tipo (Consulta, Retorno, Consultoria) com inferência por histórico
+      const historyInfo = getAppointmentHistoryInfo(a, patientHistoryMap)
+      const tInfer = historyInfo.inferredType
+      if (tInfer === 'Retorno') {
         porTipo.Retorno = (porTipo.Retorno || 0) + 1
-      } else if (tRaw.includes('consultoria')) {
+      } else if (tInfer === 'Consultoria') {
         porTipo.Consultoria = (porTipo.Consultoria || 0) + 1
-      } else if (tRaw.includes('consulta') || tRaw.includes('primeira') || !tRaw) {
+      } else if (tInfer === 'Consulta') {
         porTipo.Consulta = (porTipo.Consulta || 0) + 1
       } else {
         porTipo.Outros = (porTipo.Outros || 0) + 1
@@ -181,16 +188,10 @@ export function AgendaLogisticsReport({
       if (filterStatus !== 'all' && a.status !== filterStatus) return false
 
       if (filterType !== 'all') {
-        const tLower = (a.appointment_type || '').toLowerCase()
-        if (
-          filterType === 'Consulta' &&
-          !tLower.includes('consulta') &&
-          !tLower.includes('primeira') &&
-          tLower !== ''
-        )
-          return false
-        if (filterType === 'Retorno' && !tLower.includes('retorno')) return false
-        if (filterType === 'Consultoria' && !tLower.includes('consultoria')) return false
+        const historyInfo = getAppointmentHistoryInfo(a, patientHistoryMap)
+        if (filterType === 'Consulta' && historyInfo.inferredType !== 'Consulta') return false
+        if (filterType === 'Retorno' && historyInfo.inferredType !== 'Retorno') return false
+        if (filterType === 'Consultoria' && historyInfo.inferredType !== 'Consultoria') return false
       }
 
       const triggered = isPatientTriggered(a)
@@ -586,20 +587,45 @@ export function AgendaLogisticsReport({
                             </span>
                           )}
 
-                          {item.appointment_type && (
-                            <Badge
-                              variant="secondary"
-                              className={
-                                item.appointment_type.toLowerCase().includes('retorno')
-                                  ? 'bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0'
-                                  : item.appointment_type.toLowerCase().includes('consultoria')
-                                    ? 'bg-purple-100 text-purple-800 border-purple-300 text-[10px] py-0'
-                                    : 'bg-blue-100 text-blue-800 border-blue-300 text-[10px] py-0'
-                              }
-                            >
-                              {item.appointment_type}
-                            </Badge>
-                          )}
+                          {(() => {
+                            const hInfo = getAppointmentHistoryInfo(item, patientHistoryMap)
+                            const displayType = hInfo.inferredType
+                            const isFirst = hInfo.isFirstConsultation
+
+                            return (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <Badge
+                                  variant="secondary"
+                                  className={
+                                    displayType.toLowerCase().includes('retorno')
+                                      ? 'bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0 font-medium'
+                                      : displayType.toLowerCase().includes('consultoria')
+                                        ? 'bg-purple-100 text-purple-800 border-purple-300 text-[10px] py-0 font-medium'
+                                        : 'bg-blue-100 text-blue-800 border-blue-300 text-[10px] py-0 font-medium'
+                                  }
+                                >
+                                  {displayType}
+                                </Badge>
+                                {isFirst ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 text-[10px] py-0 font-semibold"
+                                  >
+                                    1ª consulta
+                                  </Badge>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-slate-50 text-slate-600 border-slate-300 dark:bg-slate-900/40 dark:text-slate-400 text-[10px] py-0"
+                                  >
+                                    {hInfo.priorVisitsCount > 1
+                                      ? `${hInfo.priorVisitsCount + 1}º atendimento`
+                                      : 'Retorno'}
+                                  </Badge>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </div>
                       </div>
                     </div>
