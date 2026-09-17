@@ -23,7 +23,7 @@ export const useAuth = () => {
 }
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<any>(pb.authStore.record)
+  const [user, setUser] = useState<any>(() => pb.authStore.record)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -39,18 +39,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       window.addEventListener('auth:session_expired', handleSessionExpired)
     }
 
+    // Se temos um token salvo, mantemos o record já carregado enquanto tenta refresh suave.
+    // NUNCA desloga imediatamente em caso de erro de rede ou indisponibilidade temporária.
+    // Apenas desloga se o servidor explicitamente rejeitar com 401/403 (token inválido/expirado).
     if (pb.authStore.isValid || pb.authStore.token) {
+      // Timeout de segurança: se o servidor demorar, libera o loading após 3.5s
+      const timeoutId = setTimeout(() => {
+        setLoading(false)
+      }, 3500)
+
       pb.collection('users')
         .authRefresh()
-        .catch(() => {
-          pb.authStore.clear()
-          setUser(null)
+        .then((authData) => {
+          if (authData?.record) {
+            setUser(authData.record)
+          }
         })
-        .finally(() => setLoading(false))
+        .catch((err: any) => {
+          const status = err?.status || err?.response?.status
+          if (status === 401 || status === 403) {
+            pb.authStore.clear()
+            setUser(null)
+          } else {
+            console.warn(
+              '[AuthProvider] authRefresh falhou por erro transitório de rede:',
+              err?.message || err,
+            )
+            // Se temos record no storage, mantém
+            if (pb.authStore.record) {
+              setUser(pb.authStore.record)
+            }
+          }
+        })
+        .finally(() => {
+          clearTimeout(timeoutId)
+          setLoading(false)
+        })
     } else {
       setLoading(false)
     }
-
     return () => {
       unsubscribe()
       if (typeof window !== 'undefined') {
@@ -61,18 +88,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const signUp = async (name: string, email: string, password: string) => {
     try {
-      await pb.collection('users').create({ name, email, password, passwordConfirm: password })
-      await pb.collection('users').authWithPassword(email, password)
+      const trimmedEmail = email.trim().toLowerCase()
+      await pb
+        .collection('users')
+        .create({ name: name.trim(), email: trimmedEmail, password, passwordConfirm: password })
+      const authRes = await pb.collection('users').authWithPassword(trimmedEmail, password)
+      if (authRes?.record) {
+        setUser(authRes.record)
+      }
       return { error: null }
     } catch (error: any) {
-      return { error, status: error.status }
+      return { error, status: error?.status }
     }
   }
 
   const signIn = async (email: string, password: string) => {
     try {
-      await pb.collection('users').authWithPassword(email, password)
-      return { error: null }
+      const trimmedEmail = email.trim().toLowerCase()
+      const authRes = await pb.collection('users').authWithPassword(trimmedEmail, password)
+      if (authRes?.record) {
+        setUser(authRes.record)
+      }
+      return { error: null, record: authRes?.record }
     } catch (error: any) {
       return { error }
     }

@@ -80,8 +80,13 @@ export function useQrConnection(
 
       setPollErrors((prev) => prev + 1)
 
+      // Se der 401 ao tentar gerar QR, só limpa authStore se de fato o token não for mais aceito pelo authRefresh
       if (e?.status === 401) {
-        pb.authStore.clear()
+        pb.collection('users')
+          .authRefresh()
+          .catch(() => {
+            pb.authStore.clear()
+          })
         return
       }
 

@@ -143,19 +143,33 @@ export default function Index() {
       if (isLoginMode) {
         loginSchema.parse(formData)
         const { error } = await signIn(formData.email, formData.password)
-        if (error) throw new Error('Credenciais inválidas')
-        toast({ title: 'Login realizado!' })
-        navigate('/home')
+        if (error) {
+          const status = error?.status || error?.response?.status
+          if (status === 400 || status === 401) {
+            throw new Error('E-mail ou senha incorretos. Verifique suas credenciais.')
+          }
+          if (error?.message && !error?.message?.includes('Failed to authenticate')) {
+            throw new Error(error.message)
+          }
+          throw new Error('Não foi possível entrar. Verifique os dados e sua conexão.')
+        }
+        toast({ title: 'Login realizado com sucesso!' })
+        navigate('/home', { replace: true })
       } else {
         signUpSchema.parse(formData)
-        const { error } = await signUp(formData.name, formData.email, formData.password)
+        const { error, status } = await signUp(formData.name, formData.email, formData.password)
         if (error) {
-          if (error.status === 400 && error.response?.data?.email?.code === 'validation_not_unique')
-            throw new Error('E-mail já está em uso.')
+          const errStatus = status || error?.status || error?.response?.status
+          if (errStatus === 400 && error?.response?.data?.email?.code === 'validation_not_unique') {
+            throw new Error('Este e-mail já está cadastrado. Alterne para a aba Entrar.')
+          }
+          if (error?.response?.data?.password?.message) {
+            throw new Error(`Senha: ${error.response.data.password.message}`)
+          }
           throw new Error('Erro ao criar conta. Verifique os dados e tente novamente.')
         }
         toast({
-          title: 'Cadastro realizado!',
+          title: 'Cadastro realizado com sucesso!',
           description: 'Prosseguindo para conexão do WhatsApp.',
         })
         setStep(2)
@@ -164,7 +178,7 @@ export default function Index() {
       const message =
         err instanceof z.ZodError
           ? err.issues?.[0]?.message || (err as any).errors?.[0]?.message
-          : err.message
+          : err?.message || 'Erro inesperado ao processar acesso.'
       toast({ title: 'Atenção', description: message, variant: 'destructive' })
     } finally {
       setIsLoading(false)
