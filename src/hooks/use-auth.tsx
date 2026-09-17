@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import pb from '@/lib/pocketbase/client'
+import { isNetworkError } from '@/lib/pocketbase/errors'
 
 interface AuthContextType {
   user: any
@@ -8,8 +9,11 @@ interface AuthContextType {
     name: string,
     email: string,
     password: string,
-  ) => Promise<{ error: any; status?: number }>
-  signIn: (email: string, password: string) => Promise<{ error: any }>
+  ) => Promise<{ error: any; status?: number; isNetwork?: boolean }>
+  signIn: (
+    email: string,
+    password: string,
+  ) => Promise<{ error: any; record?: any; isNetwork?: boolean }>
   signOut: () => void
   loading: boolean
 }
@@ -98,21 +102,43 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       return { error: null }
     } catch (error: any) {
-      return { error, status: error?.status }
+      return { error, status: error?.status, isNetwork: isNetworkError(error) }
     }
   }
 
   const signIn = async (email: string, password: string) => {
-    try {
-      const trimmedEmail = email.trim().toLowerCase()
-      const authRes = await pb.collection('users').authWithPassword(trimmedEmail, password)
-      if (authRes?.record) {
-        setUser(authRes.record)
+    const trimmedEmail = email.trim().toLowerCase()
+    const maxRetries = 2
+    const delays = [800, 2000]
+
+    let lastError: any = null
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const authRes = await pb.collection('users').authWithPassword(trimmedEmail, password)
+        if (authRes?.record) {
+          setUser(authRes.record)
+        }
+        return { error: null, record: authRes?.record, isNetwork: false }
+      } catch (error: any) {
+        lastError = error
+        const isNet = isNetworkError(error)
+
+        // Se o erro NÃO for de rede transitória (ex: 400 credenciais inválidas), não faz retry
+        if (!isNet || attempt >= maxRetries) {
+          return { error, record: null, isNetwork: isNet }
+        }
+
+        // Aguarda antes do próximo retry
+        const waitMs = delays[attempt] || 1500
+        console.warn(
+          `[AuthProvider] signIn falhou por rede (tentativa ${attempt + 1}/${maxRetries + 1}). Nova tentativa em ${waitMs}ms...`,
+        )
+        await new Promise((resolve) => setTimeout(resolve, waitMs))
       }
-      return { error: null, record: authRes?.record }
-    } catch (error: any) {
-      return { error }
     }
+
+    return { error: lastError, record: null, isNetwork: isNetworkError(lastError) }
   }
 
   const signOut = () => {

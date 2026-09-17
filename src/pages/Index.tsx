@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { useAuth } from '@/hooks/use-auth'
+import { isNetworkError } from '@/lib/pocketbase/errors'
 import { cn } from '@/lib/utils'
 import { useQrConnection } from '@/hooks/use-qr-connection'
 
@@ -110,6 +111,7 @@ export default function Index() {
   const [step, setStep] = useState(1)
   const [isLoginMode, setIsLoginMode] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const [syncProgress, setSyncProgress] = useState(0)
   const [formData, setFormData] = useState({ name: '', email: '', password: '' })
 
@@ -139,34 +141,76 @@ export default function Index() {
   const handleStep1Submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setFormError(null)
     try {
       if (isLoginMode) {
         loginSchema.parse(formData)
-        const { error } = await signIn(formData.email, formData.password)
+        const { error, isNetwork } = await signIn(formData.email, formData.password)
         if (error) {
+          if (isNetwork || isNetworkError(error)) {
+            const netMsg =
+              'Não conseguimos conectar ao servidor. Verifique sua internet e tente novamente.'
+            setFormError(netMsg)
+            toast({
+              title: 'Falha de conexão',
+              description: netMsg,
+              variant: 'destructive',
+            })
+            return
+          }
           const status = error?.status || error?.response?.status
           if (status === 400 || status === 401) {
-            throw new Error('E-mail ou senha incorretos. Verifique suas credenciais.')
+            const credMsg = 'E-mail ou senha incorretos. Verifique suas credenciais.'
+            setFormError(credMsg)
+            toast({ title: 'Atenção', description: credMsg, variant: 'destructive' })
+            return
           }
-          if (error?.message && !error?.message?.includes('Failed to authenticate')) {
-            throw new Error(error.message)
-          }
-          throw new Error('Não foi possível entrar. Verifique os dados e sua conexão.')
+          const customMsg =
+            error?.message && !error?.message?.includes('Failed to authenticate')
+              ? error.message
+              : 'Não foi possível entrar. Verifique os dados e tente novamente.'
+          setFormError(customMsg)
+          toast({ title: 'Atenção', description: customMsg, variant: 'destructive' })
+          return
         }
         toast({ title: 'Login realizado com sucesso!' })
         navigate('/home', { replace: true })
       } else {
         signUpSchema.parse(formData)
-        const { error, status } = await signUp(formData.name, formData.email, formData.password)
+        const { error, status, isNetwork } = await signUp(
+          formData.name,
+          formData.email,
+          formData.password,
+        )
         if (error) {
+          if (isNetwork || isNetworkError(error)) {
+            const netMsg =
+              'Não conseguimos conectar ao servidor. Verifique sua internet e tente novamente.'
+            setFormError(netMsg)
+            toast({
+              title: 'Falha de conexão',
+              description: netMsg,
+              variant: 'destructive',
+            })
+            return
+          }
           const errStatus = status || error?.status || error?.response?.status
           if (errStatus === 400 && error?.response?.data?.email?.code === 'validation_not_unique') {
-            throw new Error('Este e-mail já está cadastrado. Alterne para a aba Entrar.')
+            const dupMsg = 'Este e-mail já está cadastrado. Alterne para a aba Entrar.'
+            setFormError(dupMsg)
+            toast({ title: 'Atenção', description: dupMsg, variant: 'destructive' })
+            return
           }
           if (error?.response?.data?.password?.message) {
-            throw new Error(`Senha: ${error.response.data.password.message}`)
+            const passMsg = `Senha: ${error.response.data.password.message}`
+            setFormError(passMsg)
+            toast({ title: 'Atenção', description: passMsg, variant: 'destructive' })
+            return
           }
-          throw new Error('Erro ao criar conta. Verifique os dados e tente novamente.')
+          const generalMsg = 'Erro ao criar conta. Verifique os dados e tente novamente.'
+          setFormError(generalMsg)
+          toast({ title: 'Atenção', description: generalMsg, variant: 'destructive' })
+          return
         }
         toast({
           title: 'Cadastro realizado com sucesso!',
@@ -175,11 +219,19 @@ export default function Index() {
         setStep(2)
       }
     } catch (err: any) {
-      const message =
-        err instanceof z.ZodError
-          ? err.issues?.[0]?.message || (err as any).errors?.[0]?.message
-          : err?.message || 'Erro inesperado ao processar acesso.'
-      toast({ title: 'Atenção', description: message, variant: 'destructive' })
+      if (isNetworkError(err)) {
+        const netMsg =
+          'Não conseguimos conectar ao servidor. Verifique sua internet e tente novamente.'
+        setFormError(netMsg)
+        toast({ title: 'Falha de conexão', description: netMsg, variant: 'destructive' })
+      } else {
+        const message =
+          err instanceof z.ZodError
+            ? err.issues?.[0]?.message || (err as any).errors?.[0]?.message
+            : err?.message || 'Erro inesperado ao processar acesso.'
+        setFormError(message)
+        toast({ title: 'Atenção', description: message, variant: 'destructive' })
+      }
     } finally {
       setIsLoading(false)
     }
@@ -362,6 +414,12 @@ export default function Index() {
                 </p>
               </div>
 
+              {formError && (
+                <div className="rounded-xl border border-red-500/30 bg-red-950/40 px-3.5 py-2.5 text-xs text-red-200 leading-relaxed animate-in fade-in">
+                  {formError}
+                </div>
+              )}
+
               {/* dark-inputs: CSS abaixo garante fundo escuro + texto branco em todos os inputs */}
               <form onSubmit={handleStep1Submit} className="flex flex-col gap-4 dark-inputs">
                 {!isLoginMode && (
@@ -435,7 +493,10 @@ export default function Index() {
                 {isLoginMode ? 'Não tem conta?' : 'Já tem conta?'}{' '}
                 <button
                   type="button"
-                  onClick={() => setIsLoginMode(!isLoginMode)}
+                  onClick={() => {
+                    setFormError(null)
+                    setIsLoginMode(!isLoginMode)
+                  }}
                   className="text-emerald-400 font-semibold hover:text-emerald-300 transition-colors"
                 >
                   {isLoginMode ? 'Cadastre-se' : 'Fazer login'}
