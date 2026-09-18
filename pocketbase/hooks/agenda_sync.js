@@ -5,9 +5,20 @@
  * Hook seguro, fail-safe e leve
  */
 
-// 1. Cron periódico de sincronização da agenda
-cronAdd('agenda_external_sync', '*/15 * * * *', () => {
+// 1. Cron periódico de sincronização da agenda (1x por hora; sincronização manual na tela /agenda sob demanda)
+cronAdd('agenda_external_sync', '42 * * * *', () => {
   try {
+    // Kill-switch global como PRIMEIRA instrução
+    try {
+      var pausedRec = $app.findFirstRecordByFilter(
+        'care_alert_settings',
+        'global_automations_paused = true',
+      )
+      if (pausedRec) {
+        return
+      }
+    } catch (_) {}
+
     var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
     var rawToken =
       ($secrets.get('AGENDA_CRM_TOKEN') || $os.getenv('AGENDA_CRM_TOKEN') || '').trim() ||
@@ -41,19 +52,24 @@ cronAdd('agenda_external_sync', '*/15 * * * *', () => {
       Authorization: 'Bearer ' + rawToken,
     }
 
+    // Circuit breaker: exatamente 1 tentativa com timeout de 4s; em caso de falha registrar erro e retornar
     var res = null
     try {
       res = $http.send({
         url: pullUrl,
         method: 'GET',
         headers: headers,
-        timeout: 8,
+        timeout: 4,
       })
-    } catch (_) {
+    } catch (httpErr) {
+      $app.logger().error('agenda_external_sync http error', 'error', String(httpErr))
       return
     }
 
     if (!res || res.statusCode !== 200) {
+      $app
+        .logger()
+        .warn('agenda_external_sync non-200 response', 'statusCode', res ? res.statusCode : 0)
       return
     }
 
@@ -184,7 +200,7 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
         url: pullUrl,
         method: 'GET',
         headers: headers,
-        timeout: 8,
+        timeout: 5,
       })
     } catch (httpErr) {
       return e.json(502, {

@@ -3,45 +3,60 @@
 // (`updated < now - 3min`), assume que a Baileys terminou e marca como
 // concluído. Isso evita banner de progresso ficar eterno se o Baileys
 // não enviar isLatest=true (acontece em algumas versões do Evolution).
-cronAdd('finish_stale_imports', '*/10 * * * *', () => {
-  const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString().replace('T', ' ')
-
-  let records = []
+cronAdd('finish_stale_imports', '*/30 * * * *', () => {
   try {
-    records = $app.findRecordsByFilter(
-      'whatsapp_instances',
-      'is_importing_history = true && updated < {:cutoff}',
-      '-updated',
-      50,
-      0,
-      { cutoff: cutoff },
-    )
-  } catch (err) {
-    $app.logger().error('cron_finish_stale_imports_query_error', 'error', String(err))
-    return
-  }
-
-  if (!records || records.length === 0) return
-
-  for (const record of records) {
+    // Kill switch global na PRIMEIRA instrução
     try {
-      record.set('is_importing_history', false)
-      record.set('import_total_count', 0)
-      if (!record.getString('import_finished_at')) {
-        record.set('import_finished_at', new Date().toISOString().replace('T', ' '))
+      var pausedRec = $app.findFirstRecordByFilter(
+        'care_alert_settings',
+        'global_automations_paused = true',
+      )
+      if (pausedRec) {
+        return
       }
-      $app.save(record)
-      $app
-        .logger()
-        .info(
-          'history_import_timeout_finished',
-          'instance',
-          record.getString('instance_name'),
-          'count',
-          record.getInt('import_messages_count') || 0,
-        )
+    } catch (_) {}
+
+    const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString().replace('T', ' ')
+
+    let records = []
+    try {
+      records = $app.findRecordsByFilter(
+        'whatsapp_instances',
+        'is_importing_history = true && updated < {:cutoff}',
+        '-updated',
+        50,
+        0,
+        { cutoff: cutoff },
+      )
     } catch (err) {
-      $app.logger().warn('cron_finish_stale_imports_save_error', 'error', String(err))
+      $app.logger().error('cron_finish_stale_imports_query_error', 'error', String(err))
+      return
     }
+
+    if (!records || records.length === 0) return
+
+    for (const record of records) {
+      try {
+        record.set('is_importing_history', false)
+        record.set('import_total_count', 0)
+        if (!record.getString('import_finished_at')) {
+          record.set('import_finished_at', new Date().toISOString().replace('T', ' '))
+        }
+        $app.save(record)
+        $app
+          .logger()
+          .info(
+            'history_import_timeout_finished',
+            'instance',
+            record.getString('instance_name'),
+            'count',
+            record.getInt('import_messages_count') || 0,
+          )
+      } catch (err) {
+        $app.logger().warn('cron_finish_stale_imports_save_error', 'error', String(err))
+      }
+    }
+  } catch (fatalErr) {
+    $app.logger().error('cron_finish_stale_fatal', 'error', String(fatalErr))
   }
 })

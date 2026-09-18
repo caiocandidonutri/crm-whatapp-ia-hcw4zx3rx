@@ -20,43 +20,40 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
-/**
- * Detecta se o erro decorre de falha temporária de rede/conectividade, timeout ou servidor inacessível
- */
-export function isNetworkError(err: unknown): boolean {
-  if (!err) return false
-
-  // ClientResponseError do PocketBase com status 0 ou mensagem de falha de conexão
-  if (err instanceof ClientResponseError) {
-    if (err.status === 0) return true
-    const msg = (err.message || '').toLowerCase()
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError) {
     if (
+      error.status === 0 ||
+      error.status === 502 ||
+      error.status === 503 ||
+      error.status === 504
+    ) {
+      return true
+    }
+    const msg = (error.message || '').toLowerCase()
+    if (
+      msg.includes('network') ||
       msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('network request failed') ||
-      msg.includes('load failed') ||
-      msg.includes('connection refused')
+      msg.includes('aborted') ||
+      msg.includes('timeout') ||
+      msg.includes('unavailable')
     ) {
       return true
     }
   }
-
-  // Erro padrão JS ou objeto genérico
-  const anyErr = err as any
-  const status = anyErr?.status || anyErr?.response?.status
-  if (status === 0 || status === 502 || status === 503 || status === 504) {
-    return true
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    return (
+      msg.includes('network') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('load failed') ||
+      msg.includes('aborted') ||
+      msg.includes('timeout') ||
+      msg.includes('unavailable')
+    )
   }
-
-  const msg = (anyErr?.message || String(err)).toLowerCase()
-  return (
-    msg.includes('failed to fetch') ||
-    msg.includes('network') ||
-    msg.includes('timeout') ||
-    msg.includes('econnrefused') ||
-    msg.includes('err_connection') ||
-    msg.includes('abort')
-  )
+  return false
 }
 
 export function getErrorMessage(error: unknown): string {
