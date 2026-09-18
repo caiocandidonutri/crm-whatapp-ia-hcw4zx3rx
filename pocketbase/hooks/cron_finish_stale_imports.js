@@ -1,9 +1,9 @@
-// A cada minuto, verifica imports presos: se a instância está com
+// Verifica periodicamente imports presos: se a instância está com
 // is_importing_history=true mas não recebe novos batches há mais de 3 minutos
 // (`updated < now - 3min`), assume que a Baileys terminou e marca como
 // concluído. Isso evita banner de progresso ficar eterno se o Baileys
 // não enviar isLatest=true (acontece em algumas versões do Evolution).
-cronAdd('finish_stale_imports', '* * * * *', () => {
+cronAdd('finish_stale_imports', '*/10 * * * *', () => {
   const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString().replace('T', ' ')
 
   let records = []
