@@ -20,46 +20,46 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof ClientResponseError) {
-    if (
-      error.status === 0 ||
-      error.status === 502 ||
-      error.status === 503 ||
-      error.status === 504
-    ) {
-      return true
-    }
-    const msg = (error.message || '').toLowerCase()
-    if (
-      msg.includes('network') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('aborted') ||
-      msg.includes('timeout') ||
-      msg.includes('unavailable')
-    ) {
-      return true
-    }
-  }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    return (
-      msg.includes('network') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('load failed') ||
-      msg.includes('aborted') ||
-      msg.includes('timeout') ||
-      msg.includes('unavailable')
-    )
-  }
-  return false
-}
-
 export function getErrorMessage(error: unknown): string {
   if (!(error instanceof ClientResponseError)) {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
+}
+
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0) return true
+    const msg = (error.message || '').toLowerCase()
+    if (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('load failed')
+    ) {
+      return true
+    }
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    if (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network request failed') ||
+      msg.includes('load failed') ||
+      msg.includes('econnrefused')
+    ) {
+      return true
+    }
+  }
+  if (typeof error === 'object' && error !== null) {
+    const record = error as Record<string, unknown>
+    if (record.status === 0) return true
+    if (typeof record.message === 'string') {
+      const msg = record.message.toLowerCase()
+      if (msg.includes('failed to fetch') || msg.includes('networkerror')) return true
+    }
+  }
+  return false
 }
