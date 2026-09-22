@@ -93,7 +93,42 @@ cronAdd('agenda_external_sync', '12,42 * * * *', () => {
 
     if (items.length === 0) return
 
+    // Resolver accountId padrão da clínica
+    var resolvedAccountId = ''
+    try {
+      var caioUser = $app.findAuthRecordByEmail('_pb_users_auth_', 'caiocandidonutri@hotmail.com')
+      if (caioUser) {
+        var memberRec = $app.findFirstRecordByFilter('account_members', 'user_id = {:uid}', {
+          uid: caioUser.id,
+        })
+        if (memberRec) {
+          resolvedAccountId = memberRec.getString('account_id')
+        }
+      }
+    } catch (_) {}
+    if (!resolvedAccountId) {
+      try {
+        var anyAccount = $app.findFirstRecordByFilter('accounts', '', { sort: '-created' })
+        if (anyAccount) resolvedAccountId = anyAccount.id
+      } catch (_) {}
+    }
+
     var appointmentsCol = $app.findCollectionByNameOrId('appointments')
+
+    function cleanDigits(s) {
+      if (!s) return ''
+      return String(s).replace(/\D/g, '')
+    }
+
+    function normalizeName(s) {
+      if (!s) return ''
+      return String(s)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '')
+        .trim()
+    }
 
     for (var i = 0; i < items.length; i++) {
       var item = items[i]
@@ -107,10 +142,25 @@ cronAdd('agenda_external_sync', '12,42 * * * *', () => {
         item.patient_name || item.paciente_nome || item.nome || 'Paciente',
       ).trim()
 
+      var startsAtIso = String(rawStart)
+      try {
+        var d = new Date(startsAtIso)
+        if (!isNaN(d.getTime())) {
+          startsAtIso = d.toISOString()
+        }
+      } catch (_) {}
+
       if (!extId) {
-        extId = 'ext_' + $security.md5(patientName + '_' + String(rawStart))
+        extId = 'ext_' + $security.md5(patientName + '_' + startsAtIso)
       }
 
+      var itemPhone = String(
+        item.patient_phone || item.paciente_telefone || item.telefone || '',
+      ).trim()
+      var itemPhoneDigits = cleanDigits(itemPhone)
+      var itemPhoneSuffix = itemPhoneDigits.length >= 8 ? itemPhoneDigits.slice(-8) : ''
+
+      // 1. Tentar encontrar por external_id
       var existing = null
       try {
         existing = $app.findFirstRecordByFilter(
@@ -120,28 +170,116 @@ cronAdd('agenda_external_sync', '12,42 * * * *', () => {
         )
       } catch (_) {}
 
+      // 2. Se não encontrou por external_id, buscar por deduplicação composta:
+      // mesmo paciente (telefone ou nome) + mesma data/hora (janela de ±15 minutos)
+      if (!existing && startsAtIso) {
+        try {
+          var targetDateMs = new Date(startsAtIso).getTime()
+          var windowStartIso = new Date(targetDateMs - 15 * 60 * 1000).toISOString()
+          var windowEndIso = new Date(targetDateMs + 15 * 60 * 1000).toISOString()
+
+          var candidates = $app.findRecordsByFilter(
+            'appointments',
+            'starts_at >= {:wStart} && starts_at <= {:wEnd}',
+            '-updated',
+            20,
+            0,
+            { wStart: windowStartIso, wEnd: windowEndIso },
+          )
+
+          if (candidates && candidates.length > 0) {
+            var normName = normalizeName(patientName)
+            for (var c = 0; c < candidates.length; c++) {
+              var cand = candidates[c]
+              var cPhoneDigits = cleanDigits(cand.getString('patient_phone'))
+              var cPhoneSuffix = cPhoneDigits.length >= 8 ? cPhoneDigits.slice(-8) : ''
+              var cNormName = normalizeName(cand.getString('patient_name'))
+
+              var matchPhone = itemPhoneSuffix && cPhoneSuffix && itemPhoneSuffix === cPhoneSuffix
+              var matchName =
+                normName &&
+                cNormName &&
+                (normName === cNormName ||
+                  normName.indexOf(cNormName) !== -1 ||
+                  cNormName.indexOf(normName) !== -1)
+
+              if (matchPhone || matchName) {
+                existing = cand
+                break
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
       var rec = existing || new Record(appointmentsCol)
       rec.set('source', 'agenda_externa')
       rec.set('external_id', extId)
       rec.set('patient_name', patientName)
-      rec.set('patient_phone', item.patient_phone || item.paciente_telefone || item.telefone || '')
+      if (itemPhone || !rec.getString('patient_phone')) {
+        rec.set('patient_phone', itemPhone)
+      }
       rec.set('doctor', item.doctor || item.medico || 'Dr. Caio')
       rec.set('city', item.city || item.cidade || 'Carmo do Rio Claro')
       rec.set('location', item.location || item.local || 'Climed')
-
-      var startsAtIso = String(rawStart)
-      try {
-        var d = new Date(startsAtIso)
-        if (!isNaN(d.getTime())) {
-          startsAtIso = d.toISOString()
-        }
-      } catch (_) {}
-
       rec.set('starts_at', startsAtIso)
-      rec.set('status', item.status || 'agendado')
+
+      // Preservar confirmação de paciente caso já exista localmente
+      var existingStatus = rec.getString('status')
+      var newStatus = item.status || 'agendado'
+      if (
+        existingStatus === 'confirmado' &&
+        rec.getString('confirmation_sent_at') &&
+        (newStatus === 'agendado' || !newStatus)
+      ) {
+        // Manter 'confirmado' para não perder confirmação já feita no WhatsApp CRM
+      } else {
+        rec.set('status', newStatus)
+      }
+
       rec.set('appointment_type', item.appointment_type || item.tipo_consulta || 'Consulta')
-      rec.set('notes', item.notes || item.observacoes || '')
+      if (item.notes || item.observacoes) {
+        rec.set('notes', item.notes || item.observacoes || '')
+      }
       rec.set('last_synced_at', new Date().toISOString())
+
+      // Vincular account_id
+      if (
+        resolvedAccountId &&
+        (!rec.getString('account_id') || rec.getString('account_id') !== resolvedAccountId)
+      ) {
+        rec.set('account_id', resolvedAccountId)
+      }
+
+      // Vincular patient_id e conversation_id por telefone quando possível
+      var activePhoneDigits = cleanDigits(rec.getString('patient_phone')) || itemPhoneDigits
+      if (
+        activePhoneDigits.length >= 8 &&
+        (!rec.getString('patient_id') || !rec.getString('conversation_id'))
+      ) {
+        var pSuf = activePhoneDigits.slice(-8)
+        try {
+          if (!rec.getString('patient_id')) {
+            var pat = $app.findFirstRecordByFilter(
+              'crm_contacts',
+              'phone ~ {:suf} || jid ~ {:suf}',
+              { suf: pSuf },
+            )
+            if (pat) rec.set('patient_id', pat.id)
+          }
+        } catch (_) {}
+
+        try {
+          if (!rec.getString('conversation_id')) {
+            var conv = $app.findFirstRecordByFilter(
+              'conversations',
+              'remote_jid ~ {:suf} || contact_phone ~ {:suf}',
+              { suf: pSuf },
+            )
+            if (conv) rec.set('conversation_id', conv.id)
+          }
+        } catch (_) {}
+      }
 
       try {
         $app.save(rec)
@@ -234,8 +372,51 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
       items = body.dados
     }
 
+    // Resolver accountId da requisição ou padrão da clínica
+    var resolvedAccountId = ''
+    try {
+      if (e.auth) {
+        var mRec = $app.findFirstRecordByFilter('account_members', 'user_id = {:uid}', {
+          uid: e.auth.id,
+        })
+        if (mRec) resolvedAccountId = mRec.getString('account_id')
+      }
+    } catch (_) {}
+    if (!resolvedAccountId) {
+      try {
+        var caioUser = $app.findAuthRecordByEmail('_pb_users_auth_', 'caiocandidonutri@hotmail.com')
+        if (caioUser) {
+          var memberRec = $app.findFirstRecordByFilter('account_members', 'user_id = {:uid}', {
+            uid: caioUser.id,
+          })
+          if (memberRec) resolvedAccountId = memberRec.getString('account_id')
+        }
+      } catch (_) {}
+    }
+    if (!resolvedAccountId) {
+      try {
+        var anyAccount = $app.findFirstRecordByFilter('accounts', '', { sort: '-created' })
+        if (anyAccount) resolvedAccountId = anyAccount.id
+      } catch (_) {}
+    }
+
     var appointmentsCol = $app.findCollectionByNameOrId('appointments')
     var pulled = 0
+
+    function cleanDigits(s) {
+      if (!s) return ''
+      return String(s).replace(/\D/g, '')
+    }
+
+    function normalizeName(s) {
+      if (!s) return ''
+      return String(s)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '')
+        .trim()
+    }
 
     for (var i = 0; i < items.length; i++) {
       var item = items[i]
@@ -249,10 +430,25 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
         item.patient_name || item.paciente_nome || item.nome || 'Paciente',
       ).trim()
 
+      var startsAtIso = String(rawStart)
+      try {
+        var d = new Date(startsAtIso)
+        if (!isNaN(d.getTime())) {
+          startsAtIso = d.toISOString()
+        }
+      } catch (_) {}
+
       if (!extId) {
-        extId = 'ext_' + $security.md5(patientName + '_' + String(rawStart))
+        extId = 'ext_' + $security.md5(patientName + '_' + startsAtIso)
       }
 
+      var itemPhone = String(
+        item.patient_phone || item.paciente_telefone || item.telefone || '',
+      ).trim()
+      var itemPhoneDigits = cleanDigits(itemPhone)
+      var itemPhoneSuffix = itemPhoneDigits.length >= 8 ? itemPhoneDigits.slice(-8) : ''
+
+      // 1. Tentar encontrar por external_id
       var existing = null
       try {
         existing = $app.findFirstRecordByFilter(
@@ -262,28 +458,116 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
         )
       } catch (_) {}
 
+      // 2. Se não encontrou por external_id, deduplicação por chave composta:
+      // mesmo paciente (telefone ou nome) + mesma data/hora (janela ±15 min)
+      if (!existing && startsAtIso) {
+        try {
+          var targetDateMs = new Date(startsAtIso).getTime()
+          var windowStartIso = new Date(targetDateMs - 15 * 60 * 1000).toISOString()
+          var windowEndIso = new Date(targetDateMs + 15 * 60 * 1000).toISOString()
+
+          var candidates = $app.findRecordsByFilter(
+            'appointments',
+            'starts_at >= {:wStart} && starts_at <= {:wEnd}',
+            '-updated',
+            20,
+            0,
+            { wStart: windowStartIso, wEnd: windowEndIso },
+          )
+
+          if (candidates && candidates.length > 0) {
+            var normName = normalizeName(patientName)
+            for (var c = 0; c < candidates.length; c++) {
+              var cand = candidates[c]
+              var cPhoneDigits = cleanDigits(cand.getString('patient_phone'))
+              var cPhoneSuffix = cPhoneDigits.length >= 8 ? cPhoneDigits.slice(-8) : ''
+              var cNormName = normalizeName(cand.getString('patient_name'))
+
+              var matchPhone = itemPhoneSuffix && cPhoneSuffix && itemPhoneSuffix === cPhoneSuffix
+              var matchName =
+                normName &&
+                cNormName &&
+                (normName === cNormName ||
+                  normName.indexOf(cNormName) !== -1 ||
+                  cNormName.indexOf(normName) !== -1)
+
+              if (matchPhone || matchName) {
+                existing = cand
+                break
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
       var rec = existing || new Record(appointmentsCol)
       rec.set('source', 'agenda_externa')
       rec.set('external_id', extId)
       rec.set('patient_name', patientName)
-      rec.set('patient_phone', item.patient_phone || item.paciente_telefone || item.telefone || '')
+      if (itemPhone || !rec.getString('patient_phone')) {
+        rec.set('patient_phone', itemPhone)
+      }
       rec.set('doctor', item.doctor || item.medico || 'Dr. Caio')
       rec.set('city', item.city || item.cidade || 'Carmo do Rio Claro')
       rec.set('location', item.location || item.local || 'Climed')
-
-      var startsAtIso = String(rawStart)
-      try {
-        var d = new Date(startsAtIso)
-        if (!isNaN(d.getTime())) {
-          startsAtIso = d.toISOString()
-        }
-      } catch (_) {}
-
       rec.set('starts_at', startsAtIso)
-      rec.set('status', item.status || 'agendado')
+
+      // Preservar confirmação de paciente caso já exista localmente
+      var existingStatus = rec.getString('status')
+      var newStatus = item.status || 'agendado'
+      if (
+        existingStatus === 'confirmado' &&
+        rec.getString('confirmation_sent_at') &&
+        (newStatus === 'agendado' || !newStatus)
+      ) {
+        // Manter 'confirmado'
+      } else {
+        rec.set('status', newStatus)
+      }
+
       rec.set('appointment_type', item.appointment_type || item.tipo_consulta || 'Consulta')
-      rec.set('notes', item.notes || item.observacoes || '')
+      if (item.notes || item.observacoes) {
+        rec.set('notes', item.notes || item.observacoes || '')
+      }
       rec.set('last_synced_at', new Date().toISOString())
+
+      // Vincular account_id
+      if (
+        resolvedAccountId &&
+        (!rec.getString('account_id') || rec.getString('account_id') !== resolvedAccountId)
+      ) {
+        rec.set('account_id', resolvedAccountId)
+      }
+
+      // Vincular patient_id e conversation_id por telefone quando possível
+      var activePhoneDigits = cleanDigits(rec.getString('patient_phone')) || itemPhoneDigits
+      if (
+        activePhoneDigits.length >= 8 &&
+        (!rec.getString('patient_id') || !rec.getString('conversation_id'))
+      ) {
+        var pSuf = activePhoneDigits.slice(-8)
+        try {
+          if (!rec.getString('patient_id')) {
+            var pat = $app.findFirstRecordByFilter(
+              'crm_contacts',
+              'phone ~ {:suf} || jid ~ {:suf}',
+              { suf: pSuf },
+            )
+            if (pat) rec.set('patient_id', pat.id)
+          }
+        } catch (_) {}
+
+        try {
+          if (!rec.getString('conversation_id')) {
+            var conv = $app.findFirstRecordByFilter(
+              'conversations',
+              'remote_jid ~ {:suf} || contact_phone ~ {:suf}',
+              { suf: pSuf },
+            )
+            if (conv) rec.set('conversation_id', conv.id)
+          }
+        } catch (_) {}
+      }
 
       try {
         $app.save(rec)
