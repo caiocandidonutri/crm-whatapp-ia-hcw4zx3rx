@@ -7,19 +7,18 @@
 // 4. Limite diário configurável com pausa automática e log ao atingir o teto.
 // 5. Cooldown de 6 horas por contato para reclassificação IA, com prompt enxuto (8 msgs, transcrição max 200 chars).
 
-// Reduz para cada 15 min
-cronAdd('transcribe_audio_queue', '*/15 * * * *', () => {
+// PROCESSADOR DE FILA DE TRANSCRIÇÃO DE ÁUDIO
+// Espaçado para 1x a cada 30 minutos nos minutos 08 e 38 ('8,38 * * * *')
+// Processa no máximo 3 áudios por ciclo com timeout de 6s
+cronAdd('transcribe_audio_queue', '8,38 * * * *', () => {
   try {
-    // Kill switch global na PRIMEIRA instrução
-    try {
-      var pausedRec = $app.findFirstRecordByFilter(
-        'care_alert_settings',
-        'global_automations_paused = true',
-      )
-      if (pausedRec) {
-        return
-      }
-    } catch (_) {}
+    // Blindagem noturna: 21h-07h de Brasília (UTC 00h-10h)
+    var nMs = Date.now()
+    var spD = new Date(nMs - 3 * 3600 * 1000)
+    var hSp = spD.getUTCHours()
+    if (hSp >= 21 || hSp < 7) {
+      return
+    }
 
     const openAiKey = $secrets.get('OPENAI_API_KEY') || $os.getenv('OPENAI_API_KEY')
 

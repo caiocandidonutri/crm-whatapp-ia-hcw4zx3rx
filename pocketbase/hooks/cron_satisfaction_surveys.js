@@ -10,7 +10,10 @@
  * Tom acolhedor da Fabiana: nunca se identifica como IA/robô.
  */
 
-cronAdd('cron_satisfaction_surveys', '37 17 * * *', () => {
+// PESQUISA DE SATISFAÇÃO PÓS-CONSULTA
+// Executa 1x ao dia às 14:41 UTC (11:41 Brasília)
+// Restaurado da emergência com kill-switch, night shield (21h-07h) e timeout curto (5s)
+cronAdd('cron_satisfaction_surveys', '41 14 * * *', () => {
   $app.logger().info('cron_satisfaction_surveys: start')
 
   try {
@@ -156,7 +159,7 @@ cronAdd('cron_satisfaction_surveys', '37 17 * * *', () => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', apikey: evoKey },
             body: JSON.stringify({ number: cleanDigits, text: surveyText }),
-            timeout: 15,
+            timeout: 5,
           })
 
           if (sendRes.statusCode >= 200 && sendRes.statusCode < 300) {

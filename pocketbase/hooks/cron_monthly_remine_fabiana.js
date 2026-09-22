@@ -6,7 +6,9 @@
 // saudações, emojis e frases marcantes, e atualiza o prompt do agente 'fabiana-ia' APENAS
 // nas seções de tom de voz/vocabulário — PRESERVANDO TODAS as regras invioláveis de segurança e ritmo.
 
-cronAdd('monthly_remine_fabiana', '0 3 1 * *', () => {
+// REATIVAÇÃO MENSAL FABIANA (Executa dia 1 de cada mês às 04:53 UTC = 01:53 Brasília)
+// Restaurado da emergência com horário escalonado
+cronAdd('monthly_remine_fabiana', '53 4 1 * *', () => {
   $app.logger().info('[cron_monthly_remine_fabiana] Iniciando remineração mensal de essência...')
 
   try {

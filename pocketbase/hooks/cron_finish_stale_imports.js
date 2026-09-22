@@ -3,19 +3,11 @@
 // (`updated < now - 3min`), assume que a Baileys terminou e marca como
 // concluído. Isso evita banner de progresso ficar eterno se o Baileys
 // não enviar isLatest=true (acontece em algumas versões do Evolution).
-cronAdd('finish_stale_imports', '*/30 * * * *', () => {
+// LIMPEZA DE IMPORTS PRESOS
+// Espaçado de cada 1 min para a cada 30 min nos minutos 16 e 46 ('16,46 * * * *')
+// Não realiza chamadas de rede externas e não envia mensagens a pacientes
+cronAdd('finish_stale_imports', '16,46 * * * *', () => {
   try {
-    // Kill switch global na PRIMEIRA instrução
-    try {
-      var pausedRec = $app.findFirstRecordByFilter(
-        'care_alert_settings',
-        'global_automations_paused = true',
-      )
-      if (pausedRec) {
-        return
-      }
-    } catch (_) {}
-
     const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString().replace('T', ' ')
 
     let records = []

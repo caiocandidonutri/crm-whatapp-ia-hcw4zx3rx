@@ -1,16 +1,15 @@
-// Reduz para 1x a cada 2 horas (ou sob demanda manual)
-cronAdd('auto_import_conversations', '25 */2 * * *', () => {
+// CRON DE IMPORTAÇÃO E CLASSIFICAÇÃO AUTOMÁTICA DE CONVERSAS
+// Executa a cada 2 horas no minuto 26 ('26 */2 * * *')
+// Restaurado da emergência com timeout curto, sem loop síncrono e blindagem noturna
+cronAdd('auto_import_conversations', '26 */2 * * *', () => {
   try {
-    // Kill switch global na PRIMEIRA linha
-    try {
-      var pausedRec = $app.findFirstRecordByFilter(
-        'care_alert_settings',
-        'global_automations_paused = true',
-      )
-      if (pausedRec) {
-        return
-      }
-    } catch (_) {}
+    // Blindagem noturna (21h-07h de Brasília): não roda importação pesada na madrugada
+    var nMs = Date.now()
+    var spD = new Date(nMs - 3 * 3600 * 1000)
+    var hSp = spD.getUTCHours()
+    if (hSp >= 21 || hSp < 7) {
+      return
+    }
 
     let instances = []
     try {

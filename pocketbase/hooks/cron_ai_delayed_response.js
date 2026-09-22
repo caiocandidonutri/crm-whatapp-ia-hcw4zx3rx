@@ -1,4 +1,6 @@
-cronAdd('ai_delayed_response', '*/10 * * * *', () => {
+// CRON DE RESPOSTA DELAYED DE IA (Executa 1x por hora no minuto 33)
+// Restaurado da emergência com espaçamento para 1h, kill-switch, night shield (21h-07h) e timeout 6s
+cronAdd('ai_delayed_response', '33 * * * *', () => {
   try {
     // Kill switch global: aborto imediato na PRIMEIRA linha
     try {
@@ -488,7 +490,7 @@ cronAdd('ai_delayed_response', '*/10 * * * *', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: evApiKey },
         body: JSON.stringify({ number: evolutionNumber, text: replyText }),
-        timeout: 8,
+        timeout: 6,
       })
 
       if (sendRes.statusCode < 200 || sendRes.statusCode >= 300) {
@@ -532,7 +534,7 @@ cronAdd('ai_delayed_response', '*/10 * * * *', () => {
             url: docUrl,
             method: 'GET',
             headers: { Authorization: superToken },
-            timeout: 8,
+            timeout: 6,
           })
 
           if (docRes.statusCode === 200 && docRes.body) {
@@ -578,7 +580,7 @@ cronAdd('ai_delayed_response', '*/10 * * * *', () => {
                 media: base64,
                 fileName: docToSend,
               }),
-              timeout: 8,
+              timeout: 6,
             })
 
             if (mediaRes.statusCode >= 200 && mediaRes.statusCode < 300) {
@@ -687,7 +689,7 @@ cronAdd('ai_delayed_response', '*/10 * * * *', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: evApiKey },
         body: JSON.stringify({ number: evolutionNumber, text: orientationText }),
-        timeout: 8,
+        timeout: 6,
       })
 
       if (sendRes.statusCode < 200 || sendRes.statusCode >= 300) return false

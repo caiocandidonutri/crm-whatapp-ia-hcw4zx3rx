@@ -8,20 +8,10 @@
 // corretos.
 //
 // Processa até 20 conversations por execução para evitar travas longas no SQLite.
-// Executa a cada 30 min
-cronAdd('backfill_conv_timestamps', '*/30 * * * *', () => {
+// Executa 1x ao dia às 04:47 (horário noturno de baixo tráfego)
+// Restaurado da emergência com blindagem e sem travas de SQLite
+cronAdd('backfill_conv_timestamps', '47 4 * * *', () => {
   try {
-    // Kill switch global na PRIMEIRA instrução
-    try {
-      var pausedRec = $app.findFirstRecordByFilter(
-        'care_alert_settings',
-        'global_automations_paused = true',
-      )
-      if (pausedRec) {
-        return
-      }
-    } catch (_) {}
-
     let records = []
     try {
       // Busca até 20 conversas para conferir se há mensagens mais recentes

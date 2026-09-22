@@ -9,6 +9,8 @@
  * e gera uma TAREFA de alta prioridade na Central de Tarefas para o Dr. Caio / Fabiana.
  */
 
+// RELATÓRIO MENSAL DE SATISFAÇÃO (Executa dia 1 de cada mês às 12:23 UTC = 09:23 Brasília)
+// Restaurado da emergência com horário escalonado
 cronAdd('cron_monthly_satisfaction_summary', '23 12 1 * *', () => {
   $app.logger().info('cron_monthly_satisfaction_summary: start')
 

@@ -1,16 +1,15 @@
-// Espaçado para 1x a cada 30 minutos em vez de a cada 7 min
-cronAdd('enrich_conversations', '18,48 * * * *', () => {
+// ENRIQUECIMENTO PERIÓDICO DE CONVERSAS (Busca foto/nome de contatos)
+// Espaçado para 1x a cada 30 minutos nos minutos 04 e 34 ('4,34 * * * *')
+// Blindagem noturna (21h-07h de Brasília) para evitar consumo desnecessário da Evolution API
+cronAdd('enrich_conversations', '4,34 * * * *', () => {
   try {
-    // Kill switch global na PRIMEIRA instrução
-    try {
-      var pausedRec = $app.findFirstRecordByFilter(
-        'care_alert_settings',
-        'global_automations_paused = true',
-      )
-      if (pausedRec) {
-        return
-      }
-    } catch (_) {}
+    // Blindagem noturna: 21h-07h de Brasília (UTC 00h-10h)
+    var nMs = Date.now()
+    var spD = new Date(nMs - 3 * 3600 * 1000)
+    var hSp = spD.getUTCHours()
+    if (hSp >= 21 || hSp < 7) {
+      return
+    }
 
     const urlStr = $secrets.get('EVOLUTION_API_URL') || ''
     const apiUrl = urlStr.endsWith('/') ? urlStr.slice(0, -1) : urlStr

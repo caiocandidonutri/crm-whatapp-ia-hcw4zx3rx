@@ -5,19 +5,17 @@
  * Hook seguro, fail-safe e leve
  */
 
-// 1. Cron periódico de sincronização da agenda (1x por hora; sincronização manual na tela /agenda sob demanda)
-cronAdd('agenda_external_sync', '42 * * * *', () => {
+// 1. Cron periódico de sincronização da agenda (a cada 30 min no minuto 12 e 42; sincronização manual na tela /agenda sob demanda)
+// Restaurado da emergência com timeout curto (4s), sem lock síncrono e sem bloqueio indevido por pausa de mensagens
+cronAdd('agenda_external_sync', '12,42 * * * *', () => {
   try {
-    // Kill-switch global como PRIMEIRA instrução
-    try {
-      var pausedRec = $app.findFirstRecordByFilter(
-        'care_alert_settings',
-        'global_automations_paused = true',
-      )
-      if (pausedRec) {
-        return
-      }
-    } catch (_) {}
+    // Blindagem noturna (21h-07h de Brasília = UTC 00h-10h): evita requisições externas na madrugada
+    var nMs = Date.now()
+    var spD = new Date(nMs - 3 * 3600 * 1000)
+    var hSp = spD.getUTCHours()
+    if (hSp >= 21 || hSp < 7) {
+      return
+    }
 
     var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
     var rawToken =

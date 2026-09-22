@@ -2,7 +2,10 @@
 // Protege contra perda acidental ou corrupção de dados.
 // NUNCA deleta registros. Apenas monitora e alerta a equipe caso haja queda brusca de contagem.
 
-cronAdd('data_integrity_check', '0 */6 * * *', () => {
+// VERIFICAÇÃO PERIÓDICA DE INTEGRIDADE DE DADOS
+// Executa 1x ao dia às 03:31 UTC (00:31 Brasília, madrugada)
+// Restaurado da emergência: espaçado de 6h para 1x ao dia, sem colisão de horário
+cronAdd('data_integrity_check', '31 3 * * *', () => {
   try {
     var accounts = []
     try {

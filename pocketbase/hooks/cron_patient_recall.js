@@ -22,7 +22,10 @@
  * - Se o paciente responder posteriormente, o webhook já lida e o fluxo normal da Fabiana/atendente assume (nenhum novo disparo automático atropelando).
  */
 
-cronAdd('daily_patient_recall', '15 6 * * *', () => {
+// RECALL DIÁRIO DE PACIENTES INATIVOS
+// Executa 1x ao dia às 13:37 UTC (10:37 Brasília)
+// Restaurado da emergência com kill-switch na primeira linha, night shield (21h-07h) e timeout curto (5s)
+cronAdd('daily_patient_recall', '37 13 * * *', () => {
   $app.logger().info('daily_patient_recall: cron started')
 
   var nowMs = Date.now()
@@ -137,19 +140,18 @@ cronAdd('daily_patient_recall', '15 6 * * *', () => {
 
     try {
       var res = $http.send({
-        url: url,
+        url: instInfo.url + '/message/sendText/' + instInfo.name,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           apikey: instInfo.apiKey,
         },
         body: JSON.stringify({
-          number: num,
+          number: phone,
           text: text,
         }),
-        timeout: 15,
+        timeout: 5,
       })
-
       if (res.statusCode >= 200 && res.statusCode < 300) {
         var sentMsgId = ''
         try {

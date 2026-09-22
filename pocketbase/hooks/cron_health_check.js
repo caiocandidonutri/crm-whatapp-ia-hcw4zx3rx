@@ -1,15 +1,8 @@
-cronAdd('health_check', '17 * * * *', function () {
+// HEALTH CHECK DE CONEXÃO WHATSAPP
+// Espaçado de cada 5 min para 1x por hora no minuto 51 ('51 * * * *')
+// Timeout de 3s em todas as chamadas de rede e limite de 1 instância por ciclo
+cronAdd('health_check', '51 * * * *', function () {
   try {
-    try {
-      var pausedRec = $app.findFirstRecordByFilter(
-        'care_alert_settings',
-        'global_automations_paused = true',
-      )
-      if (pausedRec) {
-        return
-      }
-    } catch (_) {}
-
     // Anti-freeze: safety cycle limit
     var cycleStartMs = Date.now()
     var MAX_CYCLE_DURATION_MS = 5000

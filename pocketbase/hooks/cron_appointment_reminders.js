@@ -32,8 +32,10 @@
  *      e setar task_created_at no agendamento, sem disparar mais mensagens automáticas.
  */
 
-// Executa a cada 15 minutos em vez de a cada 5 minutos
-cronAdd('appointment_reminders_and_followup', '14,29,44,59 * * * *', () => {
+// CRON DE CONFIRMAÇÃO, LEMBRETES E FOLLOW-UP DE AGENDAMENTOS
+// Executa 1x por hora no minuto 18 (escalonado)
+// Restaurado da emergência com kill-switch na primeira linha, night shield (21h-07h) e timeout 5s
+cronAdd('appointment_reminders_and_followup', '18 * * * *', () => {
   try {
     // Kill switch global na PRIMEIRA instrução
     try {

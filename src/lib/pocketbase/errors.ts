@@ -1,38 +1,45 @@
-export interface FieldErrors {
-  [key: string]: string
-}
+import { ClientResponseError } from 'pocketbase'
+
+export type FieldErrors = Record<string, string>
 
 export function extractFieldErrors(error: unknown): FieldErrors {
-  if (!error || typeof error !== 'object') return {}
-  const data = (error as { data?: { data?: Record<string, { message?: string }> } }).data
-  if (!data?.data) return {}
-
+  if (!(error instanceof ClientResponseError)) return {}
+  const data = error.response?.data
+  if (!data || typeof data !== 'object') return {}
   const errors: FieldErrors = {}
-  for (const [key, val] of Object.entries(data.data)) {
-    if (val && typeof val === 'object' && 'message' in val) {
-      errors[key] = String(val.message)
+  for (const [field, detail] of Object.entries(data)) {
+    if (
+      detail &&
+      typeof detail === 'object' &&
+      'message' in detail &&
+      typeof (detail as { message: unknown }).message === 'string'
+    ) {
+      errors[field] = (detail as { message: string }).message
     }
   }
   return errors
 }
 
-export function getErrorMessage(error: unknown, fallback = 'Ocorreu um erro inesperado'): string {
-  if (!error) return fallback
-  if (typeof error === 'string') return error
-  if (error instanceof Error) return error.message
-  const pbErr = error as { message?: string }
-  if (pbErr.message) return pbErr.message
-  return fallback
+export function getErrorMessage(error: unknown): string {
+  if (!(error instanceof ClientResponseError)) {
+    return error instanceof Error ? error.message : 'An unexpected error occurred.'
+  }
+  const msgs = Object.values(extractFieldErrors(error))
+  return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
 }
 
 export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  const msg = error instanceof Error ? error.message : String(error)
-  return (
-    msg.includes('Failed to fetch') ||
-    msg.includes('NetworkError') ||
-    msg.includes('aborted') ||
-    msg.includes('timeout') ||
-    msg.includes('Connection refused')
-  )
+  if (error instanceof ClientResponseError) {
+    return error.status === 0 || error.isAbort
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    return (
+      msg.includes('network') ||
+      msg.includes('fetch') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('connection refused')
+    )
+  }
+  return false
 }

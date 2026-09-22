@@ -1,4 +1,7 @@
-cronAdd('check_non_responded', '0 * * * *', () => {
+// CRON DE VERIFICAÇÃO DE CONTATOS NÃO RESPONDIDOS
+// Executa 1x por hora no minuto 49 ('49 * * * *')
+// Restaurado da emergência com kill-switch, night shield (21h-07h) e timeout curto (5s)
+cronAdd('check_non_responded', '49 * * * *', () => {
   try {
     try {
       var pausedRec = $app.findFirstRecordByFilter(
@@ -9,6 +12,14 @@ cronAdd('check_non_responded', '0 * * * *', () => {
         return
       }
     } catch (_) {}
+
+    // Blindagem noturna: 21h-07h de Brasília
+    var nMs = Date.now()
+    var spD = new Date(nMs - 3 * 3600 * 1000)
+    var hSp = spD.getUTCHours()
+    if (hSp >= 21 || hSp < 7) {
+      return
+    }
 
     const nowTs = Math.floor(Date.now() / 1000)
     const cutoffTs = nowTs - 8 * 60 * 60
@@ -212,7 +223,7 @@ cronAdd('check_non_responded', '0 * * * *', () => {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', apikey: bKey },
                         body: JSON.stringify({ number: bPhone, text: bMsg }),
-                        timeout: 15,
+                        timeout: 5,
                       })
                       bStatus =
                         bRes.statusCode === 200 || bRes.statusCode === 201 ? 'sent' : 'failed'
