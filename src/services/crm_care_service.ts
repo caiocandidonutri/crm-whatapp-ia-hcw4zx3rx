@@ -129,6 +129,36 @@ export function isAbortError(err: unknown): boolean {
   return false
 }
 
+function normalizeCareDashboardData(raw: any): CareDashboardData {
+  if (!raw || typeof raw !== 'object') {
+    return DEFAULT_CARE_DASHBOARD
+  }
+
+  const careAlertsRaw = Array.isArray(raw.care_alerts) ? raw.care_alerts : []
+  const normalizedAlerts = careAlertsRaw.map((a: any) => ({
+    id: a?.id ?? '',
+    name: a?.name || 'Contato',
+    phone: a?.phone || '',
+    care_status: a?.care_status || 'em_dia',
+    ai_suggested_action: a?.ai_suggested_action || '',
+    ai_priority: typeof a?.ai_priority === 'number' ? a.ai_priority : 0,
+    stage: a?.stage || '',
+  }))
+
+  return {
+    attended_today:
+      typeof raw.attended_today === 'number' ? raw.attended_today : Number(raw.attended_today) || 0,
+    needs_return:
+      typeof raw.needs_return === 'number' ? raw.needs_return : Number(raw.needs_return) || 0,
+    pending_tasks:
+      typeof raw.pending_tasks === 'number' ? raw.pending_tasks : Number(raw.pending_tasks) || 0,
+    total_patients:
+      typeof raw.total_patients === 'number' ? raw.total_patients : Number(raw.total_patients) || 0,
+    funnel: raw.funnel && typeof raw.funnel === 'object' ? raw.funnel : {},
+    care_alerts: normalizedAlerts,
+  }
+}
+
 export async function getCareDashboard(signal?: AbortSignal): Promise<CareDashboardData> {
   if (signal?.aborted) {
     return DEFAULT_CARE_DASHBOARD
@@ -151,12 +181,13 @@ export async function getCareDashboard(signal?: AbortSignal): Promise<CareDashbo
   }
 
   try {
-    return await pb.send<CareDashboardData>('/backend/v1/crm-care/dashboard', {
+    const res = await pb.send<CareDashboardData>('/backend/v1/crm-care/dashboard', {
       method: 'GET',
       headers,
       signal: effectiveSignal,
       requestKey: null,
     })
+    return normalizeCareDashboardData(res)
   } catch (err: any) {
     // Cancelamento benigno (StrictMode, troca de rota, tab/filtro ou timeout defensivo)
     // ou erro 401/403/offline: retorna fallback limpo sem jogar exceção na UI

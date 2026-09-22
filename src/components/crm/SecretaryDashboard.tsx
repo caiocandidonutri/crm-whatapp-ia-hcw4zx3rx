@@ -110,31 +110,33 @@ export function SecretaryDashboard({ accountId }: SecretaryDashboardProps) {
 
   if (!data) return null
 
+  const careAlerts = Array.isArray(data?.care_alerts) ? data.care_alerts : []
+
   const cards = [
     {
       label: 'Atendidos hoje',
-      value: data.attended_today,
+      value: data?.attended_today ?? 0,
       icon: UserCheck,
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
     },
     {
       label: 'Precisam retorno',
-      value: data.needs_return,
+      value: data?.needs_return ?? 0,
       icon: Clock,
       color: 'text-amber-600',
       bg: 'bg-amber-50',
     },
     {
       label: 'Tarefas pendentes',
-      value: data.pending_tasks,
+      value: data?.pending_tasks ?? 0,
       icon: AlertTriangle,
       color: 'text-rose-600',
       bg: 'bg-rose-50',
     },
     {
       label: 'Total de pacientes',
-      value: data.total_patients,
+      value: data?.total_patients ?? 0,
       icon: Heart,
       color: 'text-violet-600',
       bg: 'bg-violet-50',
@@ -169,7 +171,7 @@ export function SecretaryDashboard({ accountId }: SecretaryDashboardProps) {
         ))}
       </div>
 
-      {data.care_alerts.length > 0 && (
+      {careAlerts.length > 0 && (
         <Card className="border-amber-200/60 shadow-sm bg-amber-50/30 backdrop-blur-sm rounded-xl">
           <CardContent className="p-3">
             <div className="flex items-center gap-2 mb-2">
@@ -179,19 +181,19 @@ export function SecretaryDashboard({ accountId }: SecretaryDashboardProps) {
                 variant="secondary"
                 className="text-[10px] bg-amber-200 text-amber-800 border-0 ml-auto"
               >
-                {data.care_alerts.length}
+                {careAlerts.length}
               </Badge>
             </div>
             <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
-              {data.care_alerts.slice(0, 8).map((alert) => (
+              {careAlerts.slice(0, 8).map((alert) => (
                 <button
-                  key={alert.id}
-                  onClick={() => navigate(`/crm?contact=${alert.id}`)}
+                  key={alert.id || alert.name}
+                  onClick={() => alert.id && navigate(`/crm?contact=${alert.id}`)}
                   className="flex items-center gap-2 text-left px-2 py-1.5 rounded-lg hover:bg-amber-100/60 transition-colors w-full"
                 >
                   <div className="flex-1 min-w-0">
                     <span className="text-sm font-medium text-foreground truncate block">
-                      {alert.name}
+                      {alert.name || 'Contato'}
                     </span>
                     {alert.ai_suggested_action && (
                       <span className="text-xs text-muted-foreground truncate block">
