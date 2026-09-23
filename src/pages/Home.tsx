@@ -61,7 +61,7 @@ export default function Home() {
   const { accountId } = useCurrentAccount()
   const { instance } = useInstanciaAtiva()
   const { conversations } = useConversas(instance?.instance_name)
-  const { tasks } = useTasks()
+  const { tasks, error: tasksError } = useTasks()
 
   const [metrics, setMetrics] = useState<HomeMetricsData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -169,9 +169,10 @@ export default function Home() {
     loadMetrics(true)
   })
 
-  // Tarefas urgentes do usuário logado
+  // Tarefas urgentes do usuário logado com proteção contra undefined
   const pendingTasks = useMemo(() => {
-    return tasks.filter((t) => t.status !== 'concluida' && t.status !== 'cancelada')
+    const list = Array.isArray(tasks) ? tasks : []
+    return list.filter((t) => t && t.status !== 'concluida' && t.status !== 'cancelada')
   }, [tasks])
 
   const myPendingTasks = useMemo(() => {
@@ -1352,22 +1353,42 @@ export default function Home() {
         <div className="flex flex-col gap-6">
           <Card className="border-border/40 bg-white/60 backdrop-blur-md shadow-sm rounded-2xl flex flex-col">
             <CardHeader className="pb-3 px-5 pt-5">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-primary/10 rounded-lg">
-                  <ListTodo className="w-5 h-5 text-primary" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-primary/10 rounded-lg">
+                    <ListTodo className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle className="font-serif text-lg font-bold text-primary">
+                      Minhas tarefas urgentes
+                    </CardTitle>
+                    <CardDescription className="text-xs text-muted-foreground font-sans">
+                      Demandas prioritárias atribuídas a você
+                    </CardDescription>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle className="font-serif text-lg font-bold text-primary">
-                    Minhas tarefas urgentes
-                  </CardTitle>
-                  <CardDescription className="text-xs text-muted-foreground font-sans">
-                    Demandas prioritárias atribuídas a você
-                  </CardDescription>
-                </div>
+                {tasksError && (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] text-amber-700 bg-amber-50 border-amber-200"
+                  >
+                    Modo offline
+                  </Badge>
+                )}
               </div>
             </CardHeader>
             <CardContent className="px-5 pb-5 flex flex-col gap-3">
-              {myUrgentTasks.length === 0 ? (
+              {tasksError && myUrgentTasks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-4 text-center text-muted-foreground">
+                  <AlertCircle className="w-6 h-6 mb-1 text-amber-500/70" />
+                  <span className="text-xs font-medium text-amber-800">
+                    Não foi possível carregar as tarefas
+                  </span>
+                  <span className="text-[11px] text-muted-foreground mt-0.5">
+                    As demais seções continuam funcionando normalmente.
+                  </span>
+                </div>
+              ) : myUrgentTasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-6 text-center text-muted-foreground">
                   <CheckCircle2 className="w-8 h-8 mb-2 opacity-20 text-emerald-600" />
                   <span className="text-sm font-medium">Sem tarefas pendentes</span>

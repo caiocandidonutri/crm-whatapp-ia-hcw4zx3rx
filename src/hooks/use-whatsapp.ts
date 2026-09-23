@@ -448,10 +448,14 @@ export function useConversas(
         reload()
       })
       unsubPromise?.catch((err) => {
-        console.warn('[useConversas] Falha ao assinar PB_CONNECT:', err?.message || err)
+        if (import.meta.env.DEV) {
+          console.debug('[useConversas] Falha ao assinar PB_CONNECT:', err?.message || err)
+        }
       })
     } catch (err: any) {
-      console.warn('[useConversas] Exceção ao assinar PB_CONNECT:', err?.message || err)
+      if (import.meta.env.DEV) {
+        console.debug('[useConversas] Exceção ao assinar PB_CONNECT:', err?.message || err)
+      }
     }
 
     return () => {
@@ -623,10 +627,14 @@ export function useMensagens(
         load()
       })
       unsubPromise?.catch((err) => {
-        console.warn('[useMensagens] Falha ao assinar PB_CONNECT:', err?.message || err)
+        if (import.meta.env.DEV) {
+          console.debug('[useMensagens] Falha ao assinar PB_CONNECT:', err?.message || err)
+        }
       })
     } catch (err: any) {
-      console.warn('[useMensagens] Exceção ao assinar PB_CONNECT:', err?.message || err)
+      if (import.meta.env.DEV) {
+        console.debug('[useMensagens] Exceção ao assinar PB_CONNECT:', err?.message || err)
+      }
     }
 
     return () => {

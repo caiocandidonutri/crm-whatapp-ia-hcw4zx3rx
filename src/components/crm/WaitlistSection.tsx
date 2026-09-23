@@ -40,6 +40,7 @@ import {
   updateWaitlistStatus,
   deleteWaitlistEntry,
 } from '@/services/waitlist'
+import { useRealtime } from '@/hooks/use-realtime'
 import { getCrmContacts } from '@/services/crm_service'
 import type { WaitlistEntry, WaitlistStatus, CrmContact } from '@/types/models'
 import { formatBrazilianDate } from '@/lib/datetime'
@@ -91,30 +92,13 @@ export function WaitlistSection({ accountId, onOpenChat }: WaitlistSectionProps)
   }, [reload])
 
   // Realtime
-  useEffect(() => {
-    if (!accountId) return
-    let unsubPromise: Promise<() => Promise<void>> | undefined
-    try {
-      unsubPromise = pb.collection('waitlist').subscribe('*', () => {
-        reload()
-      })
-      unsubPromise?.catch((err) => {
-        console.warn('[WaitlistSection] Falha ao assinar waitlist:', err?.message || err)
-      })
-    } catch (err: any) {
-      console.warn('[WaitlistSection] Exceção ao assinar waitlist:', err?.message || err)
-    }
-    return () => {
-      if (unsubPromise) {
-        unsubPromise
-          .then((unsub) => {
-            if (typeof unsub === 'function') return unsub()
-          })
-          .catch(() => {})
-      }
-    }
-  }, [accountId, reload])
-
+  useRealtime(
+    'waitlist',
+    () => {
+      reload()
+    },
+    !!accountId,
+  )
   // Carregar contatos para autocomplete
   useEffect(() => {
     if (!accountId || !isAddOpen) return

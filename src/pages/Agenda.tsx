@@ -371,6 +371,9 @@ export default function Agenda() {
       return 60000
     }
 
+    let consecutiveFailures = 0
+    const MAX_CONSECUTIVE_FAILURES = 5
+
     const setupSubscription = async () => {
       if (!isMounted) return
       try {
@@ -394,13 +397,20 @@ export default function Agenda() {
         }
 
         unsubscribeFn = unsub
-        // Reset do backoff em caso de subscrição bem-sucedida
+        consecutiveFailures = 0
         reconnectDelay = 2000
       } catch (err: any) {
-        console.warn(
-          '[Agenda Realtime] Falha ao assinar appointments, operando offline com dados em memória:',
-          err?.message || err,
-        )
+        consecutiveFailures += 1
+        if (import.meta.env.DEV) {
+          console.debug(
+            `[Agenda Realtime] Assinatura de appointments indisponível (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}):`,
+            err?.message || err,
+          )
+        }
+        // Se excedeu retries, desiste de tentar em loop
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          return
+        }
         // Se falhou e continua montado, agenda reconexão com backoff progressivo mantendo os dados da tela intactos
         if (isMounted) {
           const delay = reconnectDelay

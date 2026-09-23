@@ -6,6 +6,7 @@ import { AppProvider } from '@/stores/useAppStore'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
 import { usePushNotifications } from '@/hooks/use-push-notifications'
 import { PushPermissionBanner } from '@/components/PushPermissionBanner'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Navigate, Outlet } from 'react-router-dom'
 
 import Layout from './components/Layout'
@@ -35,18 +36,88 @@ function AppRoutes() {
   return (
     <span className="contents">
       <Routes>
-        <Route path="/" element={<Index />} />
+        <Route
+          path="/"
+          element={
+            <ErrorBoundary>
+              <Index />
+            </ErrorBoundary>
+          }
+        />
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
-            <Route path="/home" element={<Home />} />
-            <Route path="/conversas" element={<Conversas />} />
-            <Route path="/crm" element={<CRM />} />
-            <Route path="/agenda" element={<Agenda />} />
-            <Route path="/agentes" element={<Agentes />} />
-            <Route path="/chat" element={<Chat />} />
-            <Route path="/tarefas" element={<Tarefas />} />
-            <Route path="/equipe" element={<Equipe />} />
-            <Route path="/integracoes" element={<Integracoes />} />{' '}
+            <Route
+              path="/home"
+              element={
+                <ErrorBoundary>
+                  <Home />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/conversas"
+              element={
+                <ErrorBoundary>
+                  <Conversas />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/crm"
+              element={
+                <ErrorBoundary>
+                  <CRM />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/agenda"
+              element={
+                <ErrorBoundary>
+                  <Agenda />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/agentes"
+              element={
+                <ErrorBoundary>
+                  <Agentes />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/chat"
+              element={
+                <ErrorBoundary>
+                  <Chat />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/tarefas"
+              element={
+                <ErrorBoundary>
+                  <Tarefas />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/equipe"
+              element={
+                <ErrorBoundary>
+                  <Equipe />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/integracoes"
+              element={
+                <ErrorBoundary>
+                  <Integracoes />
+                </ErrorBoundary>
+              }
+            />{' '}
           </Route>
         </Route>
         <Route path="*" element={<NotFound />} />
@@ -63,17 +134,19 @@ function AppRoutes() {
 }
 
 const App = () => (
-  <AuthProvider>
-    <AppProvider>
-      <BrowserRouter>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <AppRoutes />
-        </TooltipProvider>
-      </BrowserRouter>
-    </AppProvider>
-  </AuthProvider>
+  <ErrorBoundary>
+    <AuthProvider>
+      <AppProvider>
+        <BrowserRouter>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <AppRoutes />
+          </TooltipProvider>
+        </BrowserRouter>
+      </AppProvider>
+    </AuthProvider>
+  </ErrorBoundary>
 )
 
 export default App

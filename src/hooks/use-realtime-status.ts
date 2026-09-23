@@ -35,10 +35,14 @@ export function useRealtimeStatus(): RealtimeStatus {
         setStatus('connected')
       })
       unsubPromise?.catch((err) => {
-        console.warn('[useRealtimeStatus] Falha ao assinar PB_CONNECT:', err?.message || err)
+        if (import.meta.env.DEV) {
+          console.debug('[useRealtimeStatus] Falha ao assinar PB_CONNECT:', err?.message || err)
+        }
       })
     } catch (err: any) {
-      console.warn('[useRealtimeStatus] Exceção ao assinar PB_CONNECT:', err?.message || err)
+      if (import.meta.env.DEV) {
+        console.debug('[useRealtimeStatus] Exceção ao assinar PB_CONNECT:', err?.message || err)
+      }
     }
 
     // Heartbeat leve: confere `isConnected` a cada 2s. Se caiu e o SDK

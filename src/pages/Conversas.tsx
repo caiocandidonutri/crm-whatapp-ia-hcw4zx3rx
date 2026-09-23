@@ -326,10 +326,14 @@ export default function Conversas() {
         }
       })
       unsubPromise?.catch((err) => {
-        console.warn('[Conversas] Falha ao assinar realtime wildcard:', err?.message || err)
+        if (import.meta.env.DEV) {
+          console.debug('[Conversas] Falha ao assinar realtime wildcard:', err?.message || err)
+        }
       })
     } catch (err: any) {
-      console.warn('[Conversas] Exceção ao assinar realtime wildcard:', err?.message || err)
+      if (import.meta.env.DEV) {
+        console.debug('[Conversas] Exceção ao assinar realtime wildcard:', err?.message || err)
+      }
     }
     return () => {
       cancelled = true
