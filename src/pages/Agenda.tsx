@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AgendaLogisticsReport } from '@/components/AgendaLogisticsReport'
 import { WaitlistSection } from '@/components/crm/WaitlistSection'
 import { buildPatientAppointmentsMap, getAppointmentHistoryInfo } from '@/lib/appointment-history'
@@ -91,7 +92,7 @@ const CITIES: { id: AppointmentCity | 'all'; label: string; location: string }[]
 ]
 
 const STATUS_CONFIG: Record<
-  AppointmentStatus,
+  string,
   { label: string; badgeClass: string; borderClass: string; icon: React.ElementType }
 > = {
   confirmado: {
@@ -914,15 +915,17 @@ export default function Agenda() {
     if (syncStatus.last_sync) {
       try {
         const lastDate = parseISO(syncStatus.last_sync)
-        const diffMinutes = Math.max(0, Math.round((Date.now() - lastDate.getTime()) / (1000 * 60)))
-        const timeLabel =
-          diffMinutes === 0 ? 'agora' : diffMinutes === 1 ? 'há 1 min' : `há ${diffMinutes} min`
+        if (!isNaN(lastDate.getTime())) {
+          const diffMinutes = Math.max(0, Math.round((Date.now() - lastDate.getTime()) / (1000 * 60)))
+          const timeLabel =
+            diffMinutes === 0 ? 'agora' : diffMinutes === 1 ? 'há 1 min' : `há ${diffMinutes} min`
 
-        return {
-          label: `Sincronizado ${timeLabel}`,
-          variant: 'outline' as const,
-          icon: CheckCircle2,
-          tooltip: `Última sincronia com sucesso em ${format(lastDate, 'dd/MM/yyyy HH:mm:ss')}. Total local: ${syncStatus.total_appointments} agendamentos.`,
+          return {
+            label: `Sincronizado ${timeLabel}`,
+            variant: 'outline' as const,
+            icon: CheckCircle2,
+            tooltip: `Última sincronia com sucesso em ${format(lastDate, 'dd/MM/yyyy HH:mm:ss')}. Total local: ${syncStatus.total_appointments || 0} agendamentos.`,
+          }
         }
       } catch {
         /* intentionally ignored */
@@ -1079,9 +1082,17 @@ export default function Agenda() {
                 )}
               </div>
               <p className="text-[11px] text-muted-foreground truncate">
-                {syncStatus?.last_sync
-                  ? `Último sync: ${format(parseISO(syncStatus.last_sync), 'HH:mm')}`
-                  : 'Aguardando primeiro sync'}
+                {(() => {
+                  if (!syncStatus?.last_sync) return 'Aguardando primeiro sync'
+                  try {
+                    const parsed = parseISO(syncStatus.last_sync)
+                    return !isNaN(parsed.getTime())
+                      ? `Último sync: ${format(parsed, 'HH:mm')}`
+                      : 'Aguardando primeiro sync'
+                  } catch {
+                    return 'Aguardando primeiro sync'
+                  }
+                })()}
               </p>
             </div>
           </div>
@@ -1340,7 +1351,9 @@ export default function Agenda() {
         ) : filteredAppointments.length === 0 ? (
           <Card className="border-dashed border-2 p-12 text-center bg-card/50">
             <CalendarDays className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
-            <h3 className="text-base font-semibold text-foreground">Nenhum agendamento encontrado</h3>
+            <h3 className="text-base font-semibold text-foreground">
+              Nenhum agendamento encontrado
+            </h3>
             <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1 mb-6">
               Não há consultas marcadas para os filtros e datas selecionadas.
             </p>
@@ -1361,294 +1374,32 @@ export default function Agenda() {
         ) : viewMode === 'day' ? (
           /* VISÃO DIA */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredAppointments.map((app) => {
-            const statusConfig = STATUS_CONFIG[app.status] || STATUS_CONFIG['aguardando'] || STATUS_CONFIG.agendado
-            const StatusIcon = statusConfig.icon
-            const startTimeStr = formatTimeSaoPaulo(app.starts_at)
-            const endTimeStr = formatTimeSaoPaulo(app.ends_at)
+            {filteredAppointments.map((app) => {
+              const statusConfig =
+                STATUS_CONFIG[app.status] || STATUS_CONFIG['aguardando'] || STATUS_CONFIG.agendado
+              const StatusIcon = statusConfig.icon
+              const startTimeStr = formatTimeSaoPaulo(app.starts_at)
+              const endTimeStr = formatTimeSaoPaulo(app.ends_at)
 
-            return (
-              <Card
-                key={app.id}
-                onClick={() => {
-                  setSelectedAppointment(app)
-                  setDetailsDialogOpen(true)
-                }}
-                className={cn(
-                  'cursor-pointer hover:shadow-md transition-all duration-200 overflow-hidden bg-card border-border/80',
-                  statusConfig.borderClass,
-                )}
-              >
-                <CardHeader className="p-4 pb-2 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="font-semibold text-base text-foreground leading-tight">
-                        {app.patient_name}
-                      </h4>
-                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                        {(() => {
-                          const historyInfo = getAppointmentHistoryInfo(app, patientAppointmentsMap)
-                          const displayType = historyInfo.inferredType
-                          const isFirst = historyInfo.isFirstConsultation
-
-                          return (
-                            <>
-                              <Badge
-                                variant="secondary"
-                                className={cn(
-                                  'text-[10px] font-medium py-0 px-1.5 border',
-                                  displayType.toLowerCase().includes('retorno')
-                                    ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300'
-                                    : displayType.toLowerCase().includes('consultoria')
-                                      ? 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300'
-                                      : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300',
-                                )}
-                              >
-                                {displayType}
-                              </Badge>
-                              {isFirst ? (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] font-semibold py-0 px-1.5 bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
-                                >
-                                  1ª consulta
-                                </Badge>
-                              ) : (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] font-normal py-0 px-1.5 bg-slate-50 text-slate-600 border-slate-300 dark:bg-slate-900/40 dark:text-slate-400"
-                                >
-                                  {historyInfo.priorVisitsCount > 1
-                                    ? `${historyInfo.priorVisitsCount + 1}º atendimento`
-                                    : 'Retorno'}
-                                </Badge>
-                              )}
-                            </>
-                          )
-                        })()}
-                      </div>
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className={cn('text-[11px] gap-1 shrink-0', statusConfig.badgeClass)}
-                    >
-                      <StatusIcon className="w-3 h-3" />
-                      <span>{statusConfig.label}</span>
-                    </Badge>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="p-4 pt-0 space-y-3">
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1.5 font-medium text-foreground">
-                      <Clock className="w-3.5 h-3.5 text-primary" />
-                      {startTimeStr} - {endTimeStr}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
-                      {app.city} ({app.location || CITY_DEFAULT_LOCATIONS[app.city]})
-                    </span>
-                  </div>
-
-                  {app.notes && (
-                    <p className="text-xs text-muted-foreground/90 line-clamp-2 bg-muted/40 p-2 rounded-lg">
-                      {app.notes}
-                    </p>
+              return (
+                <Card
+                  key={app.id}
+                  onClick={() => {
+                    setSelectedAppointment(app)
+                    setDetailsDialogOpen(true)
+                  }}
+                  className={cn(
+                    'cursor-pointer hover:shadow-md transition-all duration-200 overflow-hidden bg-card border-border/80',
+                    statusConfig.borderClass,
                   )}
-
-                  {/* Indicadores discretos de automação: Véspera ✓ | Dia ✓ | Confirmado pelo paciente ✓ */}
-                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span
-                            className={cn(
-                              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
-                              app.confirmation_sent_at
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-                                : 'bg-muted/30 text-muted-foreground/60 border-transparent',
-                            )}
-                          >
-                            <span>Véspera</span>
-                            <span>{app.confirmation_sent_at ? '✓' : '○'}</span>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="text-xs">
-                          {app.confirmation_sent_at
-                            ? `Confirmação 24h enviada em ${format(parseISO(app.confirmation_sent_at), 'dd/MM HH:mm')}`
-                            : 'Confirmação 24h ainda não disparada'}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span
-                            className={cn(
-                              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
-                              app.reminder_day_sent_at
-                                ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
-                                : 'bg-muted/30 text-muted-foreground/60 border-transparent',
-                            )}
-                          >
-                            <span>Dia</span>
-                            <span>{app.reminder_day_sent_at ? '✓' : '○'}</span>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="text-xs">
-                          {app.reminder_day_sent_at
-                            ? `Lembrete do dia enviado em ${format(parseISO(app.reminder_day_sent_at), 'dd/MM HH:mm')}`
-                            : 'Lembrete do dia (2-3h antes) ainda não disparado'}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-
-                    {app.last_interaction_type === 'confirmado_paciente' ? (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200">
-                              <span>Paciente ✓</span>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="text-xs">
-                            Confirmado diretamente pelo paciente via WhatsApp!
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    ) : app.last_interaction_type === 'remarcado_paciente' ? (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300">
-                        <span>Reagendamento solicitado</span>
-                      </span>
-                    ) : app.followup_sent_at ? (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                        <span>Follow-up 6h ✓</span>
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1 border-t border-border/60">
-                    <div className="flex items-center gap-1.5">
-                      {app.source === 'agenda_externa' ? (
-                        <Badge variant="secondary" className="text-[10px] font-normal py-0">
-                          Agenda Externa
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] font-normal py-0">
-                          CRM
-                        </Badge>
-                      )}
-                      {app.sync_error && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <AlertCircle className="w-3.5 h-3.5 text-destructive" />
-                            </TooltipTrigger>
-                            <TooltipContent className="text-xs">
-                              Push pendente: {app.sync_error}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </div>
-
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleOpenConversation(app)
-                      }}
-                      className="h-7 px-2 text-xs gap-1 text-primary hover:text-primary hover:bg-primary/10"
-                    >
-                      <MessageCircle className="w-3.5 h-3.5" />
-                      <span>WhatsApp</span>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      ) : (
-        /* VISÃO SEMANA */
-        <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
-          {weekDays.map((day) => {
-            const dayKey = getDayKeySaoPaulo(day)
-            const todayKey = getDayKeySaoPaulo(new Date())
-            const isToday = dayKey === todayKey
-            const dayAppointments = filteredAppointments.filter(
-              (a) => getDayKeySaoPaulo(a.starts_at) === dayKey,
-            )
-
-            return (
-              <div
-                key={day ? day.toISOString() : Math.random().toString()}
-                className={cn(
-                  'rounded-xl border p-2.5 flex flex-col min-h-[350px] bg-card/60 transition-colors',
-                  isToday ? 'border-primary/50 bg-primary/[0.02]' : 'border-border',
-                )}
-              >
-                <div className="text-center pb-2 border-b border-border/60 mb-2">
-                  <p className="text-[11px] font-medium text-muted-foreground uppercase">
-                    {format(day, 'EEE', { locale: ptBR })}
-                  </p>
-                  <p
-                    className={cn(
-                      'text-sm font-semibold rounded-full w-7 h-7 mx-auto flex items-center justify-center mt-0.5',
-                      isToday ? 'bg-primary text-primary-foreground' : 'text-foreground',
-                    )}
-                  >
-                    {format(day, 'dd')}
-                  </p>
-                </div>
-
-                <div className="flex-1 space-y-2 overflow-y-auto">
-                  {dayAppointments.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground/60 text-center pt-8">
-                      Sem horários
-                    </p>
-                  ) : (
-                    dayAppointments.map((app) => {
-                      const statusConfig = STATUS_CONFIG[app.status] || STATUS_CONFIG['aguardando'] || STATUS_CONFIG.agendado
-                      const startTimeStr = formatTimeSaoPaulo(app.starts_at)
-
-                      return (
-                        <div
-                          key={app.id}
-                          onClick={() => {
-                            setSelectedAppointment(app)
-                            setDetailsDialogOpen(true)
-                          }}
-                          className={cn(
-                            'p-2 rounded-lg border bg-card hover:shadow-sm cursor-pointer transition-all text-left space-y-1',
-                            statusConfig.borderClass,
-                          )}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-foreground">
-                              {startTimeStr}
-                            </span>
-                            <div className="flex items-center gap-1">
-                              {app.last_interaction_type === 'confirmado_paciente' && (
-                                <span className="text-[9px] px-1 rounded bg-emerald-100 text-emerald-800 font-bold">
-                                  ✓ Paciente
-                                </span>
-                              )}
-                              <span
-                                className={cn(
-                                  'text-[9px] px-1.5 py-0.2 rounded-full font-medium',
-                                  statusConfig.badgeClass,
-                                )}
-                              >
-                                {app.status}
-                              </span>
-                            </div>
-                          </div>
-                          <p className="text-xs font-medium text-foreground truncate">
-                            {app.patient_name}
-                          </p>
+                >
+                  <CardHeader className="p-4 pb-2 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-semibold text-base text-foreground leading-tight">
+                          {app.patient_name}
+                        </h4>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                           {(() => {
                             const historyInfo = getAppointmentHistoryInfo(
                               app,
@@ -1658,44 +1409,328 @@ export default function Agenda() {
                             const isFirst = historyInfo.isFirstConsultation
 
                             return (
-                              <div className="flex items-center gap-1 flex-wrap">
-                                <span
+                              <>
+                                <Badge
+                                  variant="secondary"
                                   className={cn(
-                                    'inline-block text-[9px] px-1 py-0.2 rounded border font-medium',
+                                    'text-[10px] font-medium py-0 px-1.5 border',
                                     displayType.toLowerCase().includes('retorno')
-                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300'
                                       : displayType.toLowerCase().includes('consultoria')
-                                        ? 'bg-purple-50 text-purple-800 border-purple-200'
-                                        : 'bg-blue-50 text-blue-800 border-blue-200',
+                                        ? 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300'
+                                        : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300',
                                   )}
                                 >
                                   {displayType}
-                                </span>
-                                {isFirst && (
-                                  <span className="inline-block text-[9px] px-1 py-0.2 rounded border font-semibold bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                </Badge>
+                                {isFirst ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] font-semibold py-0 px-1.5 bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                                  >
                                     1ª consulta
-                                  </span>
+                                  </Badge>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] font-normal py-0 px-1.5 bg-slate-50 text-slate-600 border-slate-300 dark:bg-slate-900/40 dark:text-slate-400"
+                                  >
+                                    {historyInfo.priorVisitsCount > 1
+                                      ? `${historyInfo.priorVisitsCount + 1}º atendimento`
+                                      : 'Retorno'}
+                                  </Badge>
                                 )}
-                              </div>
+                              </>
                             )
                           })()}
-                          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                            <span className="truncate">{app.city}</span>
-                            <span className="font-mono text-[9px] shrink-0">
-                              {app.confirmation_sent_at ? 'V✓' : 'V○'}{' '}
-                              {app.reminder_day_sent_at ? 'D✓' : 'D○'}
-                            </span>
-                          </div>
                         </div>
-                      )
-                    })
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={cn('text-[11px] gap-1 shrink-0', statusConfig.badgeClass)}
+                      >
+                        <StatusIcon className="w-3 h-3" />
+                        <span>{statusConfig.label}</span>
+                      </Badge>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="p-4 pt-0 space-y-3">
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1.5 font-medium text-foreground">
+                        <Clock className="w-3.5 h-3.5 text-primary" />
+                        {startTimeStr} - {endTimeStr}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
+                        {app.city} ({app.location || CITY_DEFAULT_LOCATIONS[app.city]})
+                      </span>
+                    </div>
+
+                    {app.notes && (
+                      <p className="text-xs text-muted-foreground/90 line-clamp-2 bg-muted/40 p-2 rounded-lg">
+                        {app.notes}
+                      </p>
+                    )}
+
+                    {/* Indicadores discretos de automação: Véspera ✓ | Dia ✓ | Confirmado pelo paciente ✓ */}
+                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+                                app.confirmation_sent_at
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                  : 'bg-muted/30 text-muted-foreground/60 border-transparent',
+                              )}
+                            >
+                              <span>Véspera</span>
+                              <span>{app.confirmation_sent_at ? '✓' : '○'}</span>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="text-xs">
+                            {(() => {
+                              if (!app.confirmation_sent_at) return 'Confirmação 24h ainda não disparada'
+                              try {
+                                const d = parseISO(app.confirmation_sent_at)
+                                return !isNaN(d.getTime())
+                                  ? `Confirmação 24h enviada em ${format(d, 'dd/MM HH:mm')}`
+                                  : 'Confirmação 24h enviada'
+                              } catch {
+                                return 'Confirmação 24h enviada'
+                              }
+                            })()}
+                          </TooltipContent>                        </Tooltip>
+                      </TooltipProvider>
+
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+                                app.reminder_day_sent_at
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                                  : 'bg-muted/30 text-muted-foreground/60 border-transparent',
+                              )}
+                            >
+                              <span>Dia</span>
+                              <span>{app.reminder_day_sent_at ? '✓' : '○'}</span>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="text-xs">
+                            {(() => {
+                              if (!app.reminder_day_sent_at) return 'Lembrete do dia (2-3h antes) ainda não disparado'
+                              try {
+                                const d = parseISO(app.reminder_day_sent_at)
+                                return !isNaN(d.getTime())
+                                  ? `Lembrete do dia enviado em ${format(d, 'dd/MM HH:mm')}`
+                                  : 'Lembrete do dia enviado'
+                              } catch {
+                                return 'Lembrete do dia enviado'
+                              }
+                            })()}
+                          </TooltipContent>                        </Tooltip>
+                      </TooltipProvider>
+
+                      {app.last_interaction_type === 'confirmado_paciente' ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                <span>Paciente ✓</span>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs">
+                              Confirmado diretamente pelo paciente via WhatsApp!
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : app.last_interaction_type === 'remarcado_paciente' ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300">
+                          <span>Reagendamento solicitado</span>
+                        </span>
+                      ) : app.followup_sent_at ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                          <span>Follow-up 6h ✓</span>
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-border/60">
+                      <div className="flex items-center gap-1.5">
+                        {app.source === 'agenda_externa' ? (
+                          <Badge variant="secondary" className="text-[10px] font-normal py-0">
+                            Agenda Externa
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] font-normal py-0">
+                            CRM
+                          </Badge>
+                        )}
+                        {app.sync_error && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <AlertCircle className="w-3.5 h-3.5 text-destructive" />
+                              </TooltipTrigger>
+                              <TooltipContent className="text-xs">
+                                Push pendente: {app.sync_error}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
+
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleOpenConversation(app)
+                        }}
+                        className="h-7 px-2 text-xs gap-1 text-primary hover:text-primary hover:bg-primary/10"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>WhatsApp</span>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        ) : (
+          /* VISÃO SEMANA */
+          <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+            {weekDays.map((day) => {
+              const dayKey = getDayKeySaoPaulo(day)
+              const todayKey = getDayKeySaoPaulo(new Date())
+              const isToday = dayKey === todayKey
+              const dayAppointments = filteredAppointments.filter(
+                (a) => getDayKeySaoPaulo(a.starts_at) === dayKey,
+              )
+
+              return (
+                <div
+                  key={day ? day.toISOString() : Math.random().toString()}
+                  className={cn(
+                    'rounded-xl border p-2.5 flex flex-col min-h-[350px] bg-card/60 transition-colors',
+                    isToday ? 'border-primary/50 bg-primary/[0.02]' : 'border-border',
                   )}
+                >
+                  <div className="text-center pb-2 border-b border-border/60 mb-2">
+                    <p className="text-[11px] font-medium text-muted-foreground uppercase">
+                      {format(day, 'EEE', { locale: ptBR })}
+                    </p>
+                    <p
+                      className={cn(
+                        'text-sm font-semibold rounded-full w-7 h-7 mx-auto flex items-center justify-center mt-0.5',
+                        isToday ? 'bg-primary text-primary-foreground' : 'text-foreground',
+                      )}
+                    >
+                      {format(day, 'dd')}
+                    </p>
+                  </div>
+
+                  <div className="flex-1 space-y-2 overflow-y-auto">
+                    {dayAppointments.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground/60 text-center pt-8">
+                        Sem horários
+                      </p>
+                    ) : (
+                      dayAppointments.map((app) => {
+                        const statusConfig =
+                          STATUS_CONFIG[app.status] ||
+                          STATUS_CONFIG['aguardando'] ||
+                          STATUS_CONFIG.agendado
+                        const startTimeStr = formatTimeSaoPaulo(app.starts_at)
+
+                        return (
+                          <div
+                            key={app.id}
+                            onClick={() => {
+                              setSelectedAppointment(app)
+                              setDetailsDialogOpen(true)
+                            }}
+                            className={cn(
+                              'p-2 rounded-lg border bg-card hover:shadow-sm cursor-pointer transition-all text-left space-y-1',
+                              statusConfig.borderClass,
+                            )}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-foreground">
+                                {startTimeStr}
+                              </span>
+                              <div className="flex items-center gap-1">
+                                {app.last_interaction_type === 'confirmado_paciente' && (
+                                  <span className="text-[9px] px-1 rounded bg-emerald-100 text-emerald-800 font-bold">
+                                    ✓ Paciente
+                                  </span>
+                                )}
+                                <span
+                                  className={cn(
+                                    'text-[9px] px-1.5 py-0.2 rounded-full font-medium',
+                                    statusConfig.badgeClass,
+                                  )}
+                                >
+                                  {app.status}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-xs font-medium text-foreground truncate">
+                              {app.patient_name}
+                            </p>
+                            {(() => {
+                              const historyInfo = getAppointmentHistoryInfo(
+                                app,
+                                patientAppointmentsMap,
+                              )
+                              const displayType = historyInfo.inferredType
+                              const isFirst = historyInfo.isFirstConsultation
+
+                              return (
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <span
+                                    className={cn(
+                                      'inline-block text-[9px] px-1 py-0.2 rounded border font-medium',
+                                      displayType.toLowerCase().includes('retorno')
+                                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                        : displayType.toLowerCase().includes('consultoria')
+                                          ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                          : 'bg-blue-50 text-blue-800 border-blue-200',
+                                    )}
+                                  >
+                                    {displayType}
+                                  </span>
+                                  {isFirst && (
+                                    <span className="inline-block text-[9px] px-1 py-0.2 rounded border font-semibold bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                      1ª consulta
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            })()}
+                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                              <span className="truncate">{app.city}</span>
+                              <span className="font-mono text-[9px] shrink-0">
+                                {app.confirmation_sent_at ? 'V✓' : 'V○'}{' '}
+                                {app.reminder_day_sent_at ? 'D✓' : 'D○'}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
+              )
+            })}
+          </div>
+        )}
+      </ErrorBoundary>
 
       {/* DIALOG: NOVO AGENDAMENTO */}
       <Dialog open={newDialogOpen} onOpenChange={setNewDialogOpen}>
@@ -1914,11 +1949,12 @@ export default function Agenda() {
                   variant="outline"
                   className={cn(
                     'text-xs',
-                    (STATUS_CONFIG[selectedAppointment.status] || STATUS_CONFIG['aguardando'])?.badgeClass,
+                    (STATUS_CONFIG[selectedAppointment.status] || STATUS_CONFIG['aguardando'])
+                      ?.badgeClass,
                   )}
                 >
-                  {(STATUS_CONFIG[selectedAppointment.status] || STATUS_CONFIG['aguardando'])?.label ||
-                    selectedAppointment.status}
+                  {(STATUS_CONFIG[selectedAppointment.status] || STATUS_CONFIG['aguardando'])
+                    ?.label || selectedAppointment.status}
                 </Badge>
               </div>
             </DialogHeader>
