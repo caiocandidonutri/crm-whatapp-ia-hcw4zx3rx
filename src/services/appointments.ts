@@ -193,11 +193,12 @@ export async function listAppointments(options?: {
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await pb.collection('appointments').getFullList<Appointment>({
+      const res = await pb.collection('appointments').getFullList<Appointment>({
         filter: filterStr || undefined,
         sort: 'starts_at',
         requestKey: null,
       })
+      return Array.isArray(res) ? res : []
     } catch (err: unknown) {
       const is429 = isAppointmentRateLimited(err)
 
@@ -209,6 +210,28 @@ export async function listAppointments(options?: {
         await new Promise((resolve) => setTimeout(resolve, delay))
         continue
       }
+
+      // Se der 400 por filtro corrompido ou relação quebrada, fallback gracioso sem filtros ou sem expand
+      const errStr = String(err).toLowerCase()
+      if (
+        errStr.includes('400') ||
+        (err &&
+          typeof err === 'object' &&
+          'status' in err &&
+          (err as { status: unknown }).status === 400)
+      ) {
+        console.warn('[listAppointments] Fallback após erro 400:', err)
+        try {
+          const fallbackRes = await pb.collection('appointments').getFullList<Appointment>({
+            sort: 'starts_at',
+            requestKey: null,
+          })
+          return Array.isArray(fallbackRes) ? fallbackRes : []
+        } catch {
+          return []
+        }
+      }
+
       throw err
     }
   }
@@ -307,6 +330,32 @@ export async function getAgendaSyncStatus(options?: {
 
 export async function triggerAgendaSync(): Promise<AgendaSyncResult> {
   return pb.send<AgendaSyncResult>('/backend/v1/agenda/sync', {
+    method: 'POST',
+  })
+}
+
+export interface ReprocessPendentesResult {
+  success: boolean
+  reprocessed_push?: Array<{ id: string; status: string; external_id?: string; error?: string }>
+  linked_by_ai?: Array<{
+    appointment_id: string
+    patient_name: string
+    matched_contact_id: string
+    matched_contact_name: string
+    confidence: string
+  }>
+  review_tasks_created?: Array<{
+    appointment_id: string
+    patient_name: string
+    starts_at: string
+    task_id: string
+    candidates_count: number
+  }>
+  error?: string
+}
+
+export async function reprocessarAgendamentosPendentes(): Promise<ReprocessPendentesResult> {
+  return pb.send<ReprocessPendentesResult>('/backend/v1/agenda/reprocessar-pendentes', {
     method: 'POST',
   })
 }

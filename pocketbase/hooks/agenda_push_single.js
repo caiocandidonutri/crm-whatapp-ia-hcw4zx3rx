@@ -110,7 +110,7 @@ onRecordAfterCreateSuccess((e) => {
       Authorization: 'Bearer ' + cfg.token,
     }
 
-    var pushUrl = cfg.baseUrl + '/backend/v1/agenda/agendamentos'
+    var pushUrl = cfg.baseUrl + '/api/collections/appointments/records'
     var pushMethod = 'POST'
     if (extIdForPush) {
       pushUrl += '/' + extIdForPush
@@ -123,7 +123,7 @@ onRecordAfterCreateSuccess((e) => {
         method: pushMethod,
         headers: pushHeaders,
         body: JSON.stringify(payload),
-        timeout: 10,
+        timeout: 4,
       })
 
       if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {
@@ -259,7 +259,7 @@ onRecordAfterUpdateSuccess((e) => {
       Authorization: 'Bearer ' + cfg.token,
     }
 
-    var pushUrl = cfg.baseUrl + '/backend/v1/agenda/agendamentos'
+    var pushUrl = cfg.baseUrl + '/api/collections/appointments/records'
     var pushMethod = 'POST'
     if (extIdForPush) {
       pushUrl += '/' + extIdForPush
@@ -272,7 +272,7 @@ onRecordAfterUpdateSuccess((e) => {
         method: pushMethod,
         headers: pushHeaders,
         body: JSON.stringify(payload),
-        timeout: 10,
+        timeout: 4,
       })
 
       if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {
@@ -341,7 +341,7 @@ onRecordAfterDeleteSuccess((e) => {
       }
     }
 
-    var delUrl = baseUrl + '/backend/v1/agenda/agendamentos/' + extId
+    var delUrl = baseUrl + '/api/collections/appointments/records/' + extId
     try {
       var delRes = $http.send({
         url: delUrl,
@@ -351,7 +351,7 @@ onRecordAfterDeleteSuccess((e) => {
           'X-CRM-Token': rawToken,
           Authorization: 'Bearer ' + rawToken,
         },
-        timeout: 10,
+        timeout: 4,
       })
 
       if (delRes.statusCode < 200 || delRes.statusCode >= 300) {
@@ -366,7 +366,7 @@ onRecordAfterDeleteSuccess((e) => {
             Authorization: 'Bearer ' + rawToken,
           },
           body: JSON.stringify({ status: 'cancelado' }),
-          timeout: 10,
+          timeout: 4,
         })
       }
       $app.logger().info('agenda_push_cancellation (delete): success', 'extId', extId)

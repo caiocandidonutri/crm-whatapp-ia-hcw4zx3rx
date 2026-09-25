@@ -75,6 +75,7 @@ import {
   updateAppointment,
   getAgendaSyncStatus,
   triggerAgendaSync,
+  reprocessarAgendamentosPendentes,
   isAppointmentRateLimited,
   CITY_DEFAULT_LOCATIONS,
   type AgendaSyncStatus,
@@ -299,7 +300,7 @@ export default function Agenda() {
       const status = await getAgendaSyncStatus({ probe })
       setSyncStatus(status)
     } catch {
-      /* intentionally ignored */
+      setSyncStatus(null)
     }
   }, [])
 
@@ -329,10 +330,11 @@ export default function Agenda() {
           endDate: future90d.toISOString(),
         })
 
-        setAllAppointments(list)
+        setAllAppointments(Array.isArray(list) ? list : [])
         lastFetchedTimeRef.current = Date.now()
         setIsRateLimited(false)
       } catch (err) {
+        setAllAppointments((prev) => (Array.isArray(prev) ? prev : []))
         const is429 = isAppointmentRateLimited(err)
         if (is429) {
           setIsRateLimited(true)
@@ -443,9 +445,12 @@ export default function Agenda() {
   // Filtragem e agrupamento no cliente derivados de allAppointments
   // Usa getDayKeySaoPaulo para garantir correspondência exata no fuso de Brasília
   const appointmentsForCurrentView = useMemo(() => {
+    const safeAppointments = Array.isArray(allAppointments) ? allAppointments : []
+
     if (viewMode === 'report') {
       // Janela de relatório (dois meses atrás até futuro)
-      return allAppointments.filter((a) => {
+      return safeAppointments.filter((a) => {
+        if (!a) return false
         if (selectedCity !== 'all' && a.city !== selectedCity) return false
         if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
         if (selectedType !== 'all') {
@@ -458,7 +463,8 @@ export default function Agenda() {
 
     if (viewMode === 'day') {
       const targetDayKey = getDayKeySaoPaulo(currentDate)
-      return allAppointments.filter((a) => {
+      return safeAppointments.filter((a) => {
+        if (!a || !a.starts_at) return false
         const appDayKey = getDayKeySaoPaulo(a.starts_at)
         if (appDayKey !== targetDayKey) return false
         if (selectedCity !== 'all' && a.city !== selectedCity) return false
@@ -476,7 +482,8 @@ export default function Agenda() {
     const weekDaysKeys = new Set(
       Array.from({ length: 7 }, (_, i) => getDayKeySaoPaulo(addDays(weekStart, i))),
     )
-    return allAppointments.filter((a) => {
+    return safeAppointments.filter((a) => {
+      if (!a || !a.starts_at) return false
       const appDayKey = getDayKeySaoPaulo(a.starts_at)
       if (!weekDaysKeys.has(appDayKey)) return false
       if (selectedCity !== 'all' && a.city !== selectedCity) return false
@@ -513,6 +520,41 @@ export default function Agenda() {
         title: 'Falha na sincronização',
         description:
           err instanceof Error ? err.message : 'Não foi possível sincronizar no momento.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  // Executar Reprocessamento e Vinculação Inteligente dos Agendamentos Pendentes
+  const handleReprocessPending = async () => {
+    try {
+      setIsSyncing(true)
+      const res = await reprocessarAgendamentosPendentes()
+      if (res.success) {
+        const pushedCount = res.reprocessed_push
+          ? res.reprocessed_push.filter((p) => p.status === 'success').length
+          : 0
+        const linkedCount = res.linked_by_ai ? res.linked_by_ai.length : 0
+        const taskCount = res.review_tasks_created ? res.review_tasks_created.length : 0
+        toast({
+          title: 'Reconciliação executada com sucesso',
+          description: `Pushes regularizados: ${pushedCount} | Órfãos vinculados: ${linkedCount} | Tarefas de revisão: ${taskCount}`,
+        })
+      } else {
+        toast({
+          title: 'Erro no reprocessamento',
+          description: res.error || 'Não foi possível concluir o reprocessamento.',
+          variant: 'destructive',
+        })
+      }
+      await loadAppointments(true)
+      await loadSyncStatus(true)
+    } catch (err) {
+      toast({
+        title: 'Falha no reprocessamento',
+        description: err instanceof Error ? err.message : 'Erro ao chamar rotina.',
         variant: 'destructive',
       })
     } finally {
@@ -710,9 +752,11 @@ export default function Agenda() {
 
   // Filtragem local por texto de busca
   const filteredAppointments = useMemo(() => {
-    if (!searchQuery.trim()) return appointmentsForCurrentView
+    const list = Array.isArray(appointmentsForCurrentView) ? appointmentsForCurrentView : []
+    if (!searchQuery.trim()) return list
     const q = searchQuery.toLowerCase().trim()
-    return appointmentsForCurrentView.filter((a) => {
+    return list.filter((a) => {
+      if (!a) return false
       return (
         a.patient_name?.toLowerCase().includes(q) ||
         a.patient_phone?.includes(q) ||
@@ -727,7 +771,7 @@ export default function Agenda() {
   // Mapa de histórico consolidado de atendimentos por paciente indexado na memória (useMemo)
   // Construído uma única vez a partir da janela ampla já carregada (sem queries adicionais)
   const patientAppointmentsMap = useMemo(() => {
-    return buildPatientAppointmentsMap(allAppointments)
+    return buildPatientAppointmentsMap(Array.isArray(allAppointments) ? allAppointments : [])
   }, [allAppointments])
 
   // Carregar data de aniversário do contato quando abrir modal de detalhes
@@ -745,8 +789,9 @@ export default function Agenda() {
         if (selectedAppointment.patient_id) {
           try {
             contact = await pb.collection('crm_contacts').getOne(selectedAppointment.patient_id)
-          } catch {
-            /* ignore */
+          } catch (getErr) {
+            // Segura: se der 404/400 (ex: contato excluído ou ID órfão), não quebra a tela
+            contact = null
           }
         }
 
@@ -759,7 +804,7 @@ export default function Agenda() {
                 .collection('crm_contacts')
                 .getFirstListItem(`phone ~ "${suffix}" || jid ~ "${suffix}"`, { requestKey: null })
             } catch {
-              /* ignore */
+              contact = null
             }
           }
         }
@@ -774,7 +819,9 @@ export default function Agenda() {
       }
     }
 
-    fetchContactBirthDate()
+    fetchContactBirthDate().catch(() => {
+      if (isCurrent) setSelectedContactBirthDate(null)
+    })
     return () => {
       isCurrent = false
     }
