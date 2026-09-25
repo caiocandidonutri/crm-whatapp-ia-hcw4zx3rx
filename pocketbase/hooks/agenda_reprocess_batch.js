@@ -1,12 +1,196 @@
 /// <reference path="../pb_data/types.d.ts" />
 
-/**
- * Endpoint pontual / manual para reprocessar os agendamentos pendentes com erro de push
- * e vincular agendamentos órfãos por inteligência artificial ou gerar tarefas de revisão.
- *
- * Pode ser acionado via POST ou GET /backend/v1/agenda/reprocessar-pendentes
- * Execução idempotente e segura.
- */
+routerAdd('GET', '/backend/v1/agenda/reprocessar-pendentes', (e) => {
+  try {
+    var RECOMMENDED_BASE_URL = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
+    var rawUrl = ($secrets.get('AGENDA_SYNC_URL') || $os.getenv('AGENDA_SYNC_URL') || '').trim()
+    var rawToken =
+      ($secrets.get('AGENDA_CRM_TOKEN') || $os.getenv('AGENDA_CRM_TOKEN') || '').trim() ||
+      'crm_agenda_token_dr_caio_2026'
+
+    var baseUrl = RECOMMENDED_BASE_URL
+    if (rawUrl) {
+      var normalized = rawUrl
+      if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+        normalized = 'https://' + normalized
+      }
+      var qIdx = normalized.indexOf('?')
+      var pathAndOrigin = qIdx !== -1 ? normalized.slice(0, qIdx) : normalized
+      if (pathAndOrigin.endsWith('/')) {
+        pathAndOrigin = pathAndOrigin.slice(0, -1)
+      }
+      if (pathAndOrigin.indexOf('/backend/v1/crm-dados') !== -1) {
+        baseUrl = pathAndOrigin.slice(0, pathAndOrigin.indexOf('/backend/v1/crm-dados'))
+      } else {
+        baseUrl = pathAndOrigin
+      }
+      if (baseUrl.indexOf('agendanutri.goskip.app') !== -1) {
+        baseUrl = RECOMMENDED_BASE_URL
+      }
+    }
+
+    function formatLocalDataHora(rawStartsAt) {
+      if (!rawStartsAt) return ''
+      var s = String(rawStartsAt).trim()
+      var m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)/)
+      if (m) {
+        var datePart = m[1]
+        var timePart = m[2]
+        if (timePart.length === 5) timePart += ':00'
+        return datePart + ' ' + timePart
+      }
+      var d = new Date(s)
+      if (isNaN(d.getTime())) return s
+      var pad = function (n) {
+        return n < 10 ? '0' + n : String(n)
+      }
+      return (
+        d.getFullYear() +
+        '-' +
+        pad(d.getMonth() + 1) +
+        '-' +
+        pad(d.getDate()) +
+        ' ' +
+        pad(d.getHours()) +
+        ':' +
+        pad(d.getMinutes()) +
+        ':' +
+        pad(d.getSeconds())
+      )
+    }
+
+    function mapStatusToExternal(st) {
+      var s = String(st || '')
+        .toLowerCase()
+        .trim()
+      if (s === 'confirmado') return 'confirmado'
+      if (s === 'realizado') return 'realizado'
+      if (s === 'faltou') return 'faltou'
+      if (s === 'cancelado') return 'cancelado'
+      return 'aguardando'
+    }
+
+    function calculateDurationMin(startIso, endIso) {
+      if (!startIso || !endIso) return 45
+      try {
+        var sMs = new Date(startIso).getTime()
+        var eMs = new Date(endIso).getTime()
+        var diff = Math.round((eMs - sMs) / (60 * 1000))
+        if (diff > 0 && diff <= 480) return diff
+      } catch (_) {}
+      return 45
+    }
+
+    var targetIds = ['mtjq6dctrgoz20s', '5829bz3bbq8ubb5', 'im0z7l0kvhqcgpl', 'bj1ix4ecypd2k3t']
+    var reprocessedPush = []
+
+    for (var i = 0; i < targetIds.length; i++) {
+      var apptId = targetIds[i]
+      try {
+        var record = $app.findRecordById('appointments', apptId)
+        if (!record) {
+          reprocessedPush.push({ id: apptId, status: 'nao_encontrado' })
+          continue
+        }
+
+        var extIdForPush = record.getString('external_id')
+        var startsAtIso = record.getString('starts_at')
+        var endsAtIso = record.getString('ends_at')
+        var localDataHora = formatLocalDataHora(startsAtIso)
+        var duracao = calculateDurationMin(startsAtIso, endsAtIso)
+        var extStatus = mapStatusToExternal(record.getString('status'))
+
+        var payload = {
+          paciente_nome: record.getString('patient_name'),
+          paciente_telefone: record.getString('patient_phone'),
+          paciente_cidade: record.getString('city') || 'Carmo do Rio Claro',
+          dataHora: localDataHora,
+          duracaoMin: duracao,
+          profissional_nome: record.getString('doctor') || 'Dr. Caio',
+          tipo_nome: record.getString('appointment_type') || 'Consulta',
+          cidade: record.getString('city') || 'Carmo do Rio Claro',
+          status: extStatus,
+          valor: 0,
+          observacoes: record.getString('notes') || '',
+          id_externo: record.id,
+        }
+
+        var pushHeaders = {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-CRM-Token': rawToken,
+        }
+
+        var pushUrl = baseUrl + '/backend/v1/crm-agendamento'
+        var pushMethod = 'POST'
+        if (extIdForPush) {
+          pushUrl += '/' + extIdForPush
+          pushMethod = 'PATCH'
+        }
+
+        var pushRes = $http.send({
+          url: pushUrl,
+          method: pushMethod,
+          headers: pushHeaders,
+          body: JSON.stringify(payload),
+          timeout: 4,
+        })
+
+        if (pushMethod === 'PATCH' && pushRes.statusCode === 404) {
+          $app.logger().info('reprocessar_pendentes: PATCH 404 fallback to POST', 'id', apptId)
+          pushRes = $http.send({
+            url: baseUrl + '/backend/v1/crm-agendamento',
+            method: 'POST',
+            headers: pushHeaders,
+            body: JSON.stringify(payload),
+            timeout: 4,
+          })
+        }
+
+        if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {
+          var remoteId = ''
+          if (pushRes.json) {
+            if (pushRes.json.id) remoteId = String(pushRes.json.id)
+            else if (pushRes.json.data && pushRes.json.data.id)
+              remoteId = String(pushRes.json.data.id)
+            else if (pushRes.json.agendamento && pushRes.json.agendamento.id)
+              remoteId = String(pushRes.json.agendamento.id)
+            else if (pushRes.json.dados && pushRes.json.dados.id)
+              remoteId = String(pushRes.json.dados.id)
+            else if (pushRes.json.item && pushRes.json.item.id)
+              remoteId = String(pushRes.json.item.id)
+          }
+          if (remoteId) {
+            record.set('external_id', remoteId)
+          }
+          record.set('last_synced_at', new Date().toISOString())
+          record.set('sync_error', '')
+          $app.saveNoValidate(record)
+          reprocessedPush.push({
+            id: apptId,
+            status: 'success',
+            external_id: record.getString('external_id'),
+          })
+        } else {
+          var pushErr = 'Push HTTP ' + pushRes.statusCode + ': ' + (pushRes.raw || '').slice(0, 150)
+          record.set('sync_error', pushErr)
+          $app.saveNoValidate(record)
+          reprocessedPush.push({ id: apptId, status: 'http_error', error: pushErr })
+        }
+      } catch (ex) {
+        reprocessedPush.push({ id: apptId, status: 'exception', error: String(ex) })
+      }
+    }
+
+    return e.json(200, {
+      success: true,
+      reprocessed_push: reprocessedPush,
+    })
+  } catch (err) {
+    return e.json(500, { success: false, error: String(err) })
+  }
+})
+
 routerAdd('POST', '/backend/v1/agenda/reprocessar-pendentes', (e) => {
   try {
     var RECOMMENDED_BASE_URL = 'https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev'
@@ -36,15 +220,56 @@ routerAdd('POST', '/backend/v1/agenda/reprocessar-pendentes', (e) => {
       }
     }
 
-    function formatBRDate(d) {
-      var spOffsetMs = -3 * 3600 * 1000
-      var spDate = new Date(d.getTime() + spOffsetMs)
-      var day = String(spDate.getUTCDate())
-      if (day.length < 2) day = '0' + day
-      var month = String(spDate.getUTCMonth() + 1)
-      if (month.length < 2) month = '0' + month
-      var year = spDate.getUTCFullYear()
-      return day + '/' + month + '/' + year
+    function formatLocalDataHora(rawStartsAt) {
+      if (!rawStartsAt) return ''
+      var s = String(rawStartsAt).trim()
+      var m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)/)
+      if (m) {
+        var datePart = m[1]
+        var timePart = m[2]
+        if (timePart.length === 5) timePart += ':00'
+        return datePart + ' ' + timePart
+      }
+      var d = new Date(s)
+      if (isNaN(d.getTime())) return s
+      var pad = function (n) {
+        return n < 10 ? '0' + n : String(n)
+      }
+      return (
+        d.getFullYear() +
+        '-' +
+        pad(d.getMonth() + 1) +
+        '-' +
+        pad(d.getDate()) +
+        ' ' +
+        pad(d.getHours()) +
+        ':' +
+        pad(d.getMinutes()) +
+        ':' +
+        pad(d.getSeconds())
+      )
+    }
+
+    function mapStatusToExternal(st) {
+      var s = String(st || '')
+        .toLowerCase()
+        .trim()
+      if (s === 'confirmado') return 'confirmado'
+      if (s === 'realizado') return 'realizado'
+      if (s === 'faltou') return 'faltou'
+      if (s === 'cancelado') return 'cancelado'
+      return 'aguardando'
+    }
+
+    function calculateDurationMin(startIso, endIso) {
+      if (!startIso || !endIso) return 45
+      try {
+        var sMs = new Date(startIso).getTime()
+        var eMs = new Date(endIso).getTime()
+        var diff = Math.round((eMs - sMs) / (60 * 1000))
+        if (diff > 0 && diff <= 480) return diff
+      } catch (_) {}
+      return 45
     }
 
     // PARTE 1: REPROCESSAR OS 4 CASOS (OU QUAISQUER OUTROS) COM SYNC_ERROR OU PUSH HTTP 404
@@ -55,27 +280,31 @@ routerAdd('POST', '/backend/v1/agenda/reprocessar-pendentes', (e) => {
       var apptId = targetIds[i]
       try {
         var record = $app.findRecordById('appointments', apptId)
-        if (!record) continue
+        if (!record) {
+          reprocessedPush.push({ id: apptId, status: 'nao_encontrado' })
+          continue
+        }
 
         var extIdForPush = record.getString('external_id')
         var startsAtIso = record.getString('starts_at')
-        var startsAtDate = startsAtIso ? new Date(startsAtIso) : new Date()
-        var dateBR = formatBRDate(startsAtDate)
+        var endsAtIso = record.getString('ends_at')
+        var localDataHora = formatLocalDataHora(startsAtIso)
+        var duracao = calculateDurationMin(startsAtIso, endsAtIso)
+        var extStatus = mapStatusToExternal(record.getString('status'))
 
         var payload = {
-          patient_name: record.getString('patient_name'),
-          patient_phone: record.getString('patient_phone'),
-          doctor: record.getString('doctor') || 'Dr. Caio',
-          city: record.getString('city'),
-          location: record.getString('location'),
-          starts_at: startsAtIso,
-          ends_at: record.getString('ends_at'),
-          status: record.getString('status') || 'confirmado',
-          appointment_type: record.getString('appointment_type') || 'Consulta',
-          notes: record.getString('notes'),
-          source: 'crm',
-          data_inicio: dateBR,
-          data_agendamento: dateBR,
+          paciente_nome: record.getString('patient_name'),
+          paciente_telefone: record.getString('patient_phone'),
+          paciente_cidade: record.getString('city') || 'Carmo do Rio Claro',
+          dataHora: localDataHora,
+          duracaoMin: duracao,
+          profissional_nome: record.getString('doctor') || 'Dr. Caio',
+          tipo_nome: record.getString('appointment_type') || 'Consulta',
+          cidade: record.getString('city') || 'Carmo do Rio Claro',
+          status: extStatus,
+          valor: 0,
+          observacoes: record.getString('notes') || '',
+          id_externo: record.id,
         }
 
         var pushHeaders = {
@@ -84,7 +313,7 @@ routerAdd('POST', '/backend/v1/agenda/reprocessar-pendentes', (e) => {
           'X-CRM-Token': rawToken,
         }
 
-        var pushUrl = baseUrl + '/api/collections/appointments/records'
+        var pushUrl = baseUrl + '/backend/v1/crm-agendamento'
         var pushMethod = 'POST'
         if (extIdForPush) {
           pushUrl += '/' + extIdForPush
@@ -99,9 +328,33 @@ routerAdd('POST', '/backend/v1/agenda/reprocessar-pendentes', (e) => {
           timeout: 4,
         })
 
+        // Se PATCH falhar com 404, o registro externo não existe: fazer POST para criar
+        if (pushMethod === 'PATCH' && pushRes.statusCode === 404) {
+          $app.logger().info('reprocessar_pendentes: PATCH 404 fallback to POST', 'id', apptId)
+          pushRes = $http.send({
+            url: baseUrl + '/backend/v1/crm-agendamento',
+            method: 'POST',
+            headers: pushHeaders,
+            body: JSON.stringify(payload),
+            timeout: 4,
+          })
+        }
+
         if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {
-          if (pushRes.json && pushRes.json.id) {
-            record.set('external_id', pushRes.json.id)
+          var remoteId = ''
+          if (pushRes.json) {
+            if (pushRes.json.id) remoteId = String(pushRes.json.id)
+            else if (pushRes.json.data && pushRes.json.data.id)
+              remoteId = String(pushRes.json.data.id)
+            else if (pushRes.json.agendamento && pushRes.json.agendamento.id)
+              remoteId = String(pushRes.json.agendamento.id)
+            else if (pushRes.json.dados && pushRes.json.dados.id)
+              remoteId = String(pushRes.json.dados.id)
+            else if (pushRes.json.item && pushRes.json.item.id)
+              remoteId = String(pushRes.json.item.id)
+          }
+          if (remoteId) {
+            record.set('external_id', remoteId)
           }
           record.set('last_synced_at', new Date().toISOString())
           record.set('sync_error', '')

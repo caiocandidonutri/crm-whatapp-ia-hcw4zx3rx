@@ -39,8 +39,10 @@ export function buildPatientAppointmentsMap(
 ): Map<string, Appointment[]> {
   const map = new Map<string, Appointment[]>()
 
+  if (!Array.isArray(appointments)) return map
+
   for (const app of appointments) {
-    // Se cancelado ou faltou gravemente, ainda registramos, mas para cálculo de consultas realizadas/anteriores
+    if (!app || typeof app !== 'object') continue
     const key = getPatientKey(app)
     if (!key) continue
     const list = map.get(key)
@@ -72,9 +74,17 @@ export function getAppointmentHistoryInfo(
   current: Appointment,
   patientMap: Map<string, Appointment[]>,
 ): PatientAppointmentHistoryInfo {
+  if (!current || typeof current !== 'object') {
+    return {
+      inferredType: 'Consulta',
+      isFirstConsultation: true,
+      priorVisitsCount: 0,
+    }
+  }
+
   const rawType = (current.appointment_type || '').trim().toLowerCase()
   const key = getPatientKey(current)
-  const history = key ? patientMap.get(key) || [] : []
+  const history = key && patientMap ? patientMap.get(key) || [] : []
 
   // Agendamentos anteriores estritamente antes da data deste agendamento
   // Consideramos atendimentos que aconteceram antes (starts_at < current.starts_at) e não foram cancelados

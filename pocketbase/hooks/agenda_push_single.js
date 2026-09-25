@@ -2,11 +2,17 @@
 
 /**
  * PUSH IMEDIATO DE AGENDAMENTOS CRIADOS/EDITADOS LOCALMENTE (source="crm")
+ * PARA AS ROTAS OFICIAIS DA AGENDA EXTERNA:
+ * Base: https://clinicapro-gestao-clone-35d33.shrd00.internal.goskip.dev
+ * CRIAR: POST /backend/v1/crm-agendamento
+ * ATUALIZAR: PATCH /backend/v1/crm-agendamento/:id
+ * CANCELAR: DELETE /backend/v1/crm-agendamento/:id (soft-delete, nunca ?permanente=true)
+ * Headers: X-CRM-Token: crm_agenda_token_dr_caio_2026 + Content-Type: application/json
  *
- * Sempre que um agendamento for criado ou atualizado no CRM:
- * - Se source === 'crm', tenta fazer o push imediato para a agenda externa
- * - Autenticação direta via header X-CRM-Token e Authorization: Bearer
- * - Registra sync_error em caso de falha para fila de reprocessamento
+ * Requisitos:
+ * - Timeout máximo 4s por requisição
+ * - Falha de push NUNCA bloqueia criação/atualização (registra sync_error e segue)
+ * - Guardar external_id retornado, limpar sync_error e atualizar last_synced_at
  *
  * ATENÇÃO: Todas as declarações de funções devem ficar estritamente DENTRO dos callbacks.
  */
@@ -26,6 +32,7 @@ onRecordAfterCreateSuccess((e) => {
         ''
       ).trim()
       if (!rawToken) rawToken = 'crm_agenda_token_dr_caio_2026'
+
       if (!rawUrl) {
         return {
           configured: Boolean(RECOMMENDED_BASE_URL && rawToken),
@@ -51,7 +58,6 @@ onRecordAfterCreateSuccess((e) => {
         baseUrl = pathAndOrigin.slice(0, crmDadosIdx)
       }
 
-      // Se a URL aponta para o site público agendanutri.goskip.app (SPA frontend), usar o backend recomendado
       if (baseUrl.indexOf('agendanutri.goskip.app') !== -1) {
         baseUrl = RECOMMENDED_BASE_URL
       }
@@ -70,47 +76,87 @@ onRecordAfterCreateSuccess((e) => {
       return e.next()
     }
 
-    function formatBRDate(d) {
-      // Formata a data considerando fuso de Brasília (UTC-3)
-      var spOffsetMs = -3 * 3600 * 1000
-      var spDate = new Date(d.getTime() + spOffsetMs)
-      var day = String(spDate.getUTCDate())
-      if (day.length < 2) day = '0' + day
-      var month = String(spDate.getUTCMonth() + 1)
-      if (month.length < 2) month = '0' + month
-      var year = spDate.getUTCFullYear()
-      return day + '/' + month + '/' + year
+    function formatLocalDataHora(rawStartsAt) {
+      if (!rawStartsAt) return ''
+      var s = String(rawStartsAt).trim()
+      var m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)/)
+      if (m) {
+        var datePart = m[1]
+        var timePart = m[2]
+        if (timePart.length === 5) timePart += ':00'
+        return datePart + ' ' + timePart
+      }
+      var d = new Date(s)
+      if (isNaN(d.getTime())) return s
+      var pad = function (n) {
+        return n < 10 ? '0' + n : String(n)
+      }
+      return (
+        d.getFullYear() +
+        '-' +
+        pad(d.getMonth() + 1) +
+        '-' +
+        pad(d.getDate()) +
+        ' ' +
+        pad(d.getHours()) +
+        ':' +
+        pad(d.getMinutes()) +
+        ':' +
+        pad(d.getSeconds())
+      )
+    }
+
+    function mapStatusToExternal(st) {
+      var s = String(st || '')
+        .toLowerCase()
+        .trim()
+      if (s === 'confirmado') return 'confirmado'
+      if (s === 'realizado') return 'realizado'
+      if (s === 'faltou') return 'faltou'
+      if (s === 'cancelado') return 'cancelado'
+      return 'aguardando'
+    }
+
+    function calculateDurationMin(startIso, endIso) {
+      if (!startIso || !endIso) return 45
+      try {
+        var sMs = new Date(startIso).getTime()
+        var eMs = new Date(endIso).getTime()
+        var diff = Math.round((eMs - sMs) / (60 * 1000))
+        if (diff > 0 && diff <= 480) return diff
+      } catch (_) {}
+      return 45
     }
 
     var extIdForPush = record.getString('external_id')
     var startsAtIso = record.getString('starts_at')
-    var startsAtDate = startsAtIso ? new Date(startsAtIso) : new Date()
-    var dateBR = formatBRDate(startsAtDate)
+    var endsAtIso = record.getString('ends_at')
+    var localDataHora = formatLocalDataHora(startsAtIso)
+    var duracao = calculateDurationMin(startsAtIso, endsAtIso)
+    var extStatus = mapStatusToExternal(record.getString('status'))
 
     var payload = {
-      patient_name: record.getString('patient_name'),
-      patient_phone: record.getString('patient_phone'),
-      doctor: record.getString('doctor') || 'Dr. Caio',
-      city: record.getString('city'),
-      location: record.getString('location'),
-      starts_at: startsAtIso,
-      ends_at: record.getString('ends_at'),
-      status: record.getString('status'),
-      appointment_type: record.getString('appointment_type') || 'Consulta',
-      notes: record.getString('notes'),
-      source: 'crm',
-      data_inicio: dateBR,
-      data_agendamento: dateBR,
+      paciente_nome: record.getString('patient_name'),
+      paciente_telefone: record.getString('patient_phone'),
+      paciente_cidade: record.getString('city') || 'Carmo do Rio Claro',
+      dataHora: localDataHora,
+      duracaoMin: duracao,
+      profissional_nome: record.getString('doctor') || 'Dr. Caio',
+      tipo_nome: record.getString('appointment_type') || 'Consulta',
+      cidade: record.getString('city') || 'Carmo do Rio Claro',
+      status: extStatus,
+      valor: 0,
+      observacoes: record.getString('notes') || '',
+      id_externo: record.id,
     }
 
     var pushHeaders = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'X-CRM-Token': cfg.token,
-      Authorization: 'Bearer ' + cfg.token,
     }
 
-    var pushUrl = cfg.baseUrl + '/api/collections/appointments/records'
+    var pushUrl = cfg.baseUrl + '/backend/v1/crm-agendamento'
     var pushMethod = 'POST'
     if (extIdForPush) {
       pushUrl += '/' + extIdForPush
@@ -126,14 +172,46 @@ onRecordAfterCreateSuccess((e) => {
         timeout: 4,
       })
 
+      // Se falhou com 404 no PATCH, tentar POST para registrar
+      if (pushMethod === 'PATCH' && pushRes.statusCode === 404) {
+        $app.logger().info('agenda_push_appointment: PATCH 404 fallback to POST', 'id', record.id)
+        pushRes = $http.send({
+          url: cfg.baseUrl + '/backend/v1/crm-agendamento',
+          method: 'POST',
+          headers: pushHeaders,
+          body: JSON.stringify(payload),
+          timeout: 4,
+        })
+      }
+
       if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {
-        if (pushRes.json && pushRes.json.id) {
-          record.set('external_id', pushRes.json.id)
+        var remoteId = ''
+        if (pushRes.json) {
+          if (pushRes.json.id) remoteId = String(pushRes.json.id)
+          else if (pushRes.json.data && pushRes.json.data.id)
+            remoteId = String(pushRes.json.data.id)
+          else if (pushRes.json.agendamento && pushRes.json.agendamento.id)
+            remoteId = String(pushRes.json.agendamento.id)
+          else if (pushRes.json.dados && pushRes.json.dados.id)
+            remoteId = String(pushRes.json.dados.id)
+          else if (pushRes.json.item && pushRes.json.item.id)
+            remoteId = String(pushRes.json.item.id)
+        }
+        if (remoteId) {
+          record.set('external_id', remoteId)
         }
         record.set('last_synced_at', new Date().toISOString())
         record.set('sync_error', '')
         $app.saveNoValidate(record)
-        $app.logger().info('agenda_push_appointment (create): success', 'id', record.id)
+        $app
+          .logger()
+          .info(
+            'agenda_push_appointment (create): success',
+            'id',
+            record.id,
+            'extId',
+            remoteId || extIdForPush,
+          )
       } else {
         var pushErr = 'Push HTTP ' + pushRes.statusCode + ': ' + (pushRes.raw || '').slice(0, 200)
         record.set('sync_error', pushErr)
@@ -175,6 +253,7 @@ onRecordAfterUpdateSuccess((e) => {
         ''
       ).trim()
       if (!rawToken) rawToken = 'crm_agenda_token_dr_caio_2026'
+
       if (!rawUrl) {
         return {
           configured: Boolean(RECOMMENDED_BASE_URL && rawToken),
@@ -200,7 +279,6 @@ onRecordAfterUpdateSuccess((e) => {
         baseUrl = pathAndOrigin.slice(0, crmDadosIdx)
       }
 
-      // Se a URL aponta para o site público agendanutri.goskip.app (SPA frontend), usar o backend recomendado
       if (baseUrl.indexOf('agendanutri.goskip.app') !== -1) {
         baseUrl = RECOMMENDED_BASE_URL
       }
@@ -219,47 +297,87 @@ onRecordAfterUpdateSuccess((e) => {
       return e.next()
     }
 
-    function formatBRDate(d) {
-      // Formata a data considerando fuso de Brasília (UTC-3)
-      var spOffsetMs = -3 * 3600 * 1000
-      var spDate = new Date(d.getTime() + spOffsetMs)
-      var day = String(spDate.getUTCDate())
-      if (day.length < 2) day = '0' + day
-      var month = String(spDate.getUTCMonth() + 1)
-      if (month.length < 2) month = '0' + month
-      var year = spDate.getUTCFullYear()
-      return day + '/' + month + '/' + year
+    function formatLocalDataHora(rawStartsAt) {
+      if (!rawStartsAt) return ''
+      var s = String(rawStartsAt).trim()
+      var m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)/)
+      if (m) {
+        var datePart = m[1]
+        var timePart = m[2]
+        if (timePart.length === 5) timePart += ':00'
+        return datePart + ' ' + timePart
+      }
+      var d = new Date(s)
+      if (isNaN(d.getTime())) return s
+      var pad = function (n) {
+        return n < 10 ? '0' + n : String(n)
+      }
+      return (
+        d.getFullYear() +
+        '-' +
+        pad(d.getMonth() + 1) +
+        '-' +
+        pad(d.getDate()) +
+        ' ' +
+        pad(d.getHours()) +
+        ':' +
+        pad(d.getMinutes()) +
+        ':' +
+        pad(d.getSeconds())
+      )
+    }
+
+    function mapStatusToExternal(st) {
+      var s = String(st || '')
+        .toLowerCase()
+        .trim()
+      if (s === 'confirmado') return 'confirmado'
+      if (s === 'realizado') return 'realizado'
+      if (s === 'faltou') return 'faltou'
+      if (s === 'cancelado') return 'cancelado'
+      return 'aguardando'
+    }
+
+    function calculateDurationMin(startIso, endIso) {
+      if (!startIso || !endIso) return 45
+      try {
+        var sMs = new Date(startIso).getTime()
+        var eMs = new Date(endIso).getTime()
+        var diff = Math.round((eMs - sMs) / (60 * 1000))
+        if (diff > 0 && diff <= 480) return diff
+      } catch (_) {}
+      return 45
     }
 
     var extIdForPush = record.getString('external_id')
     var startsAtIso = record.getString('starts_at')
-    var startsAtDate = startsAtIso ? new Date(startsAtIso) : new Date()
-    var dateBR = formatBRDate(startsAtDate)
+    var endsAtIso = record.getString('ends_at')
+    var localDataHora = formatLocalDataHora(startsAtIso)
+    var duracao = calculateDurationMin(startsAtIso, endsAtIso)
+    var extStatus = mapStatusToExternal(record.getString('status'))
 
     var payload = {
-      patient_name: record.getString('patient_name'),
-      patient_phone: record.getString('patient_phone'),
-      doctor: record.getString('doctor') || 'Dr. Caio',
-      city: record.getString('city'),
-      location: record.getString('location'),
-      starts_at: startsAtIso,
-      ends_at: record.getString('ends_at'),
-      status: record.getString('status'),
-      appointment_type: record.getString('appointment_type') || 'Consulta',
-      notes: record.getString('notes'),
-      source: 'crm',
-      data_inicio: dateBR,
-      data_agendamento: dateBR,
+      paciente_nome: record.getString('patient_name'),
+      paciente_telefone: record.getString('patient_phone'),
+      paciente_cidade: record.getString('city') || 'Carmo do Rio Claro',
+      dataHora: localDataHora,
+      duracaoMin: duracao,
+      profissional_nome: record.getString('doctor') || 'Dr. Caio',
+      tipo_nome: record.getString('appointment_type') || 'Consulta',
+      cidade: record.getString('city') || 'Carmo do Rio Claro',
+      status: extStatus,
+      valor: 0,
+      observacoes: record.getString('notes') || '',
+      id_externo: record.id,
     }
 
     var pushHeaders = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'X-CRM-Token': cfg.token,
-      Authorization: 'Bearer ' + cfg.token,
     }
 
-    var pushUrl = cfg.baseUrl + '/api/collections/appointments/records'
+    var pushUrl = cfg.baseUrl + '/backend/v1/crm-agendamento'
     var pushMethod = 'POST'
     if (extIdForPush) {
       pushUrl += '/' + extIdForPush
@@ -275,14 +393,46 @@ onRecordAfterUpdateSuccess((e) => {
         timeout: 4,
       })
 
+      // Se falhou com 404 no PATCH, tentar POST para registrar
+      if (pushMethod === 'PATCH' && pushRes.statusCode === 404) {
+        $app.logger().info('agenda_push_appointment: PATCH 404 fallback to POST', 'id', record.id)
+        pushRes = $http.send({
+          url: cfg.baseUrl + '/backend/v1/crm-agendamento',
+          method: 'POST',
+          headers: pushHeaders,
+          body: JSON.stringify(payload),
+          timeout: 4,
+        })
+      }
+
       if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {
-        if (pushRes.json && pushRes.json.id) {
-          record.set('external_id', pushRes.json.id)
+        var remoteId = ''
+        if (pushRes.json) {
+          if (pushRes.json.id) remoteId = String(pushRes.json.id)
+          else if (pushRes.json.data && pushRes.json.data.id)
+            remoteId = String(pushRes.json.data.id)
+          else if (pushRes.json.agendamento && pushRes.json.agendamento.id)
+            remoteId = String(pushRes.json.agendamento.id)
+          else if (pushRes.json.dados && pushRes.json.dados.id)
+            remoteId = String(pushRes.json.dados.id)
+          else if (pushRes.json.item && pushRes.json.item.id)
+            remoteId = String(pushRes.json.item.id)
+        }
+        if (remoteId) {
+          record.set('external_id', remoteId)
         }
         record.set('last_synced_at', new Date().toISOString())
         record.set('sync_error', '')
         $app.saveNoValidate(record)
-        $app.logger().info('agenda_push_appointment (update): success', 'id', record.id)
+        $app
+          .logger()
+          .info(
+            'agenda_push_appointment (update): success',
+            'id',
+            record.id,
+            'extId',
+            remoteId || extIdForPush,
+          )
       } else {
         var pushErr = 'Push HTTP ' + pushRes.statusCode + ': ' + (pushRes.raw || '').slice(0, 200)
         record.set('sync_error', pushErr)
@@ -306,8 +456,9 @@ onRecordAfterUpdateSuccess((e) => {
  *
  * Palavra do usuário: "e, caso ocorra o cancelamento, ocorre a exclusão do nome na agenda"
  * Quando um agendamento for excluído da coleção 'appointments':
- * - Se tiver external_id, envia DELETE para o backend externo
- * - Se o DELETE falhar ou não for suportado pelo backend externo, tenta PATCH status="cancelado"
+ * - Se tiver external_id, envia DELETE para /backend/v1/crm-agendamento/:id (soft-delete deles)
+ * - NUNCA usa ?permanente=true
+ * - Se o DELETE falhar, tenta PATCH com status="cancelado"
  */
 onRecordAfterDeleteSuccess((e) => {
   try {
@@ -341,21 +492,21 @@ onRecordAfterDeleteSuccess((e) => {
       }
     }
 
-    var delUrl = baseUrl + '/api/collections/appointments/records/' + extId
+    var delUrl = baseUrl + '/backend/v1/crm-agendamento/' + extId
     try {
       var delRes = $http.send({
         url: delUrl,
         method: 'DELETE',
         headers: {
+          'Content-Type': 'application/json',
           Accept: 'application/json',
           'X-CRM-Token': rawToken,
-          Authorization: 'Bearer ' + rawToken,
         },
         timeout: 4,
       })
 
       if (delRes.statusCode < 200 || delRes.statusCode >= 300) {
-        // Fallback: se DELETE retornar erro (ex.: 404, 405 ou 500), tenta PATCH com status="cancelado"
+        // Fallback: se DELETE retornar erro, tenta PATCH com status="cancelado"
         $http.send({
           url: delUrl,
           method: 'PATCH',
@@ -363,7 +514,6 @@ onRecordAfterDeleteSuccess((e) => {
             'Content-Type': 'application/json',
             Accept: 'application/json',
             'X-CRM-Token': rawToken,
-            Authorization: 'Bearer ' + rawToken,
           },
           body: JSON.stringify({ status: 'cancelado' }),
           timeout: 4,

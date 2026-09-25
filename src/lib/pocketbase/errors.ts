@@ -27,20 +27,3 @@ export function getErrorMessage(error: unknown): string {
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
 }
-
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof ClientResponseError) {
-    return error.status === 0 || error.isAbort
-  }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    return (
-      msg.includes('network') ||
-      msg.includes('fetch failed') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('aborted')
-    )
-  }
-  return false
-}

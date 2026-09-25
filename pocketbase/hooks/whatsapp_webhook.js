@@ -1328,27 +1328,26 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
                   }
                   if (effBase.endsWith('/')) effBase = effBase.slice(0, -1)
 
-                  // Tenta DELETE no endpoint de agendamentos da agenda externa
+                  // Rota oficial da agenda externa para cancelamento/exclusão (soft-delete, sem permanente=true)
                   var delRes = $http.send({
-                    url: effBase + '/api/collections/appointments/records/' + cancelExternalId,
+                    url: effBase + '/backend/v1/crm-agendamento/' + cancelExternalId,
                     method: 'DELETE',
                     headers: {
+                      'Content-Type': 'application/json',
                       Accept: 'application/json',
                       'X-CRM-Token': rawToken,
-                      Authorization: 'Bearer ' + rawToken,
                     },
                     timeout: 4,
                   })
                   if (delRes.statusCode < 200 || delRes.statusCode >= 300) {
-                    // Fallback se DELETE não for aceito: marca status=cancelado lá via PATCH
+                    // Fallback se DELETE falhar: marca status=cancelado lá via PATCH
                     $http.send({
-                      url: effBase + '/api/collections/appointments/records/' + cancelExternalId,
+                      url: effBase + '/backend/v1/crm-agendamento/' + cancelExternalId,
                       method: 'PATCH',
                       headers: {
                         'Content-Type': 'application/json',
                         Accept: 'application/json',
                         'X-CRM-Token': rawToken,
-                        Authorization: 'Bearer ' + rawToken,
                       },
                       body: JSON.stringify({ status: 'cancelado' }),
                       timeout: 4,

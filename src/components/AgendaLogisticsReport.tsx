@@ -77,22 +77,30 @@ export function AgendaLogisticsReport({
   const now = useMemo(() => new Date(), [])
   const twoMonthsAgo = useMemo(() => new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000), [now])
 
-  // Filtrar apenas agendamentos dos últimos 2 meses (historico recente até hoje)
+  // Filtrar apenas agendamentos dos últimos 2 meses (historico recente até hoje com proteção de data)
   const last2MonthsAppointments = useMemo(() => {
     return appointments.filter((a) => {
+      if (!a?.starts_at) return false
       const d = new Date(a.starts_at)
+      if (isNaN(d.getTime())) return false
       return d >= twoMonthsAgo && d <= now
     })
   }, [appointments, twoMonthsAgo, now])
 
-  // Próximos pacientes a atender (futuros ordenados por data)
+  // Próximos pacientes a atender (futuros ordenados por data com proteção)
   const upcomingAppointments = useMemo(() => {
     return appointments
       .filter((a) => {
+        if (!a?.starts_at) return false
         const d = new Date(a.starts_at)
+        if (isNaN(d.getTime())) return false
         return d >= now && a.status !== 'cancelado'
       })
-      .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())
+      .sort((a, b) => {
+        const timeA = new Date(a.starts_at).getTime() || 0
+        const timeB = new Date(b.starts_at).getTime() || 0
+        return timeA - timeB
+      })
   }, [appointments, now])
 
   // Estatísticas dos últimos 2 meses

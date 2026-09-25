@@ -133,6 +133,18 @@ const STATUS_CONFIG: Record<
     borderClass: 'border-l-4 border-l-slate-400',
     icon: XCircle,
   },
+  aguardando: {
+    label: 'Aguardando',
+    badgeClass: 'bg-muted text-muted-foreground border-border',
+    borderClass: 'border-l-4 border-l-muted-foreground',
+    icon: HelpCircle,
+  },
+  pendente: {
+    label: 'Pendente',
+    badgeClass: 'bg-muted text-muted-foreground border-border',
+    borderClass: 'border-l-4 border-l-muted-foreground',
+    icon: HelpCircle,
+  },
 }
 
 export default function Agenda() {
@@ -722,9 +734,10 @@ export default function Agenda() {
         status: newStatus,
       })
       setSelectedAppointment(updated)
+      const stLabel = STATUS_CONFIG[newStatus]?.label || newStatus
       toast({
         title: 'Status atualizado',
-        description: `Agendamento marcado como "${STATUS_CONFIG[newStatus].label}".`,
+        description: `Agendamento marcado como "${stLabel}".`,
       })
       await loadAppointments(true)
     } catch (err) {
@@ -750,12 +763,17 @@ export default function Agenda() {
     navigate('/conversas')
   }
 
-  // Filtragem local por texto de busca
+  // Filtragem local por texto de busca e validação de data
   const filteredAppointments = useMemo(() => {
     const list = Array.isArray(appointmentsForCurrentView) ? appointmentsForCurrentView : []
-    if (!searchQuery.trim()) return list
+    const validDateList = list.filter((a) => {
+      if (!a?.starts_at) return false
+      const t = new Date(a.starts_at).getTime()
+      return !isNaN(t)
+    })
+    if (!searchQuery.trim()) return validDateList
     const q = searchQuery.toLowerCase().trim()
-    return list.filter((a) => {
+    return validDateList.filter((a) => {
       if (!a) return false
       return (
         a.patient_name?.toLowerCase().includes(q) ||
@@ -830,8 +848,12 @@ export default function Agenda() {
   // Agrupamento por dia na visão semanal
   const weekDays = useMemo(() => {
     if (viewMode !== 'week') return []
-    const start = startOfWeek(currentDate, { weekStartsOn: 1 })
-    return Array.from({ length: 7 }, (_, i) => addDays(start, i))
+    try {
+      const start = startOfWeek(currentDate, { weekStartsOn: 1 })
+      return Array.from({ length: 7 }, (_, i) => addDays(start, i))
+    } catch {
+      return []
+    }
   }, [currentDate, viewMode])
 
   // Formatação amigável do status de sincronia
@@ -1295,51 +1317,52 @@ export default function Agenda() {
       )}
 
       {/* Conteúdo Principal: Visão Dia, Semana, Painel dos Últimos 2 meses ou Lista de Espera */}
-      {viewMode === 'waitlist' ? (
-        accountId ? (
-          <WaitlistSection
-            accountId={accountId}
-            onOpenChat={(jid) => navigate(`/conversas?chat=${jid}`)}
+      <ErrorBoundary>
+        {viewMode === 'waitlist' ? (
+          accountId ? (
+            <WaitlistSection
+              accountId={accountId}
+              onOpenChat={(jid) => navigate(`/conversas?chat=${jid}`)}
+            />
+          ) : null
+        ) : viewMode === 'report' ? (
+          <AgendaLogisticsReport
+            appointments={appointmentsForCurrentView}
+            onOpenConversation={handleOpenConversation}
+            onRefreshSync={handleManualSync}
+            syncing={isSyncing}
           />
-        ) : null
-      ) : viewMode === 'report' ? (
-        <AgendaLogisticsReport
-          appointments={appointmentsForCurrentView}
-          onOpenConversation={handleOpenConversation}
-          onRefreshSync={handleManualSync}
-          syncing={isSyncing}
-        />
-      ) : loading && allAppointments.length === 0 ? (
-        <div className="py-20 flex flex-col items-center justify-center text-muted-foreground gap-3">
-          <RefreshCw className="w-8 h-8 animate-spin text-primary" />
-          <p className="text-sm">Carregando consultas da agenda...</p>
-        </div>
-      ) : filteredAppointments.length === 0 ? (
-        <Card className="border-dashed border-2 p-12 text-center bg-card/50">
-          <CalendarDays className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-foreground">Nenhum agendamento encontrado</h3>
-          <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1 mb-6">
-            Não há consultas marcadas para os filtros e datas selecionadas.
-          </p>
-          <Button
-            onClick={() => {
-              setFormData((prev) => ({
-                ...prev,
-                date: format(currentDate, 'yyyy-MM-dd'),
-              }))
-              setNewDialogOpen(true)
-            }}
-            className="gap-2 mx-auto"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Criar Agendamento</span>
-          </Button>
-        </Card>
-      ) : viewMode === 'day' ? (
-        /* VISÃO DIA */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        ) : loading && allAppointments.length === 0 ? (
+          <div className="py-20 flex flex-col items-center justify-center text-muted-foreground gap-3">
+            <RefreshCw className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm">Carregando consultas da agenda...</p>
+          </div>
+        ) : filteredAppointments.length === 0 ? (
+          <Card className="border-dashed border-2 p-12 text-center bg-card/50">
+            <CalendarDays className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
+            <h3 className="text-base font-semibold text-foreground">Nenhum agendamento encontrado</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1 mb-6">
+              Não há consultas marcadas para os filtros e datas selecionadas.
+            </p>
+            <Button
+              onClick={() => {
+                setFormData((prev) => ({
+                  ...prev,
+                  date: format(currentDate, 'yyyy-MM-dd'),
+                }))
+                setNewDialogOpen(true)
+              }}
+              className="gap-2 mx-auto"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Criar Agendamento</span>
+            </Button>
+          </Card>
+        ) : viewMode === 'day' ? (
+          /* VISÃO DIA */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredAppointments.map((app) => {
-            const statusConfig = STATUS_CONFIG[app.status] || STATUS_CONFIG.agendado
+            const statusConfig = STATUS_CONFIG[app.status] || STATUS_CONFIG['aguardando'] || STATUS_CONFIG.agendado
             const StatusIcon = statusConfig.icon
             const startTimeStr = formatTimeSaoPaulo(app.starts_at)
             const endTimeStr = formatTimeSaoPaulo(app.ends_at)
@@ -1561,7 +1584,7 @@ export default function Agenda() {
 
             return (
               <div
-                key={day.toISOString()}
+                key={day ? day.toISOString() : Math.random().toString()}
                 className={cn(
                   'rounded-xl border p-2.5 flex flex-col min-h-[350px] bg-card/60 transition-colors',
                   isToday ? 'border-primary/50 bg-primary/[0.02]' : 'border-border',
@@ -1588,7 +1611,7 @@ export default function Agenda() {
                     </p>
                   ) : (
                     dayAppointments.map((app) => {
-                      const statusConfig = STATUS_CONFIG[app.status] || STATUS_CONFIG.agendado
+                      const statusConfig = STATUS_CONFIG[app.status] || STATUS_CONFIG['aguardando'] || STATUS_CONFIG.agendado
                       const startTimeStr = formatTimeSaoPaulo(app.starts_at)
 
                       return (
@@ -1889,9 +1912,13 @@ export default function Agenda() {
                 </DialogTitle>
                 <Badge
                   variant="outline"
-                  className={cn('text-xs', STATUS_CONFIG[selectedAppointment.status]?.badgeClass)}
+                  className={cn(
+                    'text-xs',
+                    (STATUS_CONFIG[selectedAppointment.status] || STATUS_CONFIG['aguardando'])?.badgeClass,
+                  )}
                 >
-                  {STATUS_CONFIG[selectedAppointment.status]?.label || selectedAppointment.status}
+                  {(STATUS_CONFIG[selectedAppointment.status] || STATUS_CONFIG['aguardando'])?.label ||
+                    selectedAppointment.status}
                 </Badge>
               </div>
             </DialogHeader>
@@ -2038,7 +2065,7 @@ export default function Agenda() {
                       onClick={() => handleUpdateStatus(st)}
                       className="text-xs h-7 px-2.5"
                     >
-                      {STATUS_CONFIG[st].label}
+                      {STATUS_CONFIG[st]?.label || st}
                     </Button>
                   ))}
                 </div>
