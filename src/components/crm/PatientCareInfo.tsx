@@ -7,8 +7,8 @@ import { cn } from '@/lib/utils'
 import pb from '@/lib/pocketbase/client'
 import { CrmContact, Appointment } from '@/types/models'
 import { listAppointments } from '@/services/appointments'
-import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { safeFormatDate } from '@/lib/datetime'
 
 interface PatientCareInfoProps {
   contact: CrmContact
@@ -113,7 +113,7 @@ export function PatientCareInfo({ contact }: PatientCareInfoProps) {
             </Badge>
           </div>
           <p className="text-emerald-900 font-medium">
-            {format(new Date(upcomingAppointment.starts_at), "dd 'de' MMMM 'às' HH:mm", {
+            {safeFormatDate(upcomingAppointment.starts_at, "dd 'de' MMMM 'às' HH:mm", {
               locale: ptBR,
             })}
           </p>
@@ -153,7 +153,7 @@ export function PatientCareInfo({ contact }: PatientCareInfoProps) {
                 <div>
                   <div className="flex items-center gap-1.5">
                     <span className="font-semibold text-foreground">
-                      {format(new Date(apt.starts_at), 'dd/MM/yyyy HH:mm')}
+                      {safeFormatDate(apt.starts_at, 'dd/MM/yyyy HH:mm')}
                     </span>
                     <Badge
                       variant="outline"

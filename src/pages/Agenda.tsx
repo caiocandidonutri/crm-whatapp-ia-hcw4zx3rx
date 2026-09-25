@@ -34,13 +34,16 @@ import {
 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { getCareAlertSettings, saveCareAlertSettings } from '@/services/care_alerts_service'
-import { format, addDays, startOfWeek, endOfWeek, parseISO } from 'date-fns'
+import { addDays, startOfWeek, endOfWeek } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
   formatTimeSaoPaulo,
   formatBrazilianDate,
   getDayKeySaoPaulo,
   getSaoPauloDateParts,
+  safeFormatDate,
+  safeParseISO,
+  parseToDate,
 } from '@/lib/datetime'
 
 import { Button } from '@/components/ui/button'
@@ -299,7 +302,12 @@ export default function Agenda() {
     doctor: 'Dr. Caio',
     city: 'Carmo do Rio Claro',
     location: 'Climed',
-    date: format(new Date(), 'yyyy-MM-dd'),
+    date: safeFormatDate(
+      new Date(),
+      'yyyy-MM-dd',
+      undefined,
+      new Date().toISOString().slice(0, 10),
+    ),
     startTime: '09:00',
     endTime: '10:00',
     appointment_type: 'Consulta',
@@ -491,7 +499,14 @@ export default function Agenda() {
     }
 
     // Visão semana (segunda a domingo no fuso de Brasília)
-    const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
+    const validCurrentDate =
+      currentDate instanceof Date && !isNaN(currentDate.getTime()) ? currentDate : new Date()
+    let weekStart = new Date()
+    try {
+      weekStart = startOfWeek(validCurrentDate, { weekStartsOn: 1 })
+    } catch {
+      weekStart = new Date()
+    }
     const weekDaysKeys = new Set(
       Array.from({ length: 7 }, (_, i) => getDayKeySaoPaulo(addDays(weekStart, i))),
     )
@@ -709,7 +724,12 @@ export default function Agenda() {
         doctor: 'Dr. Caio',
         city: 'Carmo do Rio Claro',
         location: 'Climed',
-        date: format(currentDate, 'yyyy-MM-dd'),
+        date: safeFormatDate(
+          currentDate,
+          'yyyy-MM-dd',
+          undefined,
+          new Date().toISOString().slice(0, 10),
+        ),
         startTime: '09:00',
         endTime: '10:00',
         appointment_type: 'Consulta',
@@ -768,21 +788,28 @@ export default function Agenda() {
   const filteredAppointments = useMemo(() => {
     const list = Array.isArray(appointmentsForCurrentView) ? appointmentsForCurrentView : []
     const validDateList = list.filter((a) => {
-      if (!a?.starts_at) return false
-      const t = new Date(a.starts_at).getTime()
-      return !isNaN(t)
+      if (!a || typeof a !== 'object') return false
+      if (!a.starts_at) return false
+      const d = parseToDate(a.starts_at)
+      return d !== null && !isNaN(d.getTime())
     })
     if (!searchQuery.trim()) return validDateList
     const q = searchQuery.toLowerCase().trim()
     return validDateList.filter((a) => {
       if (!a) return false
+      const name = typeof a.patient_name === 'string' ? a.patient_name.toLowerCase() : ''
+      const phone = typeof a.patient_phone === 'string' ? a.patient_phone : ''
+      const loc = typeof a.location === 'string' ? a.location.toLowerCase() : ''
+      const type = typeof a.appointment_type === 'string' ? a.appointment_type.toLowerCase() : ''
+      const city = typeof a.city === 'string' ? a.city.toLowerCase() : ''
+      const doc = typeof a.doctor === 'string' ? a.doctor.toLowerCase() : ''
       return (
-        a.patient_name?.toLowerCase().includes(q) ||
-        a.patient_phone?.includes(q) ||
-        a.location?.toLowerCase().includes(q) ||
-        a.appointment_type?.toLowerCase().includes(q) ||
-        a.city?.toLowerCase().includes(q) ||
-        a.doctor?.toLowerCase().includes(q)
+        name.includes(q) ||
+        phone.includes(q) ||
+        loc.includes(q) ||
+        type.includes(q) ||
+        city.includes(q) ||
+        doc.includes(q)
       )
     })
   }, [appointmentsForCurrentView, searchQuery])
@@ -805,17 +832,19 @@ export default function Agenda() {
       setLoadingContactBirthDate(true)
       try {
         let contact: any = null
-        if (selectedAppointment.patient_id) {
+        const pId = selectedAppointment?.patient_id
+        if (pId && typeof pId === 'string' && pId.trim()) {
           try {
-            contact = await pb.collection('crm_contacts').getOne(selectedAppointment.patient_id)
-          } catch (getErr) {
-            // Segura: se der 404/400 (ex: contato excluído ou ID órfão), não quebra a tela
+            contact = await pb.collection('crm_contacts').getOne(pId.trim())
+          } catch {
+            // Blindagem total contra ID órfão ou registro excluído (400/404)
             contact = null
           }
         }
 
-        if (!contact && selectedAppointment.patient_phone) {
-          const digits = selectedAppointment.patient_phone.replace(/\D/g, '')
+        const phone = selectedAppointment?.patient_phone
+        if (!contact && phone && typeof phone === 'string') {
+          const digits = phone.replace(/\D/g, '')
           const suffix = digits.slice(-8)
           if (suffix.length >= 8) {
             try {
@@ -850,7 +879,9 @@ export default function Agenda() {
   const weekDays = useMemo(() => {
     if (viewMode !== 'week') return []
     try {
-      const start = startOfWeek(currentDate, { weekStartsOn: 1 })
+      const validDate =
+        currentDate instanceof Date && !isNaN(currentDate.getTime()) ? currentDate : new Date()
+      const start = startOfWeek(validDate, { weekStartsOn: 1 })
       return Array.from({ length: 7 }, (_, i) => addDays(start, i))
     } catch {
       return []
@@ -914,9 +945,12 @@ export default function Agenda() {
 
     if (syncStatus.last_sync) {
       try {
-        const lastDate = parseISO(syncStatus.last_sync)
-        if (!isNaN(lastDate.getTime())) {
-          const diffMinutes = Math.max(0, Math.round((Date.now() - lastDate.getTime()) / (1000 * 60)))
+        const lastDate = safeParseISO(syncStatus.last_sync)
+        if (lastDate && !isNaN(lastDate.getTime())) {
+          const diffMinutes = Math.max(
+            0,
+            Math.round((Date.now() - lastDate.getTime()) / (1000 * 60)),
+          )
           const timeLabel =
             diffMinutes === 0 ? 'agora' : diffMinutes === 1 ? 'há 1 min' : `há ${diffMinutes} min`
 
@@ -924,7 +958,7 @@ export default function Agenda() {
             label: `Sincronizado ${timeLabel}`,
             variant: 'outline' as const,
             icon: CheckCircle2,
-            tooltip: `Última sincronia com sucesso em ${format(lastDate, 'dd/MM/yyyy HH:mm:ss')}. Total local: ${syncStatus.total_appointments || 0} agendamentos.`,
+            tooltip: `Última sincronia com sucesso em ${safeFormatDate(lastDate, 'dd/MM/yyyy HH:mm:ss', undefined, '—')}. Total local: ${syncStatus.total_appointments || 0} agendamentos.`,
           }
         }
       } catch {
@@ -1002,7 +1036,12 @@ export default function Agenda() {
             onClick={() => {
               setFormData((prev) => ({
                 ...prev,
-                date: format(currentDate, 'yyyy-MM-dd'),
+                date: safeFormatDate(
+                  currentDate,
+                  'yyyy-MM-dd',
+                  undefined,
+                  new Date().toISOString().slice(0, 10),
+                ),
               }))
               setNewDialogOpen(true)
             }}
@@ -1084,14 +1123,10 @@ export default function Agenda() {
               <p className="text-[11px] text-muted-foreground truncate">
                 {(() => {
                   if (!syncStatus?.last_sync) return 'Aguardando primeiro sync'
-                  try {
-                    const parsed = parseISO(syncStatus.last_sync)
-                    return !isNaN(parsed.getTime())
-                      ? `Último sync: ${format(parsed, 'HH:mm')}`
-                      : 'Aguardando primeiro sync'
-                  } catch {
-                    return 'Aguardando primeiro sync'
-                  }
+                  const parsed = safeParseISO(syncStatus.last_sync)
+                  return parsed
+                    ? `Último sync: ${safeFormatDate(parsed, 'HH:mm', undefined, '—')}`
+                    : 'Aguardando primeiro sync'
                 })()}
               </p>
             </div>
@@ -1179,19 +1214,34 @@ export default function Agenda() {
 
           <div className="font-medium text-sm sm:text-base flex items-center gap-2 pl-2 text-foreground">
             <CalendarIcon className="w-4 h-4 text-primary" />
-            {viewMode === 'day' ? (
-              <span>{format(currentDate, "EEEE, dd 'de' MMMM", { locale: ptBR })}</span>
-            ) : (
-              <span>
-                {format(startOfWeek(currentDate, { weekStartsOn: 1 }), "dd 'de' MMM", {
-                  locale: ptBR,
-                })}{' '}
-                -{' '}
-                {format(endOfWeek(currentDate, { weekStartsOn: 1 }), "dd 'de' MMM 'de' yyyy", {
-                  locale: ptBR,
-                })}
-              </span>
-            )}
+            {(() => {
+              const validDate =
+                currentDate instanceof Date && !isNaN(currentDate.getTime())
+                  ? currentDate
+                  : new Date()
+              if (viewMode === 'day') {
+                return (
+                  <span>
+                    {safeFormatDate(validDate, "EEEE, dd 'de' MMMM", { locale: ptBR }, 'Hoje')}
+                  </span>
+                )
+              }
+              let wStart = validDate
+              let wEnd = validDate
+              try {
+                wStart = startOfWeek(validDate, { weekStartsOn: 1 })
+                wEnd = endOfWeek(validDate, { weekStartsOn: 1 })
+              } catch {
+                wStart = validDate
+                wEnd = validDate
+              }
+              return (
+                <span>
+                  {safeFormatDate(wStart, "dd 'de' MMM", { locale: ptBR }, 'Início da semana')} -{' '}
+                  {safeFormatDate(wEnd, "dd 'de' MMM 'de' yyyy", { locale: ptBR }, 'Fim da semana')}
+                </span>
+              )
+            })()}
           </div>
         </div>
 
@@ -1361,7 +1411,12 @@ export default function Agenda() {
               onClick={() => {
                 setFormData((prev) => ({
                   ...prev,
-                  date: format(currentDate, 'yyyy-MM-dd'),
+                  date: safeFormatDate(
+                    currentDate,
+                    'yyyy-MM-dd',
+                    undefined,
+                    new Date().toISOString().slice(0, 10),
+                  ),
                 }))
                 setNewDialogOpen(true)
               }}
@@ -1397,7 +1452,7 @@ export default function Agenda() {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <h4 className="font-semibold text-base text-foreground leading-tight">
-                          {app.patient_name}
+                          {app.patient_name?.trim() || 'Paciente sem nome'}
                         </h4>
                         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                           {(() => {
@@ -1492,17 +1547,15 @@ export default function Agenda() {
                           </TooltipTrigger>
                           <TooltipContent className="text-xs">
                             {(() => {
-                              if (!app.confirmation_sent_at) return 'Confirmação 24h ainda não disparada'
-                              try {
-                                const d = parseISO(app.confirmation_sent_at)
-                                return !isNaN(d.getTime())
-                                  ? `Confirmação 24h enviada em ${format(d, 'dd/MM HH:mm')}`
-                                  : 'Confirmação 24h enviada'
-                              } catch {
-                                return 'Confirmação 24h enviada'
-                              }
+                              if (!app.confirmation_sent_at)
+                                return 'Confirmação 24h ainda não disparada'
+                              const d = safeParseISO(app.confirmation_sent_at)
+                              return d
+                                ? `Confirmação 24h enviada em ${safeFormatDate(d, 'dd/MM HH:mm', undefined, '')}`
+                                : 'Confirmação 24h enviada'
                             })()}
-                          </TooltipContent>                        </Tooltip>
+                          </TooltipContent>{' '}
+                        </Tooltip>
                       </TooltipProvider>
 
                       <TooltipProvider>
@@ -1522,17 +1575,15 @@ export default function Agenda() {
                           </TooltipTrigger>
                           <TooltipContent className="text-xs">
                             {(() => {
-                              if (!app.reminder_day_sent_at) return 'Lembrete do dia (2-3h antes) ainda não disparado'
-                              try {
-                                const d = parseISO(app.reminder_day_sent_at)
-                                return !isNaN(d.getTime())
-                                  ? `Lembrete do dia enviado em ${format(d, 'dd/MM HH:mm')}`
-                                  : 'Lembrete do dia enviado'
-                              } catch {
-                                return 'Lembrete do dia enviado'
-                              }
+                              if (!app.reminder_day_sent_at)
+                                return 'Lembrete do dia (2-3h antes) ainda não disparado'
+                              const d = safeParseISO(app.reminder_day_sent_at)
+                              return d
+                                ? `Lembrete do dia enviado em ${safeFormatDate(d, 'dd/MM HH:mm', undefined, '')}`
+                                : 'Lembrete do dia enviado'
                             })()}
-                          </TooltipContent>                        </Tooltip>
+                          </TooltipContent>{' '}
+                        </Tooltip>
                       </TooltipProvider>
 
                       {app.last_interaction_type === 'confirmado_paciente' ? (
@@ -1623,7 +1674,7 @@ export default function Agenda() {
                 >
                   <div className="text-center pb-2 border-b border-border/60 mb-2">
                     <p className="text-[11px] font-medium text-muted-foreground uppercase">
-                      {format(day, 'EEE', { locale: ptBR })}
+                      {safeFormatDate(day, 'EEE', { locale: ptBR }, '—')}
                     </p>
                     <p
                       className={cn(
@@ -1631,7 +1682,7 @@ export default function Agenda() {
                         isToday ? 'bg-primary text-primary-foreground' : 'text-foreground',
                       )}
                     >
-                      {format(day, 'dd')}
+                      {safeFormatDate(day, 'dd', undefined, '—')}
                     </p>
                   </div>
 
@@ -1681,7 +1732,7 @@ export default function Agenda() {
                               </div>
                             </div>
                             <p className="text-xs font-medium text-foreground truncate">
-                              {app.patient_name}
+                              {app.patient_name?.trim() || 'Paciente sem nome'}
                             </p>
                             {(() => {
                               const historyInfo = getAppointmentHistoryInfo(
@@ -1943,7 +1994,7 @@ export default function Agenda() {
             <DialogHeader>
               <div className="flex items-center justify-between pr-4">
                 <DialogTitle className="font-serif text-xl">
-                  {selectedAppointment.patient_name}
+                  {selectedAppointment.patient_name?.trim() || 'Paciente sem nome'}
                 </DialogTitle>
                 <Badge
                   variant="outline"

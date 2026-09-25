@@ -1,5 +1,6 @@
 import { Appointment } from '@/types/models'
 import { cleanPhoneDigits } from '@/lib/phone'
+import { parseToDate } from '@/lib/datetime'
 
 export type InferredAppointmentType = 'Consulta' | 'Retorno' | 'Consultoria' | string
 
@@ -14,20 +15,31 @@ export interface PatientAppointmentHistoryInfo {
  * ou do nome em minúsculas se telefone não existir.
  */
 export function getPatientKey(
-  appointment: Pick<Appointment, 'patient_phone' | 'patient_name' | 'patient_id'>,
+  appointment?: Partial<Pick<Appointment, 'patient_phone' | 'patient_name' | 'patient_id'>> | null,
 ): string {
-  if (appointment.patient_id) {
-    return `pid:${appointment.patient_id}`
+  if (!appointment || typeof appointment !== 'object') return ''
+
+  if (
+    appointment.patient_id &&
+    typeof appointment.patient_id === 'string' &&
+    appointment.patient_id.trim()
+  ) {
+    return `pid:${appointment.patient_id.trim()}`
   }
   const digits = cleanPhoneDigits(appointment.patient_phone || '')
   if (digits.length >= 8) {
     return `phone:${digits.slice(-8)}`
   }
-  const name = (appointment.patient_name || '').trim().toLowerCase()
-  if (name && name !== 'paciente sem nome' && name !== 'paciente') {
+  const rawName = typeof appointment.patient_name === 'string' ? appointment.patient_name : ''
+  const name = rawName.trim().toLowerCase()
+  if (name && name !== 'paciente sem nome' && name !== 'paciente' && name !== 'sem nome') {
     return `name:${name}`
   }
-  return `raw:${appointment.patient_name || ''}_${appointment.patient_phone || ''}`
+  const rawPhone = typeof appointment.patient_phone === 'string' ? appointment.patient_phone : ''
+  if (name || rawPhone) {
+    return `raw:${name || 'sem-nome'}_${rawPhone || ''}`
+  }
+  return ''
 }
 
 /**
@@ -53,9 +65,18 @@ export function buildPatientAppointmentsMap(
     }
   }
 
-  // Ordena cada histórico por starts_at crescente
+  // Ordena cada histórico por starts_at crescente com tratamento seguro para timestamps
   for (const list of map.values()) {
-    list.sort((a, b) => (a.starts_at || '').localeCompare(b.starts_at || ''))
+    list.sort((a, b) => {
+      const dateA = parseToDate(a?.starts_at)
+      const dateB = parseToDate(b?.starts_at)
+      const timeA = dateA ? dateA.getTime() : 0
+      const timeB = dateB ? dateB.getTime() : 0
+      if (timeA && timeB) return timeA - timeB
+      if (timeA) return -1
+      if (timeB) return 1
+      return (a?.starts_at || '').localeCompare(b?.starts_at || '')
+    })
   }
 
   return map
@@ -88,11 +109,22 @@ export function getAppointmentHistoryInfo(
 
   // Agendamentos anteriores estritamente antes da data deste agendamento
   // Consideramos atendimentos que aconteceram antes (starts_at < current.starts_at) e não foram cancelados
-  const currentStartsAt = current.starts_at || ''
+  const currentDate = parseToDate(current.starts_at)
+  const currentEpoch = currentDate && !isNaN(currentDate.getTime()) ? currentDate.getTime() : null
+  const currentStartsAtStr = current.starts_at || ''
+
   const priorAppointments = history.filter((a) => {
-    if (a.id === current.id) return false
+    if (!a || a.id === current.id) return false
     if (a.status === 'cancelado') return false
-    return (a.starts_at || '') < currentStartsAt
+
+    if (currentEpoch !== null) {
+      const aDate = parseToDate(a.starts_at)
+      if (aDate && !isNaN(aDate.getTime())) {
+        return aDate.getTime() < currentEpoch
+      }
+    }
+    // Fallback se uma das datas não puder ser parseada
+    return currentStartsAtStr ? (a.starts_at || '') < currentStartsAtStr : false
   })
 
   // Agendamentos anteriores que foram efetivamente realizados ou confirmados

@@ -20,30 +20,31 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof ClientResponseError) {
-    return error.status === 0 || error.isAbort
-  }
-  if (error instanceof TypeError && error.message.toLowerCase().includes('fetch')) {
-    return true
-  }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    return (
-      msg.includes('network') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('connection') ||
-      msg.includes('abort')
-    )
-  }
-  return false
-}
-
 export function getErrorMessage(error: unknown): string {
   if (!(error instanceof ClientResponseError)) {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
+}
+
+/**
+ * Detecta se o erro decorre de falha de conexão de rede ou timeout (status 0, TypeError de fetch, etc).
+ */
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0) return true
+    if (error.isAbort) return false
+  }
+  if (error instanceof TypeError && error.message?.toLowerCase().includes('fetch')) {
+    return true
+  }
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('network error') ||
+    msg.includes('connection refused') ||
+    msg.includes('net::err_connection')
+  )
 }

@@ -3,6 +3,8 @@
  * Usados em toda a aplicação para garantir consistência no CRM WhatsApp.
  */
 
+import { format, parseISO } from 'date-fns'
+
 export const CLINIC_TIMEZONE = 'America/Sao_Paulo'
 export const TIMEZONE_OFFSET_HOURS = -3
 
@@ -258,6 +260,48 @@ export function getChatDateSeparatorLabel(
     month: '2-digit',
     year: 'numeric',
   })
+}
+
+/**
+ * Valida com segurança se uma entrada de data/hora é válida.
+ */
+export function isValidDate(input: number | string | Date | null | undefined): boolean {
+  const d = parseToDate(input)
+  return d !== null && !isNaN(d.getTime())
+}
+
+/**
+ * Converte com segurança strings ISO ou Date para Date válido.
+ * Retorna null se for inválida ou vazia.
+ */
+export function safeParseISO(input: string | null | undefined): Date | null {
+  if (!input || typeof input !== 'string') return null
+  try {
+    const d = parseISO(input)
+    return isNaN(d.getTime()) ? null : d
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Formata com date-fns `format` de forma 100% segura.
+ * Nunca lança "RangeError: Invalid time value".
+ * Retorna o `fallback` caso a data seja nula, indefinida ou inválida.
+ */
+export function safeFormatDate(
+  input: number | string | Date | null | undefined,
+  formatStr: string,
+  options?: Parameters<typeof format>[2],
+  fallback = '—',
+): string {
+  const d = parseToDate(input)
+  if (!d || isNaN(d.getTime())) return fallback
+  try {
+    return options ? format(d, formatStr, options) : format(d, formatStr)
+  } catch {
+    return fallback
+  }
 }
 
 /**

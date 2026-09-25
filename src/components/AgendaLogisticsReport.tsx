@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Appointment } from '@/types/models'
-import { formatTimeSaoPaulo, formatBrazilianDate } from '@/lib/datetime'
+import { formatTimeSaoPaulo, formatBrazilianDate, parseToDate } from '@/lib/datetime'
 import { buildPatientAppointmentsMap, getAppointmentHistoryInfo } from '@/lib/appointment-history'
 
 interface AgendaLogisticsReportProps {
@@ -79,26 +79,30 @@ export function AgendaLogisticsReport({
 
   // Filtrar apenas agendamentos dos últimos 2 meses (historico recente até hoje com proteção de data)
   const last2MonthsAppointments = useMemo(() => {
-    return appointments.filter((a) => {
-      if (!a?.starts_at) return false
-      const d = new Date(a.starts_at)
-      if (isNaN(d.getTime())) return false
+    const list = Array.isArray(appointments) ? appointments : []
+    return list.filter((a) => {
+      if (!a || typeof a !== 'object') return false
+      if (!a.starts_at) return false
+      const d = parseToDate(a.starts_at)
+      if (!d || isNaN(d.getTime())) return false
       return d >= twoMonthsAgo && d <= now
     })
   }, [appointments, twoMonthsAgo, now])
 
   // Próximos pacientes a atender (futuros ordenados por data com proteção)
   const upcomingAppointments = useMemo(() => {
-    return appointments
+    const list = Array.isArray(appointments) ? appointments : []
+    return list
       .filter((a) => {
-        if (!a?.starts_at) return false
-        const d = new Date(a.starts_at)
-        if (isNaN(d.getTime())) return false
+        if (!a || typeof a !== 'object') return false
+        if (!a.starts_at) return false
+        const d = parseToDate(a.starts_at)
+        if (!d || isNaN(d.getTime())) return false
         return d >= now && a.status !== 'cancelado'
       })
       .sort((a, b) => {
-        const timeA = new Date(a.starts_at).getTime() || 0
-        const timeB = new Date(b.starts_at).getTime() || 0
+        const timeA = parseToDate(a.starts_at)?.getTime() || 0
+        const timeB = parseToDate(b.starts_at)?.getTime() || 0
         return timeA - timeB
       })
   }, [appointments, now])
