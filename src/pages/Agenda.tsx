@@ -94,10 +94,21 @@ const CITIES: { id: AppointmentCity | 'all'; label: string; location: string }[]
   { id: 'Online', label: 'Online', location: 'Consulta Remota' },
 ]
 
-const STATUS_CONFIG: Record<
-  string,
-  { label: string; badgeClass: string; borderClass: string; icon: React.ElementType }
-> = {
+export interface StatusConfigItem {
+  label: string
+  badgeClass: string
+  borderClass: string
+  icon: React.ElementType
+}
+
+const DEFAULT_STATUS_CONFIG: StatusConfigItem = {
+  label: 'Agendado',
+  badgeClass: 'bg-muted text-muted-foreground border-border',
+  borderClass: 'border-l-4 border-l-muted-foreground',
+  icon: Clock,
+}
+
+const STATUS_CONFIG: Record<string, StatusConfigItem> = {
   confirmado: {
     label: 'Confirmado',
     badgeClass:
@@ -149,6 +160,19 @@ const STATUS_CONFIG: Record<
     borderClass: 'border-l-4 border-l-muted-foreground',
     icon: HelpCircle,
   },
+}
+
+function getStatusConfig(status?: string | null): StatusConfigItem {
+  if (!status || typeof status !== 'string') return DEFAULT_STATUS_CONFIG
+  const key = status.trim().toLowerCase()
+  if (STATUS_CONFIG[key]) return STATUS_CONFIG[key]
+  // Fallback seguro: exibe o status original como label capitalizado
+  return {
+    label: status.charAt(0).toUpperCase() + status.slice(1),
+    badgeClass: 'bg-muted text-muted-foreground border-border',
+    borderClass: 'border-l-4 border-l-muted-foreground',
+    icon: Clock,
+  }
 }
 
 export default function Agenda() {
@@ -755,7 +779,7 @@ export default function Agenda() {
         status: newStatus,
       })
       setSelectedAppointment(updated)
-      const stLabel = STATUS_CONFIG[newStatus]?.label || newStatus
+      const stLabel = getStatusConfig(newStatus).label
       toast({
         title: 'Status atualizado',
         description: `Agendamento marcado como "${stLabel}".`,
@@ -1429,9 +1453,9 @@ export default function Agenda() {
         ) : viewMode === 'day' ? (
           /* VISÃO DIA */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredAppointments.map((app) => {
-              const statusConfig =
-                STATUS_CONFIG[app.status] || STATUS_CONFIG['aguardando'] || STATUS_CONFIG.agendado
+            {(Array.isArray(filteredAppointments) ? filteredAppointments : []).map((app) => {
+              if (!app) return null
+              const statusConfig = getStatusConfig(app.status)
               const StatusIcon = statusConfig.icon
               const startTimeStr = formatTimeSaoPaulo(app.starts_at)
               const endTimeStr = formatTimeSaoPaulo(app.ends_at)
@@ -1692,11 +1716,9 @@ export default function Agenda() {
                         Sem horários
                       </p>
                     ) : (
-                      dayAppointments.map((app) => {
-                        const statusConfig =
-                          STATUS_CONFIG[app.status] ||
-                          STATUS_CONFIG['aguardando'] ||
-                          STATUS_CONFIG.agendado
+                      (Array.isArray(dayAppointments) ? dayAppointments : []).map((app) => {
+                        if (!app) return null
+                        const statusConfig = getStatusConfig(app.status)
                         const startTimeStr = formatTimeSaoPaulo(app.starts_at)
 
                         return (
@@ -1996,17 +2018,14 @@ export default function Agenda() {
                 <DialogTitle className="font-serif text-xl">
                   {selectedAppointment.patient_name?.trim() || 'Paciente sem nome'}
                 </DialogTitle>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    'text-xs',
-                    (STATUS_CONFIG[selectedAppointment.status] || STATUS_CONFIG['aguardando'])
-                      ?.badgeClass,
-                  )}
-                >
-                  {(STATUS_CONFIG[selectedAppointment.status] || STATUS_CONFIG['aguardando'])
-                    ?.label || selectedAppointment.status}
-                </Badge>
+                {(() => {
+                  const selStatusConfig = getStatusConfig(selectedAppointment.status)
+                  return (
+                    <Badge variant="outline" className={cn('text-xs', selStatusConfig.badgeClass)}>
+                      {selStatusConfig.label}
+                    </Badge>
+                  )
+                })()}
               </div>
             </DialogHeader>
 
@@ -2152,7 +2171,7 @@ export default function Agenda() {
                       onClick={() => handleUpdateStatus(st)}
                       className="text-xs h-7 px-2.5"
                     >
-                      {STATUS_CONFIG[st]?.label || st}
+                      {getStatusConfig(st).label}
                     </Button>
                   ))}
                 </div>
