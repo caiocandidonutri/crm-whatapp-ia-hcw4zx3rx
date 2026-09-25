@@ -162,20 +162,25 @@ export function AgendaLogisticsReport({
         naoAcionados++
       }
 
-      // Cidades
+      // Cidades com fallback defensivo para evitar quebras por localidade nula ou inesperada
+      const rawCity = a.city || ''
       const locKey =
-        CITY_LOCATIONS_MAP[a.city] ||
-        (a.city === 'Carmo do Rio Claro'
+        CITY_LOCATIONS_MAP[rawCity] ||
+        (rawCity === 'Carmo do Rio Claro'
           ? 'Climed Carmo do Rio Claro'
-          : a.city === 'Alfenas'
+          : rawCity === 'Alfenas'
             ? 'Instituto Harmoniza Alfenas'
-            : a.city === 'Monte Belo'
+            : rawCity === 'Monte Belo'
               ? 'Monte Belo'
-              : a.city === 'Online'
+              : rawCity === 'Online'
                 ? 'Atendimento Online'
                 : 'Outros')
 
-      porCidade[locKey] = (porCidade[locKey] || 0) + 1
+      if (locKey && Object.prototype.hasOwnProperty.call(porCidade, locKey)) {
+        porCidade[locKey] = (porCidade[locKey] || 0) + 1
+      } else {
+        porCidade.Outros = (porCidade.Outros || 0) + 1
+      }
     })
 
     return {

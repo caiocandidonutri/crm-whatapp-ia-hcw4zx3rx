@@ -318,54 +318,70 @@ cronAdd('agenda_external_sync', '12,42 * * * *', () => {
         } catch (_) {}
       }
 
-      // Soft-cancel de ausentes na oficial (-60 a +60 dias)
+      // Soft-cancel seguro de ausentes na oficial: apenas DENTRO da janela real retornada pela API
       var softCancelledCount = 0
       try {
-        var nowUtc = Date.now()
-        var windowStartIso = new Date(nowUtc - 60 * 24 * 3600 * 1000).toISOString()
-        var windowEndIso = new Date(nowUtc + 60 * 24 * 3600 * 1000).toISOString()
+        var minDateMs = Infinity
+        var maxDateMs = -Infinity
 
-        var localAppts = $app.findRecordsByFilter(
-          'appointments',
-          'source = "agenda_externa" && external_id != "" && status != "cancelado" && starts_at >= {:wStart} && starts_at <= {:wEnd}',
-          'starts_at',
-          500,
-          0,
-          { wStart: windowStartIso, wEnd: windowEndIso },
-        )
-
-        for (var j = 0; j < localAppts.length; j++) {
-          var localRec = localAppts[j]
-          var localExtId = localRec.getString('external_id')
-          if (!localExtId) continue
-
-          var remoteItem = returnedExternalIds[localExtId]
-          var shouldSoftCancel = false
-          var reason = ''
-
-          if (!remoteItem) {
-            shouldSoftCancel = true
-            reason = 'Cancelado/removido na agenda oficial'
-          } else if (remoteItem.status === 'cancelado') {
-            shouldSoftCancel = true
-            reason = 'Cancelado na agenda oficial'
+        for (var k = 0; k < items.length; k++) {
+          var itm = items[k]
+          if (!itm || typeof itm !== 'object') continue
+          var rawDate = itm.starts_at || itm.data_inicio || itm.data_consulta || itm.data || ''
+          if (!rawDate) continue
+          var dMs = new Date(rawDate).getTime()
+          if (!isNaN(dMs)) {
+            if (dMs < minDateMs) minDateMs = dMs
+            if (dMs > maxDateMs) maxDateMs = dMs
           }
+        }
 
-          if (shouldSoftCancel) {
-            localRec.set('status', 'cancelado')
-            var currentNotes = localRec.getString('notes')
-            if (currentNotes) {
-              if (currentNotes.indexOf(reason) === -1) {
-                localRec.set('notes', currentNotes + ' (' + reason + ')')
-              }
-            } else {
-              localRec.set('notes', reason)
+        if (minDateMs !== Infinity && maxDateMs !== -Infinity) {
+          var windowStartIso = new Date(minDateMs).toISOString()
+          var windowEndIso = new Date(maxDateMs).toISOString()
+
+          var localAppts = $app.findRecordsByFilter(
+            'appointments',
+            'source = "agenda_externa" && external_id != "" && status != "cancelado" && starts_at >= {:wStart} && starts_at <= {:wEnd}',
+            'starts_at',
+            500,
+            0,
+            { wStart: windowStartIso, wEnd: windowEndIso },
+          )
+
+          for (var j = 0; j < localAppts.length; j++) {
+            var localRec = localAppts[j]
+            var localExtId = localRec.getString('external_id')
+            if (!localExtId) continue
+
+            var remoteItem = returnedExternalIds[localExtId]
+            var shouldSoftCancel = false
+            var reason = ''
+
+            if (!remoteItem) {
+              shouldSoftCancel = true
+              reason = 'Cancelado/removido na agenda oficial'
+            } else if (remoteItem.status === 'cancelado') {
+              shouldSoftCancel = true
+              reason = 'Cancelado na agenda oficial'
             }
-            localRec.set('last_synced_at', new Date().toISOString())
-            try {
-              $app.saveNoValidate(localRec)
-              softCancelledCount++
-            } catch (_) {}
+
+            if (shouldSoftCancel) {
+              localRec.set('status', 'cancelado')
+              var currentNotes = localRec.getString('notes')
+              if (currentNotes) {
+                if (currentNotes.indexOf(reason) === -1) {
+                  localRec.set('notes', currentNotes + ' (' + reason + ')')
+                }
+              } else {
+                localRec.set('notes', reason)
+              }
+              localRec.set('last_synced_at', new Date().toISOString())
+              try {
+                $app.saveNoValidate(localRec)
+                softCancelledCount++
+              } catch (_) {}
+            }
           }
         }
       } catch (errCancel) {
@@ -754,53 +770,70 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
         } catch (_) {}
       }
 
+      // Soft-cancel seguro de ausentes na oficial: apenas DENTRO da janela real retornada pela API
       var softCancelledCount = 0
       try {
-        var nowUtc = Date.now()
-        var windowStartIso = new Date(nowUtc - 60 * 24 * 3600 * 1000).toISOString()
-        var windowEndIso = new Date(nowUtc + 60 * 24 * 3600 * 1000).toISOString()
+        var minDateMs = Infinity
+        var maxDateMs = -Infinity
 
-        var localAppts = $app.findRecordsByFilter(
-          'appointments',
-          'source = "agenda_externa" && external_id != "" && status != "cancelado" && starts_at >= {:wStart} && starts_at <= {:wEnd}',
-          'starts_at',
-          500,
-          0,
-          { wStart: windowStartIso, wEnd: windowEndIso },
-        )
-
-        for (var j = 0; j < localAppts.length; j++) {
-          var localRec = localAppts[j]
-          var localExtId = localRec.getString('external_id')
-          if (!localExtId) continue
-
-          var remoteItem = returnedExternalIds[localExtId]
-          var shouldSoftCancel = false
-          var reason = ''
-
-          if (!remoteItem) {
-            shouldSoftCancel = true
-            reason = 'Cancelado/removido na agenda oficial'
-          } else if (remoteItem.status === 'cancelado') {
-            shouldSoftCancel = true
-            reason = 'Cancelado na agenda oficial'
+        for (var k = 0; k < items.length; k++) {
+          var itm = items[k]
+          if (!itm || typeof itm !== 'object') continue
+          var rawDate = itm.starts_at || itm.data_inicio || itm.data_consulta || itm.data || ''
+          if (!rawDate) continue
+          var dMs = new Date(rawDate).getTime()
+          if (!isNaN(dMs)) {
+            if (dMs < minDateMs) minDateMs = dMs
+            if (dMs > maxDateMs) maxDateMs = dMs
           }
+        }
 
-          if (shouldSoftCancel) {
-            localRec.set('status', 'cancelado')
-            var currentNotes = localRec.getString('notes')
-            if (currentNotes) {
-              if (currentNotes.indexOf(reason) === -1) {
-                localRec.set('notes', currentNotes + ' (' + reason + ')')
-              }
-            } else {
-              localRec.set('notes', reason)
+        if (minDateMs !== Infinity && maxDateMs !== -Infinity) {
+          var windowStartIso = new Date(minDateMs).toISOString()
+          var windowEndIso = new Date(maxDateMs).toISOString()
+
+          var localAppts = $app.findRecordsByFilter(
+            'appointments',
+            'source = "agenda_externa" && external_id != "" && status != "cancelado" && starts_at >= {:wStart} && starts_at <= {:wEnd}',
+            'starts_at',
+            500,
+            0,
+            { wStart: windowStartIso, wEnd: windowEndIso },
+          )
+
+          for (var j = 0; j < localAppts.length; j++) {
+            var localRec = localAppts[j]
+            var localExtId = localRec.getString('external_id')
+            if (!localExtId) continue
+
+            var remoteItem = returnedExternalIds[localExtId]
+            var shouldSoftCancel = false
+            var reason = ''
+
+            if (!remoteItem) {
+              shouldSoftCancel = true
+              reason = 'Cancelado/removido na agenda oficial'
+            } else if (remoteItem.status === 'cancelado') {
+              shouldSoftCancel = true
+              reason = 'Cancelado na agenda oficial'
             }
-            localRec.set('last_synced_at', new Date().toISOString())
-            try {
-              $app.saveNoValidate(localRec)
-              softCancelledCount++
-            } catch (_) {}
+
+            if (shouldSoftCancel) {
+              localRec.set('status', 'cancelado')
+              var currentNotes = localRec.getString('notes')
+              if (currentNotes) {
+                if (currentNotes.indexOf(reason) === -1) {
+                  localRec.set('notes', currentNotes + ' (' + reason + ')')
+                }
+              } else {
+                localRec.set('notes', reason)
+              }
+              localRec.set('last_synced_at', new Date().toISOString())
+              try {
+                $app.saveNoValidate(localRec)
+                softCancelledCount++
+              } catch (_) {}
+            }
           }
         }
       } catch (errCancel) {

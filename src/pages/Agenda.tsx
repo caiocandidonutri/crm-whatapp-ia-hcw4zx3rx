@@ -144,8 +144,8 @@ const STATUS_CONFIG: Record<string, StatusConfigItem> = {
   cancelado: {
     label: 'Cancelado',
     badgeClass:
-      'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400',
-    borderClass: 'border-l-4 border-l-slate-400',
+      'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800/60 dark:text-slate-400',
+    borderClass: 'border-l-4 border-l-slate-400 border-dashed',
     icon: XCircle,
   },
   aguardando: {
@@ -1460,6 +1460,8 @@ export default function Agenda() {
               const startTimeStr = formatTimeSaoPaulo(app.starts_at)
               const endTimeStr = formatTimeSaoPaulo(app.ends_at)
 
+              const isCancelled = app.status === 'cancelado'
+
               return (
                 <Card
                   key={app.id}
@@ -1470,12 +1472,19 @@ export default function Agenda() {
                   className={cn(
                     'cursor-pointer hover:shadow-md transition-all duration-200 overflow-hidden bg-card border-border/80',
                     statusConfig.borderClass,
+                    isCancelled &&
+                      'opacity-60 bg-muted/40 border-dashed border-border/70 hover:opacity-80',
                   )}
                 >
                   <CardHeader className="p-4 pb-2 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <h4 className="font-semibold text-base text-foreground leading-tight">
+                        <h4
+                          className={cn(
+                            'font-semibold text-base text-foreground leading-tight',
+                            isCancelled && 'line-through text-muted-foreground',
+                          )}
+                        >
                           {app.patient_name?.trim() || 'Paciente sem nome'}
                         </h4>
                         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
@@ -1493,23 +1502,25 @@ export default function Agenda() {
                                   variant="secondary"
                                   className={cn(
                                     'text-[10px] font-medium py-0 px-1.5 border',
-                                    displayType.toLowerCase().includes('retorno')
-                                      ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300'
-                                      : displayType.toLowerCase().includes('consultoria')
-                                        ? 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300'
-                                        : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300',
+                                    isCancelled
+                                      ? 'bg-muted text-muted-foreground border-border line-through'
+                                      : displayType.toLowerCase().includes('retorno')
+                                        ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300'
+                                        : displayType.toLowerCase().includes('consultoria')
+                                          ? 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300'
+                                          : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300',
                                   )}
                                 >
                                   {displayType}
                                 </Badge>
-                                {isFirst ? (
+                                {!isCancelled && isFirst ? (
                                   <Badge
                                     variant="outline"
                                     className="text-[10px] font-semibold py-0 px-1.5 bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
                                   >
                                     1ª consulta
                                   </Badge>
-                                ) : (
+                                ) : !isCancelled ? (
                                   <Badge
                                     variant="outline"
                                     className="text-[10px] font-normal py-0 px-1.5 bg-slate-50 text-slate-600 border-slate-300 dark:bg-slate-900/40 dark:text-slate-400"
@@ -1518,7 +1529,7 @@ export default function Agenda() {
                                       ? `${historyInfo.priorVisitsCount + 1}º atendimento`
                                       : 'Retorno'}
                                   </Badge>
-                                )}
+                                ) : null}
                               </>
                             )
                           })()}
@@ -1536,7 +1547,12 @@ export default function Agenda() {
 
                   <CardContent className="p-4 pt-0 space-y-3">
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1.5 font-medium text-foreground">
+                      <span
+                        className={cn(
+                          'flex items-center gap-1.5 font-medium text-foreground',
+                          isCancelled && 'line-through text-muted-foreground',
+                        )}
+                      >
                         <Clock className="w-3.5 h-3.5 text-primary" />
                         {startTimeStr} - {endTimeStr}
                       </span>
@@ -1552,87 +1568,89 @@ export default function Agenda() {
                       </p>
                     )}
 
-                    {/* Indicadores discretos de automação: Véspera ✓ | Dia ✓ | Confirmado pelo paciente ✓ */}
-                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span
-                              className={cn(
-                                'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
-                                app.confirmation_sent_at
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-                                  : 'bg-muted/30 text-muted-foreground/60 border-transparent',
-                              )}
-                            >
-                              <span>Véspera</span>
-                              <span>{app.confirmation_sent_at ? '✓' : '○'}</span>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="text-xs">
-                            {(() => {
-                              if (!app.confirmation_sent_at)
-                                return 'Confirmação 24h ainda não disparada'
-                              const d = safeParseISO(app.confirmation_sent_at)
-                              return d
-                                ? `Confirmação 24h enviada em ${safeFormatDate(d, 'dd/MM HH:mm', undefined, '')}`
-                                : 'Confirmação 24h enviada'
-                            })()}
-                          </TooltipContent>{' '}
-                        </Tooltip>
-                      </TooltipProvider>
-
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span
-                              className={cn(
-                                'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
-                                app.reminder_day_sent_at
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
-                                  : 'bg-muted/30 text-muted-foreground/60 border-transparent',
-                              )}
-                            >
-                              <span>Dia</span>
-                              <span>{app.reminder_day_sent_at ? '✓' : '○'}</span>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="text-xs">
-                            {(() => {
-                              if (!app.reminder_day_sent_at)
-                                return 'Lembrete do dia (2-3h antes) ainda não disparado'
-                              const d = safeParseISO(app.reminder_day_sent_at)
-                              return d
-                                ? `Lembrete do dia enviado em ${safeFormatDate(d, 'dd/MM HH:mm', undefined, '')}`
-                                : 'Lembrete do dia enviado'
-                            })()}
-                          </TooltipContent>{' '}
-                        </Tooltip>
-                      </TooltipProvider>
-
-                      {app.last_interaction_type === 'confirmado_paciente' ? (
+                    {/* Indicadores discretos de automação (apenas se não estiver cancelado) */}
+                    {!isCancelled && (
+                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200">
-                                <span>Paciente ✓</span>
+                              <span
+                                className={cn(
+                                  'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+                                  app.confirmation_sent_at
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                    : 'bg-muted/30 text-muted-foreground/60 border-transparent',
+                                )}
+                              >
+                                <span>Véspera</span>
+                                <span>{app.confirmation_sent_at ? '✓' : '○'}</span>
                               </span>
                             </TooltipTrigger>
                             <TooltipContent className="text-xs">
-                              Confirmado diretamente pelo paciente via WhatsApp!
-                            </TooltipContent>
+                              {(() => {
+                                if (!app.confirmation_sent_at)
+                                  return 'Confirmação 24h ainda não disparada'
+                                const d = safeParseISO(app.confirmation_sent_at)
+                                return d
+                                  ? `Confirmação 24h enviada em ${safeFormatDate(d, 'dd/MM HH:mm', undefined, '')}`
+                                  : 'Confirmação 24h enviada'
+                              })()}
+                            </TooltipContent>{' '}
                           </Tooltip>
                         </TooltipProvider>
-                      ) : app.last_interaction_type === 'remarcado_paciente' ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300">
-                          <span>Reagendamento solicitado</span>
-                        </span>
-                      ) : app.followup_sent_at ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                          <span>Follow-up 6h ✓</span>
-                        </span>
-                      ) : null}
-                    </div>
+
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                className={cn(
+                                  'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+                                  app.reminder_day_sent_at
+                                    ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                                    : 'bg-muted/30 text-muted-foreground/60 border-transparent',
+                                )}
+                              >
+                                <span>Dia</span>
+                                <span>{app.reminder_day_sent_at ? '✓' : '○'}</span>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs">
+                              {(() => {
+                                if (!app.reminder_day_sent_at)
+                                  return 'Lembrete do dia (2-3h antes) ainda não disparado'
+                                const d = safeParseISO(app.reminder_day_sent_at)
+                                return d
+                                  ? `Lembrete do dia enviado em ${safeFormatDate(d, 'dd/MM HH:mm', undefined, '')}`
+                                  : 'Lembrete do dia enviado'
+                              })()}
+                            </TooltipContent>{' '}
+                          </Tooltip>
+                        </TooltipProvider>
+
+                        {app.last_interaction_type === 'confirmado_paciente' ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                  <span>Paciente ✓</span>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="text-xs">
+                                Confirmado diretamente pelo paciente via WhatsApp!
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : app.last_interaction_type === 'remarcado_paciente' ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300">
+                            <span>Reagendamento solicitado</span>
+                          </span>
+                        ) : app.followup_sent_at ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                            <span>Follow-up 6h ✓</span>
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between pt-1 border-t border-border/60">
                       <div className="flex items-center gap-1.5">
@@ -1659,18 +1677,20 @@ export default function Agenda() {
                         )}
                       </div>
 
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleOpenConversation(app)
-                        }}
-                        className="h-7 px-2 text-xs gap-1 text-primary hover:text-primary hover:bg-primary/10"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        <span>WhatsApp</span>
-                      </Button>
+                      {!isCancelled && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleOpenConversation(app)
+                          }}
+                          className="h-7 px-2 text-xs gap-1 text-primary hover:text-primary hover:bg-primary/10"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>WhatsApp</span>
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -1720,6 +1740,7 @@ export default function Agenda() {
                         if (!app) return null
                         const statusConfig = getStatusConfig(app.status)
                         const startTimeStr = formatTimeSaoPaulo(app.starts_at)
+                        const isCancelled = app.status === 'cancelado'
 
                         return (
                           <div
@@ -1731,18 +1752,26 @@ export default function Agenda() {
                             className={cn(
                               'p-2 rounded-lg border bg-card hover:shadow-sm cursor-pointer transition-all text-left space-y-1',
                               statusConfig.borderClass,
+                              isCancelled &&
+                                'opacity-60 bg-muted/40 border-dashed hover:opacity-80',
                             )}
                           >
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-foreground">
+                              <span
+                                className={cn(
+                                  'text-[11px] font-bold text-foreground',
+                                  isCancelled && 'line-through text-muted-foreground',
+                                )}
+                              >
                                 {startTimeStr}
                               </span>
                               <div className="flex items-center gap-1">
-                                {app.last_interaction_type === 'confirmado_paciente' && (
-                                  <span className="text-[9px] px-1 rounded bg-emerald-100 text-emerald-800 font-bold">
-                                    ✓ Paciente
-                                  </span>
-                                )}
+                                {!isCancelled &&
+                                  app.last_interaction_type === 'confirmado_paciente' && (
+                                    <span className="text-[9px] px-1 rounded bg-emerald-100 text-emerald-800 font-bold">
+                                      ✓ Paciente
+                                    </span>
+                                  )}
                                 <span
                                   className={cn(
                                     'text-[9px] px-1.5 py-0.2 rounded-full font-medium',
@@ -1753,7 +1782,12 @@ export default function Agenda() {
                                 </span>
                               </div>
                             </div>
-                            <p className="text-xs font-medium text-foreground truncate">
+                            <p
+                              className={cn(
+                                'text-xs font-medium text-foreground truncate',
+                                isCancelled && 'line-through text-muted-foreground',
+                              )}
+                            >
                               {app.patient_name?.trim() || 'Paciente sem nome'}
                             </p>
                             {(() => {
@@ -1769,16 +1803,18 @@ export default function Agenda() {
                                   <span
                                     className={cn(
                                       'inline-block text-[9px] px-1 py-0.2 rounded border font-medium',
-                                      displayType.toLowerCase().includes('retorno')
-                                        ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                        : displayType.toLowerCase().includes('consultoria')
-                                          ? 'bg-purple-50 text-purple-800 border-purple-200'
-                                          : 'bg-blue-50 text-blue-800 border-blue-200',
+                                      isCancelled
+                                        ? 'bg-muted text-muted-foreground border-border line-through'
+                                        : displayType.toLowerCase().includes('retorno')
+                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                          : displayType.toLowerCase().includes('consultoria')
+                                            ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                            : 'bg-blue-50 text-blue-800 border-blue-200',
                                     )}
                                   >
                                     {displayType}
                                   </span>
-                                  {isFirst && (
+                                  {!isCancelled && isFirst && (
                                     <span className="inline-block text-[9px] px-1 py-0.2 rounded border font-semibold bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300">
                                       1ª consulta
                                     </span>
@@ -1788,10 +1824,12 @@ export default function Agenda() {
                             })()}
                             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                               <span className="truncate">{app.city}</span>
-                              <span className="font-mono text-[9px] shrink-0">
-                                {app.confirmation_sent_at ? 'V✓' : 'V○'}{' '}
-                                {app.reminder_day_sent_at ? 'D✓' : 'D○'}
-                              </span>
+                              {!isCancelled && (
+                                <span className="font-mono text-[9px] shrink-0">
+                                  {app.confirmation_sent_at ? 'V✓' : 'V○'}{' '}
+                                  {app.reminder_day_sent_at ? 'D✓' : 'D○'}
+                                </span>
+                              )}
                             </div>
                           </div>
                         )

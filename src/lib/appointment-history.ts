@@ -39,7 +39,7 @@ export function getPatientKey(
   if (name || rawPhone) {
     return `raw:${name || 'sem-nome'}_${rawPhone || ''}`
   }
-  return ''
+  return 'unknown:sem-nome'
 }
 
 /**

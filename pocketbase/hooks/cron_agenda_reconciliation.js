@@ -169,22 +169,38 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
       }
     }
 
-    // 3. Soft-cancel e alinhamento de status na janela de 120 dias (-60 a +60 dias)
-    var nowUtcMs = Date.now()
-    var windowStartIso = new Date(nowUtcMs - 60 * 24 * 3600 * 1000).toISOString()
-    var windowEndIso = new Date(nowUtcMs + 60 * 24 * 3600 * 1000).toISOString()
+    // 3. Soft-cancel e alinhamento de status: APENAS dentro da janela real retornada pela agenda externa
+    var minDateMs = Infinity
+    var maxDateMs = -Infinity
+
+    for (var k = 0; k < appts.length; k++) {
+      var itm = appts[k]
+      if (!itm || typeof itm !== 'object') continue
+      var rawDate = itm.starts_at || itm.data_inicio || itm.data_consulta || itm.data || ''
+      if (!rawDate) continue
+      var dMs = new Date(rawDate).getTime()
+      if (!isNaN(dMs)) {
+        if (dMs < minDateMs) minDateMs = dMs
+        if (dMs > maxDateMs) maxDateMs = dMs
+      }
+    }
 
     var localExtAppts = []
-    try {
-      localExtAppts = $app.findRecordsByFilter(
-        'appointments',
-        'source = "agenda_externa" && external_id != "" && starts_at >= {:wStart} && starts_at <= {:wEnd}',
-        'starts_at',
-        500,
-        0,
-        { wStart: windowStartIso, wEnd: windowEndIso },
-      )
-    } catch (_) {}
+    if (minDateMs !== Infinity && maxDateMs !== -Infinity) {
+      try {
+        var windowStartIso = new Date(minDateMs).toISOString()
+        var windowEndIso = new Date(maxDateMs).toISOString()
+
+        localExtAppts = $app.findRecordsByFilter(
+          'appointments',
+          'source = "agenda_externa" && external_id != "" && starts_at >= {:wStart} && starts_at <= {:wEnd}',
+          'starts_at',
+          500,
+          0,
+          { wStart: windowStartIso, wEnd: windowEndIso },
+        )
+      } catch (_) {}
+    }
 
     var softCancelledCount = 0
     var alignedCount = 0
