@@ -69,10 +69,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
 
   const { members: rawTeamMembers } = useTeamMembers()
-  const teamMembers = useMemo(
-    () => rawTeamMembers.map((m) => m.expand?.user_id).filter(Boolean),
-    [rawTeamMembers],
-  )
+  const teamMembers = useMemo(() => {
+    if (!Array.isArray(rawTeamMembers)) return []
+    return rawTeamMembers
+      .map((m) => m?.expand?.user_id)
+      .filter((u): u is NonNullable<typeof u> => Boolean(u && typeof u === 'object'))
+  }, [rawTeamMembers])
 
   const [selectedTask, setSelectedTask] = useState<any | null>(null)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
@@ -307,9 +309,24 @@ export default function Home() {
         : 'Desconectado'
   const instanceLabel = instance?.instance_name || 'WhatsApp principal'
 
-  // Dados do gráfico de 7 dias
-  const chartData = metrics?.chart || []
-  const maxTotal = Math.max(...chartData.map((d) => d.total), 1)
+  // Dados do gráfico de 7 dias com fallbacks resilientes
+  const chartData = useMemo(() => {
+    const list = metrics?.chart
+    if (!Array.isArray(list)) return []
+    return list.map((item) => ({
+      ...item,
+      total: typeof item?.total === 'number' && !isNaN(item.total) ? item.total : 0,
+      received: typeof item?.received === 'number' && !isNaN(item.received) ? item.received : 0,
+      sent: typeof item?.sent === 'number' && !isNaN(item.sent) ? item.sent : 0,
+      label: item?.label || '',
+    }))
+  }, [metrics?.chart])
+
+  const maxTotal = useMemo(() => {
+    if (!chartData || chartData.length === 0) return 1
+    const totals = chartData.map((d) => d.total).filter((n) => typeof n === 'number' && !isNaN(n))
+    return Math.max(...totals, 1)
+  }, [chartData])
 
   // Dados do funil com total para cálculo percentual
   const funnelStages = metrics?.funnel || []
@@ -505,7 +522,9 @@ export default function Home() {
             <Avatar className="h-14 w-14 md:h-16 md:w-16 border-2 border-background shadow-sm shrink-0">
               <AvatarImage src={user?.avatar ? pb.files.getUrl(user, user.avatar) : ''} />
               <AvatarFallback className="bg-primary/5 text-primary font-serif font-bold text-xl md:text-2xl">
-                {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+                {typeof user?.name === 'string' && user.name.trim()
+                  ? user.name.trim().charAt(0).toUpperCase()
+                  : 'U'}
               </AvatarFallback>
             </Avatar>
             <div className="flex flex-col gap-0.5 md:gap-1 min-w-0">
@@ -513,7 +532,10 @@ export default function Home() {
                 {getGreeting()} · PAINEL DE GESTÃO DA CLÍNICA
               </span>
               <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold text-primary tracking-tight font-sans leading-tight md:leading-none truncate">
-                Olá, {user?.name?.split(' ')[0] || 'Doutor(a)'}
+                Olá,{' '}
+                {typeof user?.name === 'string' && user.name.trim()
+                  ? user.name.trim().split(' ')[0]
+                  : 'Doutor(a)'}
               </h1>
               <p className="text-muted-foreground font-sans text-xs md:text-sm mt-0.5">
                 {formattedDate}

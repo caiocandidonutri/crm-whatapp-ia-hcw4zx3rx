@@ -17,6 +17,7 @@ import {
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { useNavigate } from 'react-router-dom'
+import { parseToDate } from '@/lib/datetime'
 
 interface Props {
   className?: string
@@ -243,22 +244,28 @@ export function FollowupRecoveryReport({ className }: Props) {
             <ScrollArea className="h-56 rounded-xl border bg-muted/10 p-2">
               <div className="space-y-1.5">
                 {report.recent_recovered.map((patient, idx) => {
-                  let formattedDate = ''
-                  try {
-                    const d = new Date(patient.recovered_at)
-                    const datePart = d.toLocaleDateString('pt-BR', {
-                      timeZone: 'America/Sao_Paulo',
-                      day: '2-digit',
-                      month: 'short',
-                    })
-                    const timePart = d.toLocaleTimeString('pt-BR', {
-                      timeZone: 'America/Sao_Paulo',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })
-                    formattedDate = `${datePart}, ${timePart}`
-                  } catch (_) {
-                    formattedDate = patient.recovered_at || 'Recentemente'
+                  let formattedDate = 'Recentemente'
+                  if (patient.recovered_at) {
+                    try {
+                      const d = parseToDate(patient.recovered_at)
+                      if (d && !isNaN(d.getTime())) {
+                        const datePart = d.toLocaleDateString('pt-BR', {
+                          timeZone: 'America/Sao_Paulo',
+                          day: '2-digit',
+                          month: 'short',
+                        })
+                        const timePart = d.toLocaleTimeString('pt-BR', {
+                          timeZone: 'America/Sao_Paulo',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                        formattedDate = `${datePart}, ${timePart}`
+                      } else {
+                        formattedDate = String(patient.recovered_at)
+                      }
+                    } catch (_) {
+                      formattedDate = String(patient.recovered_at)
+                    }
                   }
 
                   return (

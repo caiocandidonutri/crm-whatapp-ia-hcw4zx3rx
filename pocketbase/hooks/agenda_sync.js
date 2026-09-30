@@ -172,13 +172,93 @@ cronAdd('agenda_external_sync', '12,42 * * * *', () => {
           item.patient_name || item.paciente_nome || item.nome || 'Paciente',
         ).trim()
 
-        var startsAtIso = String(rawStart)
-        try {
-          var d = new Date(startsAtIso)
-          if (!isNaN(d.getTime())) {
-            startsAtIso = d.toISOString()
+        // Payload externo entrega horário civil local de Brasília ("YYYY-MM-DD HH:mm:ss" ou "YYYY-MM-DDTHH:mm:ss").
+        // Interpretar estritamente com offset -03:00 (America/Sao_Paulo) para não deslocar 3h adiante.
+        var startsAtIso = ''
+        var rawStartStr = String(rawStart).trim()
+        var matchIsoTime = rawStartStr.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)/)
+        if (matchIsoTime) {
+          var datePartSync = matchIsoTime[1]
+          var timePartSync = matchIsoTime[2]
+          if (timePartSync.length === 5) timePartSync += ':00'
+          try {
+            var dParsed = new Date(datePartSync + 'T' + timePartSync + '-03:00')
+            if (!isNaN(dParsed.getTime())) {
+              startsAtIso = dParsed.toISOString()
+            }
+          } catch (_) {}
+        }
+        if (!startsAtIso) {
+          try {
+            var dFallback = new Date(rawStartStr)
+            if (!isNaN(dFallback.getTime())) {
+              startsAtIso = dFallback.toISOString()
+            }
+          } catch (_) {}
+        }
+        if (!startsAtIso) {
+          startsAtIso = rawStartStr
+        }
+
+        // EXPEDIENTE 07:00–20:00 (horário civil local):
+        // Se horário chegar fora da janela, criar task na coleção 'tasks' (status 'pendente', prioridade 'alta', care_category 'precisa_atencao') para a Fabiana aprovar/reagendar
+        var localHour = -1
+        var localMinute = 0
+        if (matchIsoTime) {
+          var hp = matchIsoTime[2].split(':')
+          localHour = parseInt(hp[0], 10)
+          localMinute = parseInt(hp[1] || '0', 10)
+        } else {
+          try {
+            var dLocal = new Date(startsAtIso)
+            if (!isNaN(dLocal.getTime())) {
+              // Converter UTC para hora local SP (-3)
+              var utcHours = dLocal.getUTCHours()
+              localHour = (utcHours - 3 + 24) % 24
+              localMinute = dLocal.getUTCMinutes()
+            }
+          } catch (_) {}
+        }
+
+        var isOutsideHours =
+          localHour < 7 || (localHour === 20 && localMinute > 0) || localHour > 20
+        if (isOutsideHours && localHour !== -1) {
+          try {
+            var existingOutsideTask = null
+            try {
+              existingOutsideTask = $app.findFirstRecordByFilter(
+                'tasks',
+                'account_id = {:aid} && title ~ {:pname} && status = "pendente"',
+                { aid: resolvedAccountId, pname: patientName },
+              )
+            } catch (_) {}
+
+            if (!existingOutsideTask) {
+              var tasksCol = $app.findCollectionByNameOrId('tasks')
+              var outTask = new Record(tasksCol)
+              outTask.set('account_id', resolvedAccountId)
+              outTask.set('title', 'Aprovar agendamento fora de expediente: ' + patientName)
+              outTask.set(
+                'description',
+                'Agendamento recebido da agenda oficial fora do expediente comercial (07:00–20:00). Horário recebido: ' +
+                  rawStartStr +
+                  ' (' +
+                  (localHour < 10 ? '0' + localHour : localHour) +
+                  ':' +
+                  (localMinute < 10 ? '0' + localMinute : localMinute) +
+                  ' local). Fabiana precisa aprovar ou reagendar.',
+              )
+              outTask.set('status', 'pendente')
+              outTask.set('priority', 'alta')
+              outTask.set('care_category', 'precisa_atencao')
+              $app.save(outTask)
+            }
+          } catch (taskErr) {
+            $app
+              .logger()
+              .warn('agenda_sync: falha ao criar task fora de expediente', 'err', String(taskErr))
           }
-        } catch (_) {}
+        }
 
         if (!extId) {
           extId = 'ext_' + $security.md5(patientName + '_' + startsAtIso)
@@ -624,13 +704,92 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
           item.patient_name || item.paciente_nome || item.nome || 'Paciente',
         ).trim()
 
-        var startsAtIso = String(rawStart)
-        try {
-          var d = new Date(startsAtIso)
-          if (!isNaN(d.getTime())) {
-            startsAtIso = d.toISOString()
+        // Payload externo entrega horário civil local de Brasília ("YYYY-MM-DD HH:mm:ss" ou "YYYY-MM-DDTHH:mm:ss").
+        // Interpretar estritamente com offset -03:00 (America/Sao_Paulo) para não deslocar 3h adiante.
+        var startsAtIso = ''
+        var rawStartStr = String(rawStart).trim()
+        var matchIsoTime = rawStartStr.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)/)
+        if (matchIsoTime) {
+          var datePartSync = matchIsoTime[1]
+          var timePartSync = matchIsoTime[2]
+          if (timePartSync.length === 5) timePartSync += ':00'
+          try {
+            var dParsed = new Date(datePartSync + 'T' + timePartSync + '-03:00')
+            if (!isNaN(dParsed.getTime())) {
+              startsAtIso = dParsed.toISOString()
+            }
+          } catch (_) {}
+        }
+        if (!startsAtIso) {
+          try {
+            var dFallback = new Date(rawStartStr)
+            if (!isNaN(dFallback.getTime())) {
+              startsAtIso = dFallback.toISOString()
+            }
+          } catch (_) {}
+        }
+        if (!startsAtIso) {
+          startsAtIso = rawStartStr
+        }
+
+        // EXPEDIENTE 07:00–20:00 (horário civil local):
+        // Se horário chegar fora da janela, criar task na coleção 'tasks' (status 'pendente', prioridade 'alta', care_category 'precisa_atencao') para a Fabiana aprovar/reagendar
+        var localHour = -1
+        var localMinute = 0
+        if (matchIsoTime) {
+          var hp = matchIsoTime[2].split(':')
+          localHour = parseInt(hp[0], 10)
+          localMinute = parseInt(hp[1] || '0', 10)
+        } else {
+          try {
+            var dLocal = new Date(startsAtIso)
+            if (!isNaN(dLocal.getTime())) {
+              var utcHours = dLocal.getUTCHours()
+              localHour = (utcHours - 3 + 24) % 24
+              localMinute = dLocal.getUTCMinutes()
+            }
+          } catch (_) {}
+        }
+
+        var isOutsideHours =
+          localHour < 7 || (localHour === 20 && localMinute > 0) || localHour > 20
+        if (isOutsideHours && localHour !== -1) {
+          try {
+            var existingOutsideTask = null
+            try {
+              existingOutsideTask = $app.findFirstRecordByFilter(
+                'tasks',
+                'account_id = {:aid} && title ~ {:pname} && status = "pendente"',
+                { aid: resolvedAccountId, pname: patientName },
+              )
+            } catch (_) {}
+
+            if (!existingOutsideTask) {
+              var tasksCol = $app.findCollectionByNameOrId('tasks')
+              var outTask = new Record(tasksCol)
+              outTask.set('account_id', resolvedAccountId)
+              outTask.set('title', 'Aprovar agendamento fora de expediente: ' + patientName)
+              outTask.set(
+                'description',
+                'Agendamento recebido da agenda oficial fora do expediente comercial (07:00–20:00). Horário recebido: ' +
+                  rawStartStr +
+                  ' (' +
+                  (localHour < 10 ? '0' + localHour : localHour) +
+                  ':' +
+                  (localMinute < 10 ? '0' + localMinute : localMinute) +
+                  ' local). Fabiana precisa aprovar ou reagendar.',
+              )
+              outTask.set('status', 'pendente')
+              outTask.set('priority', 'alta')
+              outTask.set('care_category', 'precisa_atencao')
+              $app.save(outTask)
+            }
+          } catch (taskErr) {
+            $app
+              .logger()
+              .warn('agenda_sync: falha ao criar task fora de expediente', 'err', String(taskErr))
           }
-        } catch (_) {}
+        }
 
         if (!extId) {
           extId = 'ext_' + $security.md5(patientName + '_' + startsAtIso)
