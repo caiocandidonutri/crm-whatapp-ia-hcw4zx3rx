@@ -520,7 +520,13 @@ export default function Home() {
         <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
           <div className="flex items-center gap-4 md:gap-5">
             <Avatar className="h-14 w-14 md:h-16 md:w-16 border-2 border-background shadow-sm shrink-0">
-              <AvatarImage src={user?.avatar ? pb.files.getUrl(user, user.avatar) : ''} />
+              <AvatarImage
+                src={
+                  user?.avatar && typeof pb?.files?.getUrl === 'function'
+                    ? pb.files.getUrl(user, user.avatar)
+                    : ''
+                }
+              />
               <AvatarFallback className="bg-primary/5 text-primary font-serif font-bold text-xl md:text-2xl">
                 {typeof user?.name === 'string' && user.name.trim()
                   ? user.name.trim().charAt(0).toUpperCase()
@@ -562,13 +568,17 @@ export default function Home() {
                 {teamMembers.slice(0, 4).map((member) => (
                   <Avatar key={member.id} className="w-8 h-8 border-2 border-white shadow-sm">
                     <AvatarImage
-                      src={member.avatar ? pb.files.getUrl(member, member.avatar) : ''}
+                      src={
+                        member?.avatar && typeof pb?.files?.getUrl === 'function'
+                          ? pb.files.getUrl(member, member.avatar)
+                          : ''
+                      }
                     />
                     <AvatarFallback className="bg-primary/5 text-primary text-xs font-bold">
-                      {member.name?.charAt(0).toUpperCase() || 'U'}
+                      {member?.name?.charAt(0)?.toUpperCase() || 'U'}
                     </AvatarFallback>
                   </Avatar>
-                ))}
+                ))}{' '}
                 {teamMembers.length > 4 && (
                   <div className="w-8 h-8 rounded-full border-2 border-white bg-muted flex items-center justify-center text-[10px] font-bold text-muted-foreground z-10 shadow-sm">
                     +{teamMembers.length - 4}
@@ -1322,11 +1332,17 @@ export default function Home() {
                         >
                           <div className="flex flex-col gap-1.5 text-xs min-w-[140px] p-1">
                             <div className="font-bold text-sm mb-1 text-primary capitalize">
-                              {d.date
-                                ? formatLongDateSaoPaulo(d.date + 'T12:00:00Z', false)
-                                : d.dayStartSec
-                                  ? formatLongDateSaoPaulo(d.dayStartSec * 1000, false)
-                                  : d.label}
+                              {(() => {
+                                try {
+                                  if (d.date)
+                                    return formatLongDateSaoPaulo(d.date + 'T12:00:00Z', false)
+                                  if (d.dayStartSec)
+                                    return formatLongDateSaoPaulo(d.dayStartSec * 1000, false)
+                                } catch {
+                                  /* intentionally ignored */
+                                }
+                                return d.label || 'Dia'
+                              })()}
                             </div>
                             <div className="flex items-center justify-between gap-4">
                               <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
@@ -1422,6 +1438,7 @@ export default function Home() {
                   const todayKey = getDayKeySaoPaulo(new Date())
                   const dueKey = dueStr ? getDayKeySaoPaulo(dueStr) : ''
                   const isOverdue = !!(dueKey && dueKey < todayKey)
+                  const formattedDue = dueStr ? formatBrazilianDate(dueStr, false) : ''
 
                   return (
                     <div
@@ -1433,28 +1450,26 @@ export default function Home() {
                       }}
                     >
                       <h4 className="font-semibold text-sm text-primary truncate group-hover:text-primary/80 mb-2">
-                        {task.title}
+                        {task.title || 'Tarefa sem título'}
                       </h4>
                       <div className="flex items-center justify-between">
                         <Badge
                           variant="outline"
                           className={cn(
                             'text-[10px] px-1.5 py-0 h-4 border uppercase tracking-wider',
-                            meta.color,
+                            meta?.color || 'text-muted-foreground border-border',
                           )}
                         >
-                          {meta.label}
+                          {meta?.label || 'Normal'}
                         </Badge>
-                        {dueStr && (
+                        {formattedDue && (
                           <span
                             className={cn(
                               'text-[11px] font-semibold',
                               isOverdue ? 'text-rose-600' : 'text-muted-foreground',
                             )}
                           >
-                            {isOverdue
-                              ? '⚠ Vencida'
-                              : `Vence ${formatBrazilianDate(dueStr, false)}`}
+                            {isOverdue ? '⚠ Vencida' : `Vence ${formattedDue}`}
                           </span>
                         )}
                       </div>
@@ -1558,12 +1573,18 @@ export default function Home() {
           ) : (
             <div className="divide-y divide-border/30">
               {recentChats.map((chat) => {
-                const title = chat.contact_name || chat.remote_jid
+                if (!chat) return null
+                const title = chat.contact_name || chat.remote_jid || 'Conversa'
                 const rawTs =
                   chat.last_message_timestamp && chat.last_message_timestamp > 0
                     ? chat.last_message_timestamp
                     : chat.updated
-                const relativeTime = formatRecentActivityDate(rawTs)
+                let relativeTime = ''
+                try {
+                  relativeTime = rawTs ? formatRecentActivityDate(rawTs) : ''
+                } catch (_) {
+                  relativeTime = ''
+                }
                 return (
                   <div
                     key={chat.id}
@@ -1571,9 +1592,11 @@ export default function Home() {
                     onClick={() => navigate(`/conversas?chat=${chat.id}`)}
                   >
                     <Avatar className="h-10 w-10 border border-border/50 shadow-sm shrink-0">
-                      <AvatarImage src={chat.avatar_url} />
+                      <AvatarImage src={chat.avatar_url || ''} />
                       <AvatarFallback className="bg-primary/5 text-primary font-serif font-bold text-lg">
-                        {title?.charAt(0)?.toUpperCase() || '?'}
+                        {typeof title === 'string' && title.trim()
+                          ? title.trim().charAt(0).toUpperCase()
+                          : '?'}
                       </AvatarFallback>
                     </Avatar>
 
@@ -1592,15 +1615,17 @@ export default function Home() {
                         )}
                       </div>
                       <p className="text-xs md:text-sm text-muted-foreground truncate pr-4 font-sans flex items-center">
-                        {getMessageSnippet(chat.last_message)}
+                        {getMessageSnippet(chat.last_message || '')}
                       </p>
                     </div>
 
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
-                      <span className="text-[11px] text-muted-foreground font-semibold whitespace-nowrap">
-                        {relativeTime}
-                      </span>
-                      {chat.unread_count > 0 ? (
+                      {relativeTime && (
+                        <span className="text-[11px] text-muted-foreground font-semibold whitespace-nowrap">
+                          {relativeTime}
+                        </span>
+                      )}
+                      {typeof chat.unread_count === 'number' && chat.unread_count > 0 ? (
                         <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shadow-sm">
                           {chat.unread_count}
                         </div>
