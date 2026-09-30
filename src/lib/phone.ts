@@ -102,6 +102,15 @@ export function isInvalidContactName(name?: string | null): boolean {
     return true
   }
 
+  // Rejeita nomes corporativos / razão social (ex: "Engenharia", "Ltda", "MEI", etc.)
+  if (
+    /\b(engenharia|ltda|mei|eireli|s\/a|s\.a\.|advocacia|escrit[oó]rio|contabilidade|im[oó]veis|imobili[aá]ria|consultoria|servi[çc]os|com[eé]rcio|distribuidora|m[eé]dica|cl[ií]nica)\b/i.test(
+      lower,
+    )
+  ) {
+    return true
+  }
+
   // Rejeita nome da própria clínica / assistente colado no paciente
   if (
     (lower.includes('fabiana') && lower.includes('assistente')) ||

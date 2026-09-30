@@ -77,22 +77,42 @@ onBootstrap((e) => {
           pushMethod = 'PATCH'
         }
 
-        var pushRes = $http.send({
-          url: pushUrl,
-          method: pushMethod,
-          headers: pushHeaders,
-          body: JSON.stringify(payload),
-          timeout: 4,
-        })
+        var pushRes = null
+        var maxRetries = 2
+        for (var attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            pushRes = $http.send({
+              url: pushUrl,
+              method: pushMethod,
+              headers: pushHeaders,
+              body: JSON.stringify(payload),
+              timeout: 60,
+            })
+            if (pushRes && (pushRes.statusCode < 500 || attempt === maxRetries)) {
+              break
+            }
+          } catch (netErr) {
+            if (attempt === maxRetries) throw netErr
+          }
+        }
 
-        if (pushMethod === 'PATCH' && pushRes.statusCode === 404) {
-          pushRes = $http.send({
-            url: baseUrl + '/backend/v1/crm-agendamento',
-            method: 'POST',
-            headers: pushHeaders,
-            body: JSON.stringify(payload),
-            timeout: 4,
-          })
+        if (pushMethod === 'PATCH' && pushRes && pushRes.statusCode === 404) {
+          for (var postAttempt = 0; postAttempt <= maxRetries; postAttempt++) {
+            try {
+              pushRes = $http.send({
+                url: baseUrl + '/backend/v1/crm-agendamento',
+                method: 'POST',
+                headers: pushHeaders,
+                body: JSON.stringify(payload),
+                timeout: 60,
+              })
+              if (pushRes && (pushRes.statusCode < 500 || postAttempt === maxRetries)) {
+                break
+              }
+            } catch (postNetErr) {
+              if (postAttempt === maxRetries) throw postNetErr
+            }
+          }
         }
 
         if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {

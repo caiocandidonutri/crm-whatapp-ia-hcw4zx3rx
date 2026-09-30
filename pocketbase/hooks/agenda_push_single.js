@@ -164,24 +164,44 @@ onRecordAfterCreateSuccess((e) => {
     }
 
     try {
-      var pushRes = $http.send({
-        url: pushUrl,
-        method: pushMethod,
-        headers: pushHeaders,
-        body: JSON.stringify(payload),
-        timeout: 4,
-      })
+      var pushRes = null
+      var maxRetries = 2
+      for (var attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          pushRes = $http.send({
+            url: pushUrl,
+            method: pushMethod,
+            headers: pushHeaders,
+            body: JSON.stringify(payload),
+            timeout: 60,
+          })
+          if (pushRes && (pushRes.statusCode < 500 || attempt === maxRetries)) {
+            break
+          }
+        } catch (netErr) {
+          if (attempt === maxRetries) throw netErr
+        }
+      }
 
-      // Se falhou com 404 no PATCH, tentar POST para registrar
-      if (pushMethod === 'PATCH' && pushRes.statusCode === 404) {
+      // Se falhou com 404 no PATCH, tentar POST para registrar (com retries)
+      if (pushMethod === 'PATCH' && pushRes && pushRes.statusCode === 404) {
         $app.logger().info('agenda_push_appointment: PATCH 404 fallback to POST', 'id', record.id)
-        pushRes = $http.send({
-          url: cfg.baseUrl + '/backend/v1/crm-agendamento',
-          method: 'POST',
-          headers: pushHeaders,
-          body: JSON.stringify(payload),
-          timeout: 4,
-        })
+        for (var postAttempt = 0; postAttempt <= maxRetries; postAttempt++) {
+          try {
+            pushRes = $http.send({
+              url: cfg.baseUrl + '/backend/v1/crm-agendamento',
+              method: 'POST',
+              headers: pushHeaders,
+              body: JSON.stringify(payload),
+              timeout: 60,
+            })
+            if (pushRes && (pushRes.statusCode < 500 || postAttempt === maxRetries)) {
+              break
+            }
+          } catch (postNetErr) {
+            if (postAttempt === maxRetries) throw postNetErr
+          }
+        }
       }
 
       if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {
@@ -385,24 +405,44 @@ onRecordAfterUpdateSuccess((e) => {
     }
 
     try {
-      var pushRes = $http.send({
-        url: pushUrl,
-        method: pushMethod,
-        headers: pushHeaders,
-        body: JSON.stringify(payload),
-        timeout: 4,
-      })
+      var pushRes = null
+      var maxRetries = 2
+      for (var attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          pushRes = $http.send({
+            url: pushUrl,
+            method: pushMethod,
+            headers: pushHeaders,
+            body: JSON.stringify(payload),
+            timeout: 60,
+          })
+          if (pushRes && (pushRes.statusCode < 500 || attempt === maxRetries)) {
+            break
+          }
+        } catch (netErr) {
+          if (attempt === maxRetries) throw netErr
+        }
+      }
 
-      // Se falhou com 404 no PATCH, tentar POST para registrar
-      if (pushMethod === 'PATCH' && pushRes.statusCode === 404) {
+      // Se falhou com 404 no PATCH, tentar POST para registrar (com retries)
+      if (pushMethod === 'PATCH' && pushRes && pushRes.statusCode === 404) {
         $app.logger().info('agenda_push_appointment: PATCH 404 fallback to POST', 'id', record.id)
-        pushRes = $http.send({
-          url: cfg.baseUrl + '/backend/v1/crm-agendamento',
-          method: 'POST',
-          headers: pushHeaders,
-          body: JSON.stringify(payload),
-          timeout: 4,
-        })
+        for (var postAttempt = 0; postAttempt <= maxRetries; postAttempt++) {
+          try {
+            pushRes = $http.send({
+              url: cfg.baseUrl + '/backend/v1/crm-agendamento',
+              method: 'POST',
+              headers: pushHeaders,
+              body: JSON.stringify(payload),
+              timeout: 60,
+            })
+            if (pushRes && (pushRes.statusCode < 500 || postAttempt === maxRetries)) {
+              break
+            }
+          } catch (postNetErr) {
+            if (postAttempt === maxRetries) throw postNetErr
+          }
+        }
       }
 
       if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {
@@ -502,7 +542,7 @@ onRecordAfterDeleteSuccess((e) => {
           Accept: 'application/json',
           'X-CRM-Token': rawToken,
         },
-        timeout: 4,
+        timeout: 60,
       })
 
       if (delRes.statusCode < 200 || delRes.statusCode >= 300) {
@@ -516,7 +556,7 @@ onRecordAfterDeleteSuccess((e) => {
             'X-CRM-Token': rawToken,
           },
           body: JSON.stringify({ status: 'cancelado' }),
-          timeout: 4,
+          timeout: 60,
         })
       }
       $app.logger().info('agenda_push_cancellation (delete): success', 'extId', extId)

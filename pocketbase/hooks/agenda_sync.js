@@ -284,20 +284,22 @@ cronAdd('agenda_external_sync', '12,42 * * * *', () => {
         if (!existing && startsAtIso) {
           try {
             var targetDateMs = new Date(startsAtIso).getTime()
-            var windowStartIso = new Date(targetDateMs - 15 * 60 * 1000).toISOString()
-            var windowEndIso = new Date(targetDateMs + 15 * 60 * 1000).toISOString()
+            // Janela de deduplicação ±48h (mesmo paciente/telefone), preservando sempre o registro com external_id
+            var windowStartIso = new Date(targetDateMs - 48 * 60 * 60 * 1000).toISOString()
+            var windowEndIso = new Date(targetDateMs + 48 * 60 * 60 * 1000).toISOString()
 
             var candidates = $app.findRecordsByFilter(
               'appointments',
               'starts_at >= {:wStart} && starts_at <= {:wEnd}',
               '-updated',
-              20,
+              50,
               0,
               { wStart: windowStartIso, wEnd: windowEndIso },
             )
 
             if (candidates && candidates.length > 0) {
               var normName = normalizeName(patientName)
+              var matchedCandidates = []
               for (var c = 0; c < candidates.length; c++) {
                 var cand = candidates[c]
                 var cPhoneDigits = cleanDigits(cand.getString('patient_phone'))
@@ -313,8 +315,39 @@ cronAdd('agenda_external_sync', '12,42 * * * *', () => {
                     cNormName.indexOf(normName) !== -1)
 
                 if (matchPhone || matchName) {
-                  existing = cand
-                  break
+                  matchedCandidates.push(cand)
+                }
+              }
+
+              if (matchedCandidates.length > 0) {
+                // Preferir candidato que já possui external_id correspondente
+                var exactExtMatch = null
+                for (var mi = 0; mi < matchedCandidates.length; mi++) {
+                  if (matchedCandidates[mi].getString('external_id') === extId) {
+                    exactExtMatch = matchedCandidates[mi]
+                    break
+                  }
+                }
+                existing = exactExtMatch || matchedCandidates[0]
+
+                // Se houver múltiplos candidatos duplicados na janela de 48h sem external_id, marcar como cancelado
+                for (var ci = 0; ci < matchedCandidates.length; ci++) {
+                  var otherCand = matchedCandidates[ci]
+                  if (
+                    otherCand.id !== existing.id &&
+                    !otherCand.getString('external_id') &&
+                    otherCand.getString('status') !== 'cancelado'
+                  ) {
+                    otherCand.set('status', 'cancelado')
+                    var oNotes = otherCand.getString('notes') || ''
+                    var dedupNote = 'Cancelado em favor do agendamento oficial (deduplicação ±48h)'
+                    if (oNotes.indexOf(dedupNote) === -1) {
+                      otherCand.set('notes', oNotes ? oNotes + ' - ' + dedupNote : dedupNote)
+                    }
+                    try {
+                      $app.saveNoValidate(otherCand)
+                    } catch (_) {}
+                  }
                 }
               }
             }
@@ -815,20 +848,22 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
         if (!existing && startsAtIso) {
           try {
             var targetDateMs = new Date(startsAtIso).getTime()
-            var windowStartIso = new Date(targetDateMs - 15 * 60 * 1000).toISOString()
-            var windowEndIso = new Date(targetDateMs + 15 * 60 * 1000).toISOString()
+            // Janela de deduplicação ±48h (mesmo paciente/telefone), preservando sempre o registro com external_id
+            var windowStartIso = new Date(targetDateMs - 48 * 60 * 60 * 1000).toISOString()
+            var windowEndIso = new Date(targetDateMs + 48 * 60 * 60 * 1000).toISOString()
 
             var candidates = $app.findRecordsByFilter(
               'appointments',
               'starts_at >= {:wStart} && starts_at <= {:wEnd}',
               '-updated',
-              20,
+              50,
               0,
               { wStart: windowStartIso, wEnd: windowEndIso },
             )
 
             if (candidates && candidates.length > 0) {
               var normName = normalizeName(patientName)
+              var matchedCandidates = []
               for (var c = 0; c < candidates.length; c++) {
                 var cand = candidates[c]
                 var cPhoneDigits = cleanDigits(cand.getString('patient_phone'))
@@ -844,8 +879,39 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
                     cNormName.indexOf(normName) !== -1)
 
                 if (matchPhone || matchName) {
-                  existing = cand
-                  break
+                  matchedCandidates.push(cand)
+                }
+              }
+
+              if (matchedCandidates.length > 0) {
+                // Preferir candidato que já possui external_id correspondente
+                var exactExtMatch = null
+                for (var mi = 0; mi < matchedCandidates.length; mi++) {
+                  if (matchedCandidates[mi].getString('external_id') === extId) {
+                    exactExtMatch = matchedCandidates[mi]
+                    break
+                  }
+                }
+                existing = exactExtMatch || matchedCandidates[0]
+
+                // Se houver múltiplos candidatos duplicados na janela de 48h sem external_id, marcar como cancelado
+                for (var ci = 0; ci < matchedCandidates.length; ci++) {
+                  var otherCand = matchedCandidates[ci]
+                  if (
+                    otherCand.id !== existing.id &&
+                    !otherCand.getString('external_id') &&
+                    otherCand.getString('status') !== 'cancelado'
+                  ) {
+                    otherCand.set('status', 'cancelado')
+                    var oNotes = otherCand.getString('notes') || ''
+                    var dedupNote = 'Cancelado em favor do agendamento oficial (deduplicação ±48h)'
+                    if (oNotes.indexOf(dedupNote) === -1) {
+                      otherCand.set('notes', oNotes ? oNotes + ' - ' + dedupNote : dedupNote)
+                    }
+                    try {
+                      $app.saveNoValidate(otherCand)
+                    } catch (_) {}
+                  }
                 }
               }
             }

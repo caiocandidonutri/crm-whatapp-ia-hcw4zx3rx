@@ -128,23 +128,43 @@ routerAdd('GET', '/backend/v1/agenda/reprocessar-pendentes', (e) => {
           pushMethod = 'PATCH'
         }
 
-        var pushRes = $http.send({
-          url: pushUrl,
-          method: pushMethod,
-          headers: pushHeaders,
-          body: JSON.stringify(payload),
-          timeout: 4,
-        })
+        var pushRes = null
+        var maxRetries = 2
+        for (var attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            pushRes = $http.send({
+              url: pushUrl,
+              method: pushMethod,
+              headers: pushHeaders,
+              body: JSON.stringify(payload),
+              timeout: 60,
+            })
+            if (pushRes && (pushRes.statusCode < 500 || attempt === maxRetries)) {
+              break
+            }
+          } catch (netErr) {
+            if (attempt === maxRetries) throw netErr
+          }
+        }
 
-        if (pushMethod === 'PATCH' && pushRes.statusCode === 404) {
+        if (pushMethod === 'PATCH' && pushRes && pushRes.statusCode === 404) {
           $app.logger().info('reprocessar_pendentes: PATCH 404 fallback to POST', 'id', apptId)
-          pushRes = $http.send({
-            url: baseUrl + '/backend/v1/crm-agendamento',
-            method: 'POST',
-            headers: pushHeaders,
-            body: JSON.stringify(payload),
-            timeout: 4,
-          })
+          for (var postAttempt = 0; postAttempt <= maxRetries; postAttempt++) {
+            try {
+              pushRes = $http.send({
+                url: baseUrl + '/backend/v1/crm-agendamento',
+                method: 'POST',
+                headers: pushHeaders,
+                body: JSON.stringify(payload),
+                timeout: 60,
+              })
+              if (pushRes && (pushRes.statusCode < 500 || postAttempt === maxRetries)) {
+                break
+              }
+            } catch (postNetErr) {
+              if (postAttempt === maxRetries) throw postNetErr
+            }
+          }
         }
 
         if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {
@@ -320,24 +340,44 @@ routerAdd('POST', '/backend/v1/agenda/reprocessar-pendentes', (e) => {
           pushMethod = 'PATCH'
         }
 
-        var pushRes = $http.send({
-          url: pushUrl,
-          method: pushMethod,
-          headers: pushHeaders,
-          body: JSON.stringify(payload),
-          timeout: 4,
-        })
+        var pushRes = null
+        var maxRetries = 2
+        for (var attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            pushRes = $http.send({
+              url: pushUrl,
+              method: pushMethod,
+              headers: pushHeaders,
+              body: JSON.stringify(payload),
+              timeout: 60,
+            })
+            if (pushRes && (pushRes.statusCode < 500 || attempt === maxRetries)) {
+              break
+            }
+          } catch (netErr) {
+            if (attempt === maxRetries) throw netErr
+          }
+        }
 
         // Se PATCH falhar com 404, o registro externo não existe: fazer POST para criar
-        if (pushMethod === 'PATCH' && pushRes.statusCode === 404) {
+        if (pushMethod === 'PATCH' && pushRes && pushRes.statusCode === 404) {
           $app.logger().info('reprocessar_pendentes: PATCH 404 fallback to POST', 'id', apptId)
-          pushRes = $http.send({
-            url: baseUrl + '/backend/v1/crm-agendamento',
-            method: 'POST',
-            headers: pushHeaders,
-            body: JSON.stringify(payload),
-            timeout: 4,
-          })
+          for (var postAttempt = 0; postAttempt <= maxRetries; postAttempt++) {
+            try {
+              pushRes = $http.send({
+                url: baseUrl + '/backend/v1/crm-agendamento',
+                method: 'POST',
+                headers: pushHeaders,
+                body: JSON.stringify(payload),
+                timeout: 60,
+              })
+              if (pushRes && (pushRes.statusCode < 500 || postAttempt === maxRetries)) {
+                break
+              }
+            } catch (postNetErr) {
+              if (postAttempt === maxRetries) throw postNetErr
+            }
+          }
         }
 
         if (pushRes.statusCode >= 200 && pushRes.statusCode < 300) {

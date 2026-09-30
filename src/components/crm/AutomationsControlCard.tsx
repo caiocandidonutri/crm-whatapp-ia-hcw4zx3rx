@@ -213,7 +213,10 @@ export function AutomationsControlCard({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-foreground text-sm">
-                        {item.patient_name || item.remote_jid.split('@')[0]}
+                        {item.patient_name ||
+                          (typeof item.remote_jid === 'string' && item.remote_jid.includes('@')
+                            ? item.remote_jid.split('@')[0]
+                            : item.remote_jid || 'Paciente')}
                       </span>
                       <Badge variant="outline" className="text-[10px] font-normal py-0">
                         {formatAuditType(item.automation_type)}

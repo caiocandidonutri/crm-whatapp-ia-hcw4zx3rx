@@ -52,6 +52,7 @@ import {
   formatRecentActivityDate,
   formatBrazilianDate,
   getDayKeySaoPaulo,
+  parseToDate,
 } from '@/lib/datetime'
 
 export default function Home() {
@@ -263,14 +264,16 @@ export default function Home() {
     },
   ]
 
-  // Conversas recentes do WhatsApp
+  // Conversas recentes do WhatsApp (com blindagem defensiva para array vazio/nulo)
   const recentChats = useMemo(() => {
-    return [...conversations]
+    const list = Array.isArray(conversations) ? conversations : []
+    return [...list]
+      .filter((c): c is NonNullable<typeof c> => Boolean(c && typeof c === 'object'))
       .sort((a, b) => {
         const aTs =
-          a.last_message_timestamp && a.last_message_timestamp > 0 ? a.last_message_timestamp : 0
+          a?.last_message_timestamp && a.last_message_timestamp > 0 ? a.last_message_timestamp : 0
         const bTs =
-          b.last_message_timestamp && b.last_message_timestamp > 0 ? b.last_message_timestamp : 0
+          b?.last_message_timestamp && b.last_message_timestamp > 0 ? b.last_message_timestamp : 0
         return bTs - aTs
       })
       .slice(0, 5)
@@ -284,8 +287,14 @@ export default function Home() {
   }
 
   const formattedDate = (() => {
-    const s = formatLongDateSaoPaulo(new Date(), false)
-    return s.charAt(0).toUpperCase() + s.slice(1)
+    try {
+      const todayDate = parseToDate(new Date()) || new Date()
+      const s = formatLongDateSaoPaulo(todayDate, false) || ''
+      if (!s) return 'Hoje'
+      return s.charAt(0).toUpperCase() + s.slice(1)
+    } catch {
+      return 'Hoje'
+    }
   })()
 
   const instanceStatus = instance?.status || 'disconnected'
@@ -328,8 +337,18 @@ export default function Home() {
     return Math.max(...totals, 1)
   }, [chartData])
 
-  // Dados do funil com total para cálculo percentual
-  const funnelStages = metrics?.funnel || []
+  // Dados do funil com total para cálculo percentual (com blindagens defensivas)
+  const funnelStages = useMemo(() => {
+    const list = metrics?.funnel
+    if (!Array.isArray(list)) return []
+    return list.map((stage) => ({
+      key: stage?.key || 'outro',
+      label: stage?.label || 'Estágio',
+      color: stage?.color || 'blue',
+      count: typeof stage?.count === 'number' && !isNaN(stage.count) ? stage.count : 0,
+    }))
+  }, [metrics?.funnel])
+
   const funnelTotalPatients = useMemo(() => {
     return funnelStages.reduce((acc, stage) => acc + (stage.count || 0), 0)
   }, [funnelStages])
@@ -528,7 +547,7 @@ export default function Home() {
                 }
               />
               <AvatarFallback className="bg-primary/5 text-primary font-serif font-bold text-xl md:text-2xl">
-                {typeof user?.name === 'string' && user.name.trim()
+                {typeof user?.name === 'string' && user.name.trim().length > 0
                   ? user.name.trim().charAt(0).toUpperCase()
                   : 'U'}
               </AvatarFallback>
@@ -539,7 +558,7 @@ export default function Home() {
               </span>
               <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold text-primary tracking-tight font-sans leading-tight md:leading-none truncate">
                 Olá,{' '}
-                {typeof user?.name === 'string' && user.name.trim()
+                {typeof user?.name === 'string' && user.name.trim().length > 0
                   ? user.name.trim().split(' ')[0]
                   : 'Doutor(a)'}
               </h1>
@@ -575,7 +594,9 @@ export default function Home() {
                       }
                     />
                     <AvatarFallback className="bg-primary/5 text-primary text-xs font-bold">
-                      {member?.name?.charAt(0)?.toUpperCase() || 'U'}
+                      {typeof member?.name === 'string' && member.name.trim()
+                        ? member.name.trim().charAt(0).toUpperCase()
+                        : 'U'}
                     </AvatarFallback>
                   </Avatar>
                 ))}{' '}
@@ -1334,14 +1355,22 @@ export default function Home() {
                             <div className="font-bold text-sm mb-1 text-primary capitalize">
                               {(() => {
                                 try {
-                                  if (d.date)
-                                    return formatLongDateSaoPaulo(d.date + 'T12:00:00Z', false)
-                                  if (d.dayStartSec)
-                                    return formatLongDateSaoPaulo(d.dayStartSec * 1000, false)
+                                  const dateVal = d?.date
+                                    ? `${d.date}T12:00:00Z`
+                                    : d?.dayStartSec
+                                      ? d.dayStartSec * 1000
+                                      : null
+                                  if (dateVal) {
+                                    const parsed = parseToDate(dateVal)
+                                    if (parsed) {
+                                      const formatted = formatLongDateSaoPaulo(parsed, false)
+                                      if (formatted) return formatted
+                                    }
+                                  }
                                 } catch {
                                   /* intentionally ignored */
                                 }
-                                return d.label || 'Dia'
+                                return d?.label || 'Dia'
                               })()}
                             </div>
                             <div className="flex items-center justify-between gap-4">
@@ -1594,7 +1623,7 @@ export default function Home() {
                     <Avatar className="h-10 w-10 border border-border/50 shadow-sm shrink-0">
                       <AvatarImage src={chat.avatar_url || ''} />
                       <AvatarFallback className="bg-primary/5 text-primary font-serif font-bold text-lg">
-                        {typeof title === 'string' && title.trim()
+                        {typeof title === 'string' && title.trim().length > 0
                           ? title.trim().charAt(0).toUpperCase()
                           : '?'}
                       </AvatarFallback>

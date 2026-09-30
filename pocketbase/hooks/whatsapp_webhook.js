@@ -157,9 +157,9 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
               }
               changed = true
             }
-            // contact_name: primeiro pushName não vazio em conv individual (apenas se NÃO for fromMe e NÃO for nome inválido/da clínica)
+            // contact_name: nunca sobrescrever contact_name já preenchido (se preenchido e válido, preservar)
             if (!agg.isGroup && m.pushName && !m.fromMe && !isInvalidOrClinicPushName(m.pushName)) {
-              const currentName = convRecord.getString('contact_name') || ''
+              const currentName = (convRecord.getString('contact_name') || '').trim()
               if (!currentName || isInvalidOrClinicPushName(currentName)) {
                 convRecord.set('contact_name', m.pushName)
                 changed = true
@@ -178,7 +178,7 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       convUpdates.clear()
     }
 
-    // Helper para detectar nomes inválidos, genéricos ou pertencentes à própria clínica
+    // Helper para detectar nomes inválidos, genéricos, razão social ou pertencentes à própria clínica
     const isInvalidOrClinicPushName = (name) => {
       if (!name) return true
       const trimmed = String(name).trim()
@@ -203,6 +203,15 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         'desconhecido',
       ]
       if (blocked.indexOf(lower) !== -1) return true
+
+      // Rejeita termos corporativos / razão social (ex: "Engenharia", "Ltda", "MEI", etc.)
+      if (
+        /\b(engenharia|ltda|mei|eireli|s\/a|s\.a\.|advocacia|escrit[oó]rio|contabilidade|im[oó]veis|imobili[aá]ria|consultoria|servi[çc]os|com[eé]rcio|distribuidora|m[eé]dica|cl[ií]nica)\b/i.test(
+          lower,
+        )
+      ) {
+        return true
+      }
 
       // Rejeita variações do nome da clínica / assistente
       if (
@@ -232,14 +241,15 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
           { inst: instName, jid: remoteJid, phone: remoteJid.split('@')[0] },
         )
         if (crmRec) {
-          const cName = crmRec.getString('contact_name') || ''
-          const pName = crmRec.getString('push_name') || ''
+          const cName = (crmRec.getString('contact_name') || '').trim()
+          const pName = (crmRec.getString('push_name') || '').trim()
           let crmDirty = false
+          // Nome oficial protegido: NUNCA sobrescrever contact_name já preenchido
           if (!cName || isInvalidOrClinicPushName(cName)) {
             crmRec.set('contact_name', newName)
             crmDirty = true
           }
-          if (!pName || isInvalidOrClinicPushName(pName)) {
+          if (!pName) {
             crmRec.set('push_name', newName)
             crmDirty = true
           }
@@ -1457,16 +1467,18 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
               // - "A IA aguarda todas as informações para que não ocorra erros na agenda"
               // - "caso já exista agendamento, atualizar em vez de duplicar"
 
-              // Se já temos um agendamento futuro para este paciente
+              // Se já temos um agendamento futuro para este paciente:
+              // Regra de negócio: confirmação do paciente seta status='aguardando' + last_interaction_type='confirmado_paciente'
+              // Push para agenda externa é acionado apenas na ação manual da Fabiana.
               if (futureAppointments && futureAppointments.length > 0) {
                 var curApp = futureAppointments[0]
-                curApp.set('status', 'confirmado')
+                curApp.set('status', 'aguardando')
                 curApp.set('last_interaction_type', 'confirmado_paciente')
                 $app.saveNoValidate(curApp)
                 $app
                   .logger()
                   .info(
-                    'webhook_appointment: confirmed existing appointment by patient',
+                    'webhook_appointment: confirmed existing appointment by patient (status=aguardando, confirmed_patient)',
                     'app_id',
                     curApp.id,
                   )
@@ -1751,12 +1763,12 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
                   appToSave.set('location', locInfo.location)
                   appToSave.set('starts_at', newStartsAtIso)
                   appToSave.set('ends_at', newEndsAtIso)
-                  appToSave.set('status', 'confirmado')
+                  appToSave.set('status', 'aguardando')
                   appToSave.set('appointment_type', 'Consulta')
                   appToSave.set('last_interaction_type', 'confirmado_paciente')
                   appToSave.set(
                     'notes',
-                    'Agendamento confirmado automaticamente pelo paciente no WhatsApp.',
+                    'Confirmação registrada pelo paciente no WhatsApp. Aguardando liberação manual da Fabiana.',
                   )
                   $app.save(appToSave)
 
