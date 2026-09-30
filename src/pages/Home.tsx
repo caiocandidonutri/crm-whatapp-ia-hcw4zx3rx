@@ -110,13 +110,21 @@ export default function Home() {
       }
       setError(null)
       try {
-        const [data, sStats] = await Promise.all([
+        const results = await Promise.allSettled([
           fetchHomeMetrics(signal, metrics || undefined),
           accountId ? getSatisfactionSummary(accountId) : Promise.resolve(null),
         ])
         if (signal?.aborted) return
-        setMetrics(data)
-        if (sStats) setSurveyStats(sStats)
+
+        const metricsResult = results[0]
+        const surveyResult = results[1]
+
+        if (metricsResult.status === 'fulfilled' && metricsResult.value) {
+          setMetrics(metricsResult.value)
+        }
+        if (surveyResult.status === 'fulfilled' && surveyResult.value) {
+          setSurveyStats(surveyResult.value)
+        }
         setSessionExpired(false)
       } catch (err: any) {
         if (err?.isAbort || err?.name === 'AbortError' || signal?.aborted) {

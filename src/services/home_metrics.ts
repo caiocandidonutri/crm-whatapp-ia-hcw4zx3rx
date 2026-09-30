@@ -142,6 +142,8 @@ export const fetchHomeMetrics = async (
   signal?: AbortSignal,
   fallback?: HomeMetricsData,
 ): Promise<HomeMetricsData> => {
+  const safeFallback: HomeMetricsData = fallback || DEFAULT_HOME_METRICS
+
   // Timeout de 8s se não houver signal externo fornecido
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let effectiveSignal = signal
@@ -159,19 +161,71 @@ export const fetchHomeMetrics = async (
       headers.Authorization = token
     }
 
-    return await pb.send<HomeMetricsData>('/backend/v1/home/metrics', {
+    const data = await pb.send<HomeMetricsData>('/backend/v1/home/metrics', {
       method: 'GET',
       headers,
       signal: effectiveSignal,
       requestKey: null,
     })
+
+    if (!data || typeof data !== 'object') {
+      return safeFallback
+    }
+
+    // Merge defensivo para garantir formato consistente mesmo com resposta parcial
+    return {
+      ...safeFallback,
+      ...data,
+      chart: Array.isArray(data.chart) ? data.chart : safeFallback.chart,
+      tasks: {
+        ...safeFallback.tasks,
+        ...(data.tasks || {}),
+      },
+      funnel: Array.isArray(data.funnel) ? data.funnel : safeFallback.funnel,
+      responseRate8h: {
+        ...safeFallback.responseRate8h,
+        ...(data.responseRate8h || {}),
+      },
+      audios: {
+        ...safeFallback.audios,
+        ...(data.audios || {}),
+      },
+      dailyUsage: {
+        ...safeFallback.dailyUsage,
+        ...(data.dailyUsage || {}),
+      },
+      careTasksByCategory: {
+        ...safeFallback.careTasksByCategory,
+        ...(data.careTasksByCategory || {}),
+      },
+      conversationsStats: {
+        ...safeFallback.conversationsStats,
+        ...(data.conversationsStats || {}),
+      },
+      patientRecall: {
+        ...safeFallback.patientRecall,
+        ...(data.patientRecall || {}),
+      },
+      care2Months: {
+        ...safeFallback.care2Months,
+        ...(data.care2Months || {}),
+      },
+    }
   } catch (err: any) {
     // Se o erro foi cancelamento/abort de requisição (ex.: desmontagem do componente ou autocancel),
     // ignora silenciosamente sem disparar log no console nem toast
     if (err?.isAbort || err?.name === 'AbortError' || effectiveSignal?.aborted) {
-      return fallback || DEFAULT_HOME_METRICS
+      return safeFallback
     }
-    throw err
+
+    // Em qualquer falha (502 Bad Gateway, timeout, rede, 500, etc.),
+    // NUNCA lança exceção para não derrubar a /home no ErrorBoundary.
+    // Retorna valores padrão seguros ou o fallback pré-existente.
+    console.warn(
+      '[fetchHomeMetrics] Falha ao buscar métricas agregadas da home (retornando fallback):',
+      err?.message || err,
+    )
+    return safeFallback
   } finally {
     if (timeoutId) {
       clearTimeout(timeoutId)
