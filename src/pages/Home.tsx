@@ -112,18 +112,25 @@ export default function Home() {
       try {
         const results = await Promise.allSettled([
           fetchHomeMetrics(signal, metrics || undefined),
-          accountId ? getSatisfactionSummary(accountId) : Promise.resolve(null),
+          accountId
+            ? getSatisfactionSummary(accountId, signal, surveyStats || undefined)
+            : Promise.resolve(null),
         ])
         if (signal?.aborted) return
 
         const metricsResult = results[0]
         const surveyResult = results[1]
 
-        if (metricsResult.status === 'fulfilled' && metricsResult.value) {
+        if (metricsResult?.status === 'fulfilled' && metricsResult.value) {
           setMetrics(metricsResult.value)
+        } else if (metricsResult?.status === 'rejected') {
+          console.warn('[Home] Erro em metricsResult de allSettled:', metricsResult.reason)
         }
-        if (surveyResult.status === 'fulfilled' && surveyResult.value) {
+
+        if (surveyResult?.status === 'fulfilled' && surveyResult.value) {
           setSurveyStats(surveyResult.value)
+        } else if (surveyResult?.status === 'rejected') {
+          console.warn('[Home] Erro em surveyResult de allSettled:', surveyResult.reason)
         }
         setSessionExpired(false)
       } catch (err: any) {
