@@ -10,11 +10,12 @@
  * LGPD ESTRITA (salvaguarda do Dr. Caio, 05/10):
  * - Contatos: apenas iniciais do nome + últimos 4 dígitos do telefone.
  * - Mensagens: NENHUM texto sai do CRM (nem da equipe). Apenas padrões
- *   agregados: histograma de dia da semana/hora, tipos de mensagem e
- *   faixa de tamanho médio.
+ *   agregados (dia/hora/tipo/tamanho) e, desde a v3, METADADOS por contato
+ *   aprovados pelo Dr. Caio (amostra de 05/10): last_inbound_at,
+ *   inbound_count_90d, outbound_count_90d. Sem conteúdo, sem nomes.
  * - Nunca envia: CPF, endereço, dados clínicos, textos de conversas.
- * - Histórico: v0.0.143 enviava conteúdo das mensagens da equipe;
- *   REMOVIDO nesta versão por ordem do Dr. Caio (salvaguarda 2).
+ * - Histórico: v0.0.143 enviava conteúdo das mensagens da equipe; REMOVIDO
+ *   na v2 (0.0.145) por ordem do Dr. Caio. v3 = + metadados aprovados.
  *
  * Respeita o kill-switch global (care_alert_settings.global_automations_paused).
  */
@@ -164,6 +165,65 @@ cronAdd('cron_mentor_export', '3 12 * * *', () => {
       $app.logger().warn('cron_mentor_export: aggregates failed', 'error', String(errM))
     }
 
+    // ── 3.5 METADADOS DE ENGAJAMENTO POR CONTATO (v3 — amostra aprovada
+    //      pelo Dr. Caio em 05/10; sem conteúdo, apenas timestamps/contagens) ──
+    var metaByJid = {}
+    var metaScanned = 0
+    try {
+      var cutoff90 = Math.floor(Date.now() / 1000) - 90 * 86400
+      var page = 0
+      while (page < 20) {
+        var batch = $app.findRecordsByFilter(
+          'whatsapp_messages',
+          'timestamp > {:c90}',
+          '-timestamp',
+          500,
+          page * 500,
+          { c90: cutoff90 },
+        )
+        if (!batch || batch.length === 0) break
+        for (var b = 0; b < batch.length; b++) {
+          var mb = batch[b]
+          var mjid = mb.getString('remote_jid') || ''
+          if (!mjid) continue
+          if (!metaByJid[mjid]) metaByJid[mjid] = { inCount: 0, outCount: 0, lastInTs: 0 }
+          var mts = mb.getNumber('timestamp') || 0
+          if (mb.getBool('from_me')) {
+            metaByJid[mjid].outCount++
+          } else {
+            metaByJid[mjid].inCount++
+            if (mts > metaByJid[mjid].lastInTs) metaByJid[mjid].lastInTs = mts
+          }
+          metaScanned++
+        }
+        if (batch.length < 500) break
+        page++
+      }
+    } catch (errMeta) {
+      $app.logger().warn('cron_mentor_export: metadata scan failed', 'error', String(errMeta))
+    }
+
+    // Anexar metadados aos contatos (por JID exato)
+    try {
+      var contacts = $app.findRecordsByFilter('crm_contacts', 'id != ""', '-updated', 1000, 0)
+      var byIdx = {}
+      for (var k = 0; k < contacts.length; k++) byIdx[contacts[k].id] = k
+      var c2 = $app.findRecordsByFilter('crm_contacts', 'id != ""', '-updated', 1000, 0)
+      for (var k2 = 0; k2 < c2.length; k2++) {
+        var cc = c2[k2]
+        var jidFull = cc.getString('jid') || ''
+        var meta = metaByJid[jidFull]
+        if (!meta) continue
+        var out = contactsOut[byIdx[cc.id]]
+        if (!out) continue
+        out.last_inbound_at = meta.lastInTs > 0 ? new Date(meta.lastInTs * 1000).toISOString() : ''
+        out.inbound_count_90d = meta.inCount
+        out.outbound_count_90d = meta.outCount
+      }
+    } catch (errAttach) {
+      $app.logger().warn('cron_mentor_export: metadata attach failed', 'error', String(errAttach))
+    }
+
     // ── 4. REGRAS DE FOLLOW-UP ──────────────────────────────────────────
     var rulesOut = []
     try {
@@ -190,10 +250,12 @@ cronAdd('cron_mentor_export', '3 12 * * *', () => {
       type: 'crm_export',
       generated_at: new Date().toISOString(),
       source: 'crm-drcaio-43991',
+      schema: 'v3-lgpd-estrita',
       counts: {
         contacts: contactsOut.length,
         appointments: apptsOut.length,
         message_patterns: msgAgg.total,
+        metadata_messages_scanned: metaScanned,
         followup_rules: rulesOut.length,
       },
       contacts: contactsOut,
