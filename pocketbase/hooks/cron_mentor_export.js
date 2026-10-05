@@ -7,19 +7,23 @@
  * Autorização: Dr. Caio Cândido (05/10/2026) — base do ALERTA DIÁRIO,
  * relatório de vazamentos e "Manual da Fabiana" (transição 90 dias).
  *
- * LGPD (regra do projeto): anonimiza na ORIGEM.
+ * LGPD ESTRITA (salvaguarda do Dr. Caio, 05/10):
  * - Contatos: apenas iniciais do nome + últimos 4 dígitos do telefone.
- * - Mensagens da secretária (from_me=true): conteúdo preservado (análise de
- *   tom para o Manual), JID/telefone mascarado para os 4 dígitos finais.
- * - Nunca envia: CPF, endereço, dados clínicos, conversas de pacientes
- *   (apenas mensagens internas da equipe).
+ * - Mensagens: NENHUM texto sai do CRM (nem da equipe). Apenas padrões
+ *   agregados: histograma de dia da semana/hora, tipos de mensagem e
+ *   faixa de tamanho médio.
+ * - Nunca envia: CPF, endereço, dados clínicos, textos de conversas.
+ * - Histórico: v0.0.143 enviava conteúdo das mensagens da equipe;
+ *   REMOVIDO nesta versão por ordem do Dr. Caio (salvaguarda 2).
  *
  * Respeita o kill-switch global (care_alert_settings.global_automations_paused).
  */
 
 cronAdd('cron_mentor_export', '3 12 * * *', () => {
   try {
-    // KILL SWITCH GLOBAL
+    // KILL SWITCH GLOBAL — primeira instrução: se qualquer registro de
+    // care_alert_settings estiver com global_automations_paused = true,
+    // a exportação NÃO roda (mesma trava dos demais crons do sistema).
     try {
       var pausedRec = $app.findFirstRecordByFilter(
         'care_alert_settings',
@@ -120,29 +124,44 @@ cronAdd('cron_mentor_export', '3 12 * * *', () => {
       $app.logger().warn('cron_mentor_export: appointments failed', 'error', String(errA))
     }
 
-    // ── 3. MENSAGENS DA EQUIPE (from_me=true, últimas 200) ──────────────
-    var msgsOut = []
+    // ── 3. PADRÕES AGREGADOS DAS MENSAGENS (LGPD ESTRITA: nenhum texto sai) ──
+    var msgAgg = {
+      total: 0,
+      by_weekday: [0, 0, 0, 0, 0, 0, 0],
+      by_hour: {},
+      by_type: {},
+      avg_length_bucket: '',
+    }
     try {
       var msgs = $app.findRecordsByFilter(
         'whatsapp_messages',
         'from_me = true',
         '-timestamp',
-        200,
+        500,
         0,
       )
+      var sumLen = 0
       for (var m = 0; m < msgs.length; m++) {
         var msg = msgs[m]
-        var content = msg.getString('content') || ''
-        if (content.length > 500) content = content.substring(0, 500)
-        msgsOut.push({
-          jid_masked: maskJid(msg.getString('remote_jid') || ''),
-          content: content,
-          timestamp: msg.getNumber('timestamp') || 0,
-          instance_name: msg.getString('instance_name') || '',
-        })
+        var ts = msg.getNumber('timestamp') || 0
+        if (ts > 0) {
+          var d = new Date(ts * 1000 - 3 * 3600 * 1000) // Brasília (UTC-3)
+          msgAgg.by_weekday[d.getUTCDay()] = (msgAgg.by_weekday[d.getUTCDay()] || 0) + 1
+          var hh = ('0' + d.getUTCHours()).slice(-2)
+          msgAgg.by_hour[hh] = (msgAgg.by_hour[hh] || 0) + 1
+        }
+        var mtype = msg.getString('message_type') || 'desconhecido'
+        msgAgg.by_type[mtype] = (msgAgg.by_type[mtype] || 0) + 1
+        sumLen += (msg.getString('content') || '').length
+        msgAgg.total++
+      }
+      if (msgAgg.total > 0) {
+        var avg = Math.round(sumLen / msgAgg.total)
+        msgAgg.avg_length_bucket =
+          avg < 80 ? '<80' : avg < 200 ? '80-200' : avg < 400 ? '200-400' : '>400'
       }
     } catch (errM) {
-      $app.logger().warn('cron_mentor_export: messages failed', 'error', String(errM))
+      $app.logger().warn('cron_mentor_export: aggregates failed', 'error', String(errM))
     }
 
     // ── 4. REGRAS DE FOLLOW-UP ──────────────────────────────────────────
@@ -174,12 +193,12 @@ cronAdd('cron_mentor_export', '3 12 * * *', () => {
       counts: {
         contacts: contactsOut.length,
         appointments: apptsOut.length,
-        secretary_messages: msgsOut.length,
+        message_patterns: msgAgg.total,
         followup_rules: rulesOut.length,
       },
       contacts: contactsOut,
       appointments: apptsOut,
-      secretary_messages: msgsOut,
+      message_patterns: msgAgg,
       followup_rules: rulesOut,
     }
 
