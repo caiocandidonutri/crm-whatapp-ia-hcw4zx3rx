@@ -12,7 +12,9 @@
  * - Mensagens: NENHUM texto sai do CRM (nem da equipe). Apenas padrões
  *   agregados (dia/hora/tipo/tamanho) e, desde a v3, METADADOS por contato
  *   aprovados pelo Dr. Caio (amostra de 05/10): last_inbound_at,
- *   inbound_count_90d, outbound_count_90d. Sem conteúdo, sem nomes.
+ *   inbound_count_90d, outbound_count_90d. Sem conteúdo.
+ * - v4 (05/10, pedido do Dr. Caio): chave do contato = PRIMEIRO NOME +
+ *   telefone mascarado (ex.: "Alinne-*****6130") para leitura visual fácil.
  * - Nunca envia: CPF, endereço, dados clínicos, textos de conversas.
  * - Histórico: v0.0.143 enviava conteúdo das mensagens da equipe; REMOVIDO
  *   na v2 (0.0.145) por ordem do Dr. Caio. v3 = + metadados aprovados.
@@ -39,14 +41,10 @@ cronAdd('cron_mentor_export', '3 12 * * *', () => {
     var WEBHOOK_URL =
       'https://maestro.adapta.one/webhooks/generic/e7d91885cd5ab622517a1440271160be4a65aaed67c5769b4d7898685ca7f31c?secret=22599790806c950800e685dc851a4897c050b0af17e933f0c03e64b1e9c71d4a'
 
-    function initials(name) {
+    function firstName(name) {
       if (!name) return 'N.N.'
-      var parts = String(name).trim().split(/\s+/)
-      var out = ''
-      for (var i = 0; i < parts.length && i < 2; i++) {
-        if (parts[i].length > 0) out += parts[i].charAt(0).toUpperCase()
-      }
-      return out || 'N.N.'
+      var p = String(name).trim().split(/\s+/)[0]
+      return p || 'N.N.'
     }
 
     function maskPhone(val) {
@@ -82,7 +80,7 @@ cronAdd('cron_mentor_export', '3 12 * * *', () => {
         var suggested = c.getString('ai_suggested_action') || ''
         if (suggested.length > 120) suggested = suggested.substring(0, 120)
         contactsOut.push({
-          key: initials(name) + '-' + phone,
+          key: firstName(name) + '-' + phone,
           stage: c.getString('stage') || '',
           role: c.getString('role') || '',
           is_patient: c.getBool('is_patient'),
@@ -112,7 +110,7 @@ cronAdd('cron_mentor_export', '3 12 * * *', () => {
           var pName = pRec.getString('contact_name') || pRec.getString('push_name') || ''
           var pPhone = maskPhone(pRec.getString('phone') || '')
           if (!pPhone) pPhone = maskJid(pRec.getString('jid') || '')
-          pKey = initials(pName) + '-' + pPhone
+          pKey = firstName(pName) + '-' + pPhone
         } catch (_) {}
         apptsOut.push({
           id: ap.id,
