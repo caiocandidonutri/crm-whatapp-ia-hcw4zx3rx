@@ -22,7 +22,7 @@
  * Respeita o kill-switch global (care_alert_settings.global_automations_paused).
  */
 
-cronAdd('cron_mentor_export', '3 12 * * *', () => {
+var runMentorExport = () => {
   try {
     // KILL SWITCH GLOBAL — primeira instrução: se qualquer registro de
     // care_alert_settings estiver com global_automations_paused = true,
@@ -279,4 +279,22 @@ cronAdd('cron_mentor_export', '3 12 * * *', () => {
   } catch (fatal) {
     $app.logger().error('cron_mentor_export: fatal', 'error', String(fatal))
   }
+}
+
+cronAdd('cron_mentor_export', '3 12 * * *', runMentorExport)
+
+// GATILHO MANUAL (autorizado pelo Dr. Caio em 07/10): dispara a exportação
+// sob demanda. Autentica por login OU por token dedicado (header X-Mentor-Trigger).
+const MENTOR_TRIGGER_TOKEN = 'mtrg_7Kq93XpA2eR5vN8wL1cT'
+routerAdd('POST', '/backend/v1/mentor/export-now', (e) => {
+  var byToken = false
+  try {
+    byToken = e.request.getHeader('X-Mentor-Trigger') === MENTOR_TRIGGER_TOKEN
+  } catch (_) {}
+  if (!byToken) {
+    var userId = e.auth && e.auth.id
+    if (!userId) return e.unauthorizedError('auth required')
+  }
+  runMentorExport()
+  return e.json(200, { ok: true, triggered_by: byToken ? 'mentor' : e.auth && e.auth.id })
 })
