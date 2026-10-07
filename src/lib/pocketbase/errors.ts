@@ -20,31 +20,21 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError) {
+    return error.status === 0 || error.isAbort === true
+  }
+  if (error instanceof TypeError && /failed to fetch|network/i.test(error.message)) {
+    return true
+  }
+  return false
+}
+
 export function getErrorMessage(error: unknown): string {
   if (!(error instanceof ClientResponseError)) {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
-}
-
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof ClientResponseError) {
-    return (
-      error.status === 0 ||
-      error.status === 502 ||
-      error.status === 503 ||
-      error.status === 504 ||
-      error.isAbort === true ||
-      /timeout|failed to fetch|network|gateway|connection/i.test(error.message || '')
-    )
-  }
-  if (error instanceof Error) {
-    return (
-      error.name === 'AbortError' ||
-      /failed to fetch|network|timeout|gateway|connection refused/i.test(error.message || '')
-    )
-  }
-  return false
 }
