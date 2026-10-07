@@ -508,3 +508,39 @@ routerAdd('POST', '/backend/v1/mentor/export-now', (e) => {
     return e.json(500, { ok: false, error: String(fatal2) })
   }
 })
+
+// CONTROLE DE AUTOMAÇÕES (autorizado pelo Dr. Caio em 07/10: "entrar lá dentro
+// e fazer as mudanças necessárias para a integração"). Equivalente ao botão
+// "Ativar envios"/"Pausar envios" do app. Protegido pelo mesmo token.
+routerAdd('POST', '/backend/v1/mentor/set-automations', (e) => {
+  try {
+    var TOK = 'mtrg_7Kq93XpA2eR5vN8wL1cT'
+    var ok3 = false
+    try {
+      var h3 = e.request.getHeader('X-Mentor-Trigger') || ''
+      if (h3 === TOK) ok3 = true
+    } catch (_) {}
+    if (!ok3) {
+      try {
+        var q3 = e.request.url.query().get('token') || ''
+        if (q3 === TOK) ok3 = true
+      } catch (_) {}
+    }
+    if (!ok3) return e.unauthorizedError('auth required')
+
+    var desired = (e.request.url.query().get('paused') || 'false') === 'true'
+    var settings = $app.findRecordsByFilter('care_alert_settings', 'id != ""', 'created', 50, 0)
+    var changed = 0
+    for (var s3 = 0; s3 < settings.length; s3++) {
+      var st3 = settings[s3]
+      if (st3.getBool('global_automations_paused') === desired) continue
+      st3.set('global_automations_paused', desired)
+      $app.save(st3)
+      changed++
+    }
+    $app.logger().info('mentor_set_automations', 'paused', desired, 'changed', changed)
+    return e.json(200, { ok: true, paused: desired, records_changed: changed })
+  } catch (fatal3) {
+    return e.json(500, { ok: false, error: String(fatal3) })
+  }
+})
