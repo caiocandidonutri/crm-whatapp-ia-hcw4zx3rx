@@ -270,8 +270,15 @@ routerAdd('POST', '/backend/v1/mentor/export-now', (e) => {
     var MENTOR_TRIGGER_TOKEN = 'mtrg_7Kq93XpA2eR5vN8wL1cT'
     var byToken = false
     try {
-      byToken = e.request.getHeader('X-Mentor-Trigger') === MENTOR_TRIGGER_TOKEN
+      var hdr = e.request.getHeader('X-Mentor-Trigger') || ''
+      if (hdr === MENTOR_TRIGGER_TOKEN) byToken = true
     } catch (_) {}
+    if (!byToken) {
+      try {
+        var q = e.request.url.query().get('token') || ''
+        if (q === MENTOR_TRIGGER_TOKEN) byToken = true
+      } catch (_) {}
+    }
     if (!byToken) {
       var userId = e.auth && e.auth.id
       if (!userId) return e.unauthorizedError('auth required')
