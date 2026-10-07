@@ -8,7 +8,7 @@ import pb from '@/lib/pocketbase/client'
 import { CrmContact, Appointment } from '@/types/models'
 import { listAppointments } from '@/services/appointments'
 import { ptBR } from 'date-fns/locale'
-import { safeFormatDate } from '@/lib/datetime'
+import { safeFormatDate, formatBrazilianDate } from '@/lib/datetime'
 
 interface PatientCareInfoProps {
   contact: CrmContact
@@ -208,9 +208,7 @@ export function PatientCareInfo({ contact }: PatientCareInfoProps) {
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">Última consulta</p>
             <p className="text-sm font-semibold text-foreground">
-              {contact.converted_at
-                ? new Date(contact.converted_at).toLocaleDateString('pt-BR')
-                : '—'}
+              {formatBrazilianDate(contact.converted_at) || '—'}
             </p>
           </div>
         </div>

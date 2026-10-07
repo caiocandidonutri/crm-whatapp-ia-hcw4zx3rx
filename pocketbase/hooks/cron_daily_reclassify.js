@@ -78,7 +78,14 @@ cronAdd('daily_reclassify', '17 11 * * *', () => {
     var threeMonthsAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
 
     function checkPatientAgendaStatus(contactRec) {
-      if (!contactRec) return { hasActiveFuture: false, hasRecentRealizado: false }
+      if (!contactRec) {
+        return {
+          hasActiveFuture: false,
+          hasRecentRealizado: false,
+          hasConfirmedOrRealizado: false,
+          latestConsultationDate: '',
+        }
+      }
       var cId = contactRec.id
       var cPhone = (contactRec.getString('phone') || '').replace(/\D/g, '')
       var cJid = (contactRec.getString('jid') || '').replace(/\D/g, '')
@@ -102,6 +109,8 @@ cronAdd('daily_reclassify', '17 11 * * *', () => {
 
       var hasActiveFuture = false
       var hasRecentRealizado = false
+      var hasConfirmedOrRealizado = false
+      var latestConsultationDate = ''
 
       for (var ai = 0; ai < appts.length; ai++) {
         var ap = appts[ai]
@@ -109,6 +118,12 @@ cronAdd('daily_reclassify', '17 11 * * *', () => {
         var sAt = ap.getString('starts_at')
         if (!sAt) continue
 
+        if (st === 'confirmado' || st === 'realizado') {
+          hasConfirmedOrRealizado = true
+          if (!latestConsultationDate || sAt > latestConsultationDate) {
+            latestConsultationDate = sAt
+          }
+        }
         if (sAt > nowIso && (st === 'agendado' || st === 'confirmado')) {
           hasActiveFuture = true
         }
@@ -117,7 +132,12 @@ cronAdd('daily_reclassify', '17 11 * * *', () => {
         }
       }
 
-      return { hasActiveFuture: hasActiveFuture, hasRecentRealizado: hasRecentRealizado }
+      return {
+        hasActiveFuture: hasActiveFuture,
+        hasRecentRealizado: hasRecentRealizado,
+        hasConfirmedOrRealizado: hasConfirmedOrRealizado,
+        latestConsultationDate: latestConsultationDate,
+      }
     }
 
     for (var a = 0; a < accounts.length; a++) {
@@ -308,7 +328,20 @@ cronAdd('daily_reclassify', '17 11 * * *', () => {
                   var conversionDetected = aiResult.conversion_detected === true
                   var isPatient = aiResult.is_patient === true
 
-                  if (conversionDetected || isPatient) {
+                  var contactRole = contact.getString('role') || ''
+                  var isStaff =
+                    contactRole === 'nao_paciente' ||
+                    (contact.getString('jid') || '').indexOf('553599288027') >= 0 ||
+                    (contact.getString('jid') || '').indexOf('553599334379') >= 0 ||
+                    (contact.getString('contact_name') || '').toLowerCase().indexOf('dr. caio') >=
+                      0 ||
+                    (contact.getString('contact_name') || '').toLowerCase().indexOf('secretaria') >=
+                      0
+
+                  if (isStaff) {
+                    contact.set('is_patient', false)
+                    contact.set('role', 'nao_paciente')
+                  } else if (conversionDetected || isPatient) {
                     if (!contact.getBool('is_patient')) contact.set('is_patient', true)
                     if (!contact.getString('converted_at')) {
                       contact.set('converted_at', new Date().toISOString().split('T')[0])
@@ -364,6 +397,29 @@ cronAdd('daily_reclassify', '17 11 * * *', () => {
         var careStatus = 'em_dia'
         var agendaInfo = checkPatientAgendaStatus(contact)
         var hasAgendaCoverage = agendaInfo.hasActiveFuture || agendaInfo.hasRecentRealizado
+
+        // Regra de reclassificação de estágio baseada em agendamento
+        var contactRole = contact.getString('role') || ''
+        var isStaff =
+          contactRole === 'nao_paciente' ||
+          (contact.getString('jid') || '').indexOf('553599288027') >= 0 ||
+          (contact.getString('jid') || '').indexOf('553599334379') >= 0 ||
+          (contact.getString('contact_name') || '').toLowerCase().indexOf('dr. caio') >= 0 ||
+          (contact.getString('contact_name') || '').toLowerCase().indexOf('secretaria') >= 0
+
+        if (isStaff) {
+          contact.set('is_patient', false)
+          contact.set('role', 'nao_paciente')
+        } else if (agendaInfo.hasConfirmedOrRealizado) {
+          contact.set('stage', 'cliente')
+          contact.set('is_patient', true)
+          if (!contact.getString('converted_at') && agendaInfo.latestConsultationDate) {
+            contact.set(
+              'converted_at',
+              agendaInfo.latestConsultationDate.split('T')[0].split(' ')[0],
+            )
+          }
+        }
 
         if (contact.getBool('is_patient') && !hasAgendaCoverage) {
           var convertedAt = contact.getString('converted_at')

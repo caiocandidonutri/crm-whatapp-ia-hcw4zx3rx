@@ -69,6 +69,7 @@ import {
 import type { ImportConversasResult } from '@/services/crm_service'
 import { getDisplayName, isInvalidContactName } from '@/lib/whatsapp-mappers'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
+import { parseToDate } from '@/lib/datetime'
 import { CrmContact } from '@/types/models'
 import { CrmContactDetail } from '@/components/crm/CrmContactDetail'
 import { CrmCompaniesList } from '@/components/crm/CrmCompaniesList'
@@ -375,9 +376,12 @@ export default function CRM() {
         ? c.push_name
         : getDisplayName(undefined, c.jid)
 
-  const formatRelativeTime = (dateStr: string) => {
-    const d = new Date(dateStr)
-    const diff = Math.floor((new Date().getTime() - d.getTime()) / 1000)
+  const formatRelativeTime = (dateStr: string | null | undefined) => {
+    if (!dateStr) return '—'
+    const d = parseToDate(dateStr)
+    if (!d || isNaN(d.getTime())) return '—'
+    const diff = Math.floor((Date.now() - d.getTime()) / 1000)
+    if (diff < 0) return 'em breve'
     if (diff < 60) return 'agora'
     if (diff < 3600) return `Há ${Math.floor(diff / 60)}m`
     if (diff < 86400) return `Há ${Math.floor(diff / 3600)}h`
@@ -1123,7 +1127,11 @@ export default function CRM() {
                           )}
                           <div
                             className="flex items-center gap-1"
-                            title={new Date(contact.updated).toLocaleString('pt-BR')}
+                            title={
+                              parseToDate(contact.updated)
+                                ? parseToDate(contact.updated)!.toLocaleString('pt-BR')
+                                : '—'
+                            }
                           >
                             <Clock className="w-3 h-3" />
                             {formatRelativeTime(contact.updated)}

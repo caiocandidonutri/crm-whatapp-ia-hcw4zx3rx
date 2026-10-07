@@ -34,10 +34,14 @@ import { CATEGORY_COLOR_MAP } from '@/lib/colors'
 import { formatPhoneBR } from '@/hooks/use-crm'
 import { updateCrmContactStage } from '@/services/crm_service'
 import { toast } from 'sonner'
+import { parseToDate } from '@/lib/datetime'
 
-function relativeTime(dateStr: string) {
-  const d = new Date(dateStr)
+function relativeTime(dateStr: string | null | undefined) {
+  if (!dateStr) return '—'
+  const d = parseToDate(dateStr)
+  if (!d || isNaN(d.getTime())) return '—'
   const diff = Math.floor((Date.now() - d.getTime()) / 1000)
+  if (diff < 0) return 'em breve'
   if (diff < 60) return 'agora'
   if (diff < 3600) return `${Math.floor(diff / 60)}m`
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`
@@ -372,7 +376,11 @@ export function CrmPipelineBoard({
                             </button>
                             <span
                               className="flex items-center gap-1"
-                              title={new Date(contact.updated).toLocaleString('pt-BR')}
+                              title={
+                                parseToDate(contact.updated)
+                                  ? parseToDate(contact.updated)!.toLocaleString('pt-BR')
+                                  : '—'
+                              }
                             >
                               <Clock className="w-3 h-3" />
                               {relativeTime(contact.updated)}

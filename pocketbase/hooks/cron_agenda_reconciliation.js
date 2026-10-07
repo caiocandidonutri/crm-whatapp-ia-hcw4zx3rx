@@ -484,6 +484,63 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
       }
     }
 
+    // 5. Reconciliação pós-consulta automática (confirmado no passado -> realizado)
+    // Sem envio de mensagens (apenas mutação interna), respeitando kill-switch e Night Shield
+    var autoRealizadosCount = 0
+    function isNightShieldActive() {
+      var nMs = Date.now()
+      var spD = new Date(nMs - 3 * 3600 * 1000)
+      var hSp = spD.getUTCHours()
+      return hSp >= 21 || hSp < 7
+    }
+
+    if (!isNightShieldActive()) {
+      try {
+        var nowCutoffIso = new Date().toISOString()
+        var pastConfirmedAppts = $app.findRecordsByFilter(
+          'appointments',
+          'status = "confirmado" && ((ends_at != "" && ends_at < {:now}) || ((ends_at = "" || ends_at = null) && starts_at < {:now}))',
+          'starts_at',
+          500,
+          0,
+          { now: nowCutoffIso },
+        )
+
+        var recNote = 'Reconciliado automaticamente — consulta realizada no passado'
+        for (var pIdx = 0; pIdx < pastConfirmedAppts.length; pIdx++) {
+          var pAppt = pastConfirmedAppts[pIdx]
+          pAppt.set('status', 'realizado')
+          var curNotes = pAppt.getString('notes')
+          pAppt.set('notes', curNotes ? curNotes + '\n' + recNote : recNote)
+          pAppt.set('last_synced_at', nowCutoffIso)
+          try {
+            $app.saveNoValidate(pAppt)
+            autoRealizadosCount++
+          } catch (eSave) {
+            $app
+              .logger()
+              .warn(
+                '[cron_reconciliacao_ia] Falha ao mover para realizado',
+                'id',
+                pAppt.id,
+                'error',
+                String(eSave),
+              )
+          }
+        }
+      } catch (errPast) {
+        $app
+          .logger()
+          .warn(
+            '[cron_reconciliacao_ia] Erro na reconciliação de consultas passadas',
+            'error',
+            String(errPast),
+          )
+      }
+    } else {
+      $app.logger().info('[cron_reconciliacao_ia] Skip pós-consulta devido a Night Shield ativo')
+    }
+
     $app
       .logger()
       .info(
@@ -496,6 +553,8 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
         resolvedOrphansCount,
         'ambiguous_tasks',
         ambiguousTasksCount,
+        'auto_realizados',
+        autoRealizadosCount,
       )
   } catch (fatalErr) {
     $app

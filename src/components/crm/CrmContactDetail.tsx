@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { parseToDate, safeFormatDate } from '@/lib/datetime'
 import {
   MessageSquare,
   Trash2,
@@ -543,7 +544,7 @@ export function CrmContactDetail({
                       .reverse()
                       .map((msg) => {
                         const isMe = msg.from_me
-                        const time = new Date(msg.timestamp * 1000)
+                        const time = parseToDate(msg.timestamp) || new Date()
 
                         let content = msg.content
                         let Icon = null
@@ -587,7 +588,7 @@ export function CrmContactDetail({
                               <div className="flex flex-wrap items-center gap-1.5 mb-1 opacity-60 text-[10px] font-medium uppercase tracking-wider">
                                 <span>{isMe ? 'Você' : msg.push_name || 'Contato'}</span>
                                 <span>•</span>
-                                <span>{format(time, 'HH:mm')}</span>
+                                <span>{safeFormatDate(time, 'HH:mm', undefined, '—')}</span>
                               </div>
                               <div className="flex items-start gap-1.5">
                                 {Icon && (
@@ -618,20 +619,30 @@ export function CrmContactDetail({
                 <span>Adicionado em:</span>
                 <span>
                   {contact?.created
-                    ? format(new Date(contact.created), "dd 'de' MMM, yyyy 'às' HH:mm", {
-                        locale: ptBR,
-                      })
-                    : '-'}
+                    ? safeFormatDate(
+                        contact.created,
+                        "dd 'de' MMM, yyyy 'às' HH:mm",
+                        {
+                          locale: ptBR,
+                        },
+                        '—',
+                      )
+                    : '—'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Última atualização:</span>
                 <span>
                   {contact?.updated
-                    ? format(new Date(contact.updated), "dd 'de' MMM, yyyy 'às' HH:mm", {
-                        locale: ptBR,
-                      })
-                    : '-'}
+                    ? safeFormatDate(
+                        contact.updated,
+                        "dd 'de' MMM, yyyy 'às' HH:mm",
+                        {
+                          locale: ptBR,
+                        },
+                        '—',
+                      )
+                    : '—'}
                 </span>
               </div>
             </div>
