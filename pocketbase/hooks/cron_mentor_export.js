@@ -465,8 +465,26 @@ routerAdd('POST', '/backend/v1/mentor/export-now', (e) => {
       $app.logger().warn('mentor_export_now: rules failed', 'error', String(errR2))
     }
 
+    // DIAGNÓSTICO DE CONEXÃO (07/10 — por que contatos/mensagens vêm zerados)
+    var diag2 = { instances: [], conversations: 0, messages: 0 }
+    try {
+      var insts2 = $app.findRecordsByFilter('whatsapp_instances', 'id != ""', 'created', 20, 0)
+      for (var di = 0; di < insts2.length; di++) {
+        diag2.instances.push({
+          name: insts2[di].getString('instance_name') || '',
+          status: insts2[di].getString('status') || '',
+        })
+      }
+    } catch (_) {}
+    try {
+      diag2.conversations = $app.countRecords('conversations', 'id != ""')
+    } catch (_) {}
+    try {
+      diag2.messages = $app.countRecords('whatsapp_messages', 'id != ""')
+    } catch (_) {}
+
     if (contactsOut2.length === 0 && apptsOut2.length === 0) {
-      return e.json(200, { ok: false, reason: 'nothing_to_send' })
+      return e.json(200, { ok: false, reason: 'nothing_to_send', diagnosis: diag2 })
     }
 
     var payload2 = {
@@ -482,6 +500,7 @@ routerAdd('POST', '/backend/v1/mentor/export-now', (e) => {
         metadata_messages_scanned: metaScanned2,
         followup_rules: rulesOut2.length,
       },
+      diagnosis: diag2,
       contacts: contactsOut2,
       appointments: apptsOut2,
       message_patterns: msgAgg2,
