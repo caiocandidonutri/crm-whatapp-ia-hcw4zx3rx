@@ -120,6 +120,7 @@ export function AgendaReconciliationQueue() {
           const d1 = new Date(start.getTime() + (EVIDENCE_WINDOW_DAYS + 1) * 86400_000)
 
           try {
+            // whatsapp_messages.timestamp é numérico (epoch em segundos) — filter direto sem aspas
             const msgs = await pb.collection('whatsapp_messages').getList(1, 200, {
               filter: `remote_jid ~ "${suffix}" && timestamp >= ${Math.floor(d0.getTime() / 1000)} && timestamp <= ${Math.floor(d1.getTime() / 1000)}`,
               fields: 'id,timestamp,from_me',
@@ -130,6 +131,8 @@ export function AgendaReconciliationQueue() {
             lasts[app.id] =
               msgs.items.length > 0 ? (toSafeDate(msgs.items[0]?.timestamp) ?? null) : null
           } catch {
+            // Qualquer falha (rede, filtro, permissão) degrada a evidência a zero,
+            // mas a fila continua íntegra — nunca quebra a tela.
             counts[app.id] = 0
             lasts[app.id] = null
           }
@@ -333,7 +336,7 @@ export function AgendaReconciliationQueue() {
                         </Badge>
                         {start && (
                           <span className="text-[10px] text-muted-foreground">
-                            {getDayDiffFromTodaySaoPaulo(app.starts_at)} dia(s) atrás
+                            {getDayDiffFromTodaySaoPaulo(start)} dia(s) atrás
                           </span>
                         )}
                       </div>

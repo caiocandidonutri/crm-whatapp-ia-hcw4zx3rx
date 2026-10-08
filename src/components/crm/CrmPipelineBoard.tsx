@@ -48,9 +48,10 @@ function relativeTime(dateStr: string | null | undefined) {
     return days > 1 ? `em ${days}d` : 'em breve'
   }
   if (diff < 60) return 'agora'
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h`
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d`
+  // Mesmo padrão do formatRelativeTime da página CRM.tsx
+  if (diff < 3600) return `Há ${Math.floor(diff / 60)}m`
+  if (diff < 86400) return `Há ${Math.floor(diff / 3600)}h`
+  if (diff < 604800) return `Há ${Math.floor(diff / 86400)}d`
   return d.toLocaleDateString('pt-BR')
 }
 
@@ -343,8 +344,8 @@ export function CrmPipelineBoard({
                                           </span>
                                         )}
                                       </DropdownMenuItem>
-                                    ))}{' '}
-                                    <DropdownMenuSeparator />
+                                    ))}
+                                    <DropdownMenuSeparator />{' '}
                                     <DropdownMenuItem
                                       onClick={() => onAskDelete(contact)}
                                       className="text-sm px-3 py-2 cursor-pointer font-medium text-destructive focus:bg-destructive/10 focus:text-destructive"
