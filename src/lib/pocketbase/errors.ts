@@ -20,31 +20,28 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError) {
+    return error.status === 0 || error.isAbort === true
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    return (
+      msg.includes('network') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('timeout') ||
+      msg.includes('connection') ||
+      msg.includes('offline')
+    )
+  }
+  return false
+}
+
 export function getErrorMessage(error: unknown): string {
   if (!(error instanceof ClientResponseError)) {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
-}
-
-export function isNetworkError(err: unknown): boolean {
-  if (!err) return false
-  if (typeof err === 'object') {
-    const e = err as any
-    if (e.isAbort) return false
-    if (e.status === 0 || e.statusCode === 0) return true
-    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
-    if (
-      msg.includes('failed to fetch') ||
-      msg.includes('network') ||
-      msg.includes('connection refused') ||
-      msg.includes('networkerror') ||
-      msg.includes('load failed')
-    ) {
-      return true
-    }
-    if (e.originalError && isNetworkError(e.originalError)) return true
-  }
-  return false
 }
