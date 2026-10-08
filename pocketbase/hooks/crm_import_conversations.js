@@ -208,12 +208,37 @@ routerAdd(
         var newIsPatient = classification.is_patient === true
         var newConversion = classification.conversion_detected === true
 
-        if (newStage || newRole || newIsPatient || newConversion) {
+        // REGRA DE PROTEÇÃO DA EQUIPE: Dr. Caio, Michelle e equipe NUNCA são pacientes
+        var cPhoneDigits = (phone || '').replace(/\D/g, '')
+        var cJidDigits = (remoteJid || '').replace(/\D/g, '')
+        var cNameLower = (contactName || '').toLowerCase()
+        var isStaffContact =
+          cPhoneDigits === '553599288027' ||
+          cPhoneDigits === '553599716747' ||
+          cPhoneDigits === '553599334379' ||
+          cJidDigits === '553599288027' ||
+          cJidDigits === '553599716747' ||
+          cJidDigits === '553599334379' ||
+          cNameLower.indexOf('dr. caio') >= 0 ||
+          cNameLower.indexOf('caio candido') >= 0 ||
+          cNameLower.indexOf('michelle') >= 0 ||
+          cNameLower.indexOf('secretaria') >= 0
+
+        if (isStaffContact) {
+          newIsPatient = false
+          newConversion = false
+          newRole = 'nao_paciente'
+        }
+
+        if (newStage || newRole || newIsPatient || newConversion || isStaffContact) {
           try {
             var contactRecord = $app.findRecordById('crm_contacts', contact.id)
             if (newStage) contactRecord.set('stage', newStage)
             if (newRole) contactRecord.set('role', newRole)
-            if (newIsPatient || newConversion) {
+            if (isStaffContact) {
+              contactRecord.set('is_patient', false)
+              contactRecord.set('role', 'nao_paciente')
+            } else if (newIsPatient || newConversion) {
               if (!contactRecord.getBool('is_patient')) {
                 contactRecord.set('is_patient', true)
               }

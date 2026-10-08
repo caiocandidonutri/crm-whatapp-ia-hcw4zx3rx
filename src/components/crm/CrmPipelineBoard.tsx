@@ -61,10 +61,12 @@ interface CrmPipelineBoardProps {
   onToggleSelect?: (id: string, e: React.MouseEvent) => void
 }
 
+const UNASSIGNED_STAGE_KEY = '__unassigned__'
+
 export function CrmPipelineBoard({
-  contacts,
-  stages,
-  categories,
+  contacts = [],
+  stages = [],
+  categories = [],
   loading,
   getContactTitle,
   onOpenContact,
@@ -76,8 +78,49 @@ export function CrmPipelineBoard({
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dragOverCol, setDragOverCol] = useState<string | null>(null)
 
+  const safeContacts = Array.isArray(contacts) ? contacts.filter(Boolean) : []
+  const safeStages = Array.isArray(stages) ? stages.filter(Boolean) : []
+  const stageKeysSet = new Set(safeStages.map((s) => s?.key).filter(Boolean))
+
+  // Detecta se existem contatos com stage nulo, vazio ou não mapeado nas etapas cadastradas
+  const orphanContacts = safeContacts.filter((c) => !c?.stage || !stageKeysSet.has(c.stage))
+
+  const displayStages: CrmStage[] = [
+    ...safeStages,
+    ...(orphanContacts.length > 0
+      ? [
+          {
+            id: 'unassigned-fallback-col',
+            collectionId: 'crm_stages',
+            collectionName: 'crm_stages',
+            key: UNASSIGNED_STAGE_KEY,
+            label: 'Sem etapa',
+            color: 'slate' as const,
+            position: 9999,
+            account_id: '',
+            created: '',
+            updated: '',
+          } as CrmStage,
+        ]
+      : []),
+  ]
+
+  const safeGetContactTitle = (c: CrmContact) => {
+    if (!c) return 'Contato'
+    try {
+      if (typeof getContactTitle === 'function') {
+        const title = getContactTitle(c)
+        if (title && typeof title === 'string') return title
+      }
+    } catch {
+      // fallback gracioso se houver erro ao resolver o título
+    }
+    return c.contact_name || c.push_name || formatPhoneBR(c.phone) || 'Contato'
+  }
+
   const moveTo = async (id: string, stageKey: string) => {
-    const c = contacts.find((x) => x.id === id)
+    if (stageKey === UNASSIGNED_STAGE_KEY) return
+    const c = safeContacts.find((x) => x?.id === id)
     if (!c || c.stage === stageKey) return
     try {
       await updateCrmContactStage(id, stageKey)
@@ -114,11 +157,15 @@ export function CrmPipelineBoard({
   return (
     <div className="flex-1 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:h-2">
       <div className="flex gap-4 min-w-max items-start">
-        {stages.map((stage) => {
+        {displayStages.map((stage) => {
+          if (!stage) return null
           const style = stageStyle(stage.color)
-          const stageContacts = contacts
-            .filter((c) => c.stage === stage.key)
-            .sort((a, b) => (b.ai_priority || 0) - (a.ai_priority || 0))
+          const isUnassignedCol = stage.key === UNASSIGNED_STAGE_KEY
+          const stageContacts = isUnassignedCol
+            ? orphanContacts.sort((a, b) => (b.ai_priority || 0) - (a.ai_priority || 0))
+            : safeContacts
+                .filter((c) => c?.stage === stage.key)
+                .sort((a, b) => (b.ai_priority || 0) - (a.ai_priority || 0))
           const isDragOver = dragOverCol === stage.key
 
           return (
@@ -196,14 +243,14 @@ export function CrmPipelineBoard({
                           <Avatar className="h-10 w-10 ring-2 ring-background shrink-0">
                             <AvatarImage src={contact.avatar_url} />
                             <AvatarFallback className="bg-primary/10 text-primary font-serif font-bold text-sm">
-                              {getContactTitle(contact).charAt(0).toUpperCase()}
+                              {(safeGetContactTitle(contact).charAt(0) || 'C').toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-1">
                               <h4 className="font-serif font-bold text-primary text-sm leading-tight truncate">
-                                {getContactTitle(contact)}
+                                {safeGetContactTitle(contact)}
                               </h4>
                               <div
                                 className="shrink-0 -mt-1 -mr-1 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -234,7 +281,7 @@ export function CrmPipelineBoard({
                                     <DropdownMenuLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 pt-1.5">
                                       Mover para
                                     </DropdownMenuLabel>
-                                    {stages.map((s) => (
+                                    {safeStages.map((s) => (
                                       <DropdownMenuItem
                                         key={s.id}
                                         onClick={() => moveTo(contact.id, s.key)}
@@ -254,7 +301,7 @@ export function CrmPipelineBoard({
                                           </span>
                                         )}
                                       </DropdownMenuItem>
-                                    ))}
+                                    ))}{' '}
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
                                       onClick={() => onAskDelete(contact)}

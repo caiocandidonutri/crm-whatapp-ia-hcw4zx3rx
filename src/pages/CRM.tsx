@@ -369,12 +369,20 @@ export default function CRM() {
     })
   }
 
-  const getContactTitle = (c: CrmContact) =>
-    !isInvalidContactName(c.contact_name)
-      ? c.contact_name!
-      : c.push_name && !isInvalidContactName(c.push_name)
-        ? c.push_name
-        : getDisplayName(undefined, c.jid)
+  const getContactTitle = (c: CrmContact) => {
+    if (!c) return 'Contato'
+    try {
+      if (c.contact_name && !isInvalidContactName(c.contact_name)) {
+        return c.contact_name
+      }
+      if (c.push_name && !isInvalidContactName(c.push_name)) {
+        return c.push_name
+      }
+      return getDisplayName(undefined, c.jid) || formatPhoneBR(c.phone) || 'Contato'
+    } catch {
+      return c.contact_name || c.push_name || formatPhoneBR(c.phone) || 'Contato'
+    }
+  }
 
   const formatRelativeTime = (dateStr: string | null | undefined) => {
     if (!dateStr) return '—'
@@ -900,17 +908,19 @@ export default function CRM() {
             </div>
           </Card>
         ) : (
-          <CrmPipelineBoard
-            contacts={commonFiltered}
-            stages={stages}
-            categories={categories}
-            loading={loading || stagesLoading}
-            getContactTitle={getContactTitle}
-            onOpenContact={openContact}
-            onAskDelete={setContactToDelete}
-            selectedIds={selectedBatchIds}
-            onToggleSelect={toggleSelectBatch}
-          />
+          <div className="min-w-0 w-full">
+            <CrmPipelineBoard
+              contacts={commonFiltered}
+              stages={stages}
+              categories={categories}
+              loading={loading || stagesLoading}
+              getContactTitle={getContactTitle}
+              onOpenContact={openContact}
+              onAskDelete={setContactToDelete}
+              selectedIds={selectedBatchIds}
+              onToggleSelect={toggleSelectBatch}
+            />
+          </div>
         ))}
 
       {/* Relatório Mensal */}
