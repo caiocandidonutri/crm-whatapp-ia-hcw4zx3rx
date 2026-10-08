@@ -214,7 +214,18 @@ export const fetchHomeMetrics = async (
   } catch (err: any) {
     // Se o erro foi cancelamento/abort de requisição (ex.: desmontagem do componente ou autocancel),
     // ignora silenciosamente sem disparar log no console nem toast
-    if (err?.isAbort || err?.name === 'AbortError' || effectiveSignal?.aborted) {
+    const isAbort =
+      err?.isAbort ||
+      err?.name === 'AbortError' ||
+      err?.name === 'CanceledError' ||
+      err?.code === 20 ||
+      err?.status === 0 ||
+      effectiveSignal?.aborted ||
+      (typeof err?.message === 'string' &&
+        (err.message.toLowerCase().includes('abort') ||
+          err.message.includes('signal is aborted') ||
+          err.message.includes('autocancelled')))
+    if (isAbort) {
       return safeFallback
     }
 

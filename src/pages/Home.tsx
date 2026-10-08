@@ -111,10 +111,11 @@ export default function Home() {
       setError(null)
       try {
         const results = await Promise.allSettled([
-          fetchHomeMetrics(signal, metrics || undefined),
-          accountId
+          fetchHomeMetrics(signal, metrics || undefined).catch(() => null),
+          (accountId
             ? getSatisfactionSummary(accountId, signal, surveyStats || undefined)
-            : Promise.resolve(null),
+            : Promise.resolve(null)
+          ).catch(() => null),
         ])
         if (signal?.aborted) return
 
@@ -134,7 +135,19 @@ export default function Home() {
         }
         setSessionExpired(false)
       } catch (err: any) {
-        if (err?.isAbort || err?.name === 'AbortError' || signal?.aborted) {
+        const isAbort =
+          err?.isAbort ||
+          err?.name === 'AbortError' ||
+          err?.name === 'CanceledError' ||
+          err?.code === 20 ||
+          err?.status === 0 ||
+          signal?.aborted ||
+          (typeof err?.message === 'string' &&
+            (err.message.includes('aborted') ||
+              err.message.includes('signal is aborted') ||
+              err.message.includes('autocancelled')))
+
+        if (isAbort) {
           // Ignora cancelamentos por desmontagem silenciosamente
           return
         }

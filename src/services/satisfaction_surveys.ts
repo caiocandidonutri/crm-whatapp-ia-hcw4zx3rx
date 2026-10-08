@@ -25,6 +25,30 @@ export const DEFAULT_SURVEY_SUMMARY_STATS: SurveySummaryStats = {
   recentSurveys: [],
 }
 
+function isAnyAbortError(err: unknown): boolean {
+  if (!err) return false
+  if (typeof err === 'object') {
+    const e = err as any
+    if (e.name === 'AbortError' || e.name === 'CanceledError' || e.code === 20) return true
+    if (e.isAbort === true) return true
+    if (e.status === 0) return true
+    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
+    if (
+      msg.includes('aborted') ||
+      msg.includes('abort') ||
+      msg.includes('signal is aborted') ||
+      msg.includes('autocancelled') ||
+      msg.includes('canceled') ||
+      msg.includes('user aborted')
+    ) {
+      return true
+    }
+    if (e.originalError && isAnyAbortError(e.originalError)) return true
+    if (e.cause && isAnyAbortError(e.cause)) return true
+  }
+  return false
+}
+
 export async function getSatisfactionSummary(
   accountId: string,
   signal?: AbortSignal,
@@ -33,6 +57,7 @@ export async function getSatisfactionSummary(
   const safeFallback: SurveySummaryStats = fallback || DEFAULT_SURVEY_SUMMARY_STATS
 
   if (!accountId) return safeFallback
+  if (signal?.aborted) return safeFallback
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let effectiveSignal = signal
@@ -41,6 +66,11 @@ export async function getSatisfactionSummary(
     const controller = new AbortController()
     timeoutId = setTimeout(() => controller.abort(), 8000)
     effectiveSignal = controller.signal
+  }
+
+  if (effectiveSignal.aborted) {
+    if (timeoutId) clearTimeout(timeoutId)
+    return safeFallback
   }
 
   try {
@@ -52,6 +82,9 @@ export async function getSatisfactionSummary(
     // 1. Total sent (agendamentos com survey_sent = true)
     let totalSent = 0
     try {
+      if (effectiveSignal.aborted) {
+        return safeFallback
+      }
       const sentList = await pb.collection('appointments').getList(1, 1, {
         filter: `account_id="${accountId}" && survey_sent=true`,
         signal: effectiveSignal,
@@ -59,7 +92,7 @@ export async function getSatisfactionSummary(
       })
       totalSent = sentList?.totalItems || 0
     } catch (sentErr: any) {
-      if (sentErr?.isAbort || sentErr?.name === 'AbortError' || effectiveSignal?.aborted) {
+      if (isAnyAbortError(sentErr) || effectiveSignal.aborted) {
         return safeFallback
       }
       console.warn(
@@ -68,11 +101,18 @@ export async function getSatisfactionSummary(
       )
     }
 
+    if (effectiveSignal.aborted) {
+      return safeFallback
+    }
+
     result.totalSent = totalSent
 
     // 2. Respostas
     let surveys: SatisfactionSurvey[] = []
     try {
+      if (effectiveSignal.aborted) {
+        return safeFallback
+      }
       surveys = await pb.collection('satisfaction_surveys').getFullList<SatisfactionSurvey>({
         filter: `account_id="${accountId}"`,
         sort: '-created',
@@ -81,13 +121,17 @@ export async function getSatisfactionSummary(
         requestKey: null,
       })
     } catch (surveyErr: any) {
-      if (surveyErr?.isAbort || surveyErr?.name === 'AbortError' || effectiveSignal?.aborted) {
+      if (isAnyAbortError(surveyErr) || effectiveSignal.aborted) {
         return safeFallback
       }
       console.warn(
         '[getSatisfactionSummary] Falha ao listar pesquisas de satisfação:',
         surveyErr?.message || surveyErr,
       )
+    }
+
+    if (effectiveSignal.aborted) {
+      return safeFallback
     }
 
     const safeSurveys = Array.isArray(surveys) ? surveys : []
@@ -125,7 +169,7 @@ export async function getSatisfactionSummary(
 
     return result
   } catch (err: any) {
-    if (err?.isAbort || err?.name === 'AbortError' || effectiveSignal?.aborted) {
+    if (isAnyAbortError(err) || effectiveSignal?.aborted) {
       return safeFallback
     }
     console.warn(

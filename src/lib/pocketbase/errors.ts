@@ -22,11 +22,20 @@ export function extractFieldErrors(error: unknown): FieldErrors {
 
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
-  if (error instanceof ClientResponseError) {
-    return error.status === 0 || error.isAbort === true
-  }
-  if (error instanceof TypeError && /failed to fetch|network/i.test(error.message)) {
-    return true
+  if (typeof error === 'object') {
+    const err = error as any
+    // PocketBase ClientResponseError with status 0 is typically a network failure or aborted request
+    if (err.status === 0) return true
+    if (err.name === 'AbortError' || err.isAbort === true) return true
+    if (
+      typeof err.message === 'string' &&
+      (err.message.includes('Failed to fetch') ||
+        err.message.includes('NetworkError') ||
+        err.message.includes('signal is aborted') ||
+        err.message.includes('autocancelled'))
+    ) {
+      return true
+    }
   }
   return false
 }
