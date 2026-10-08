@@ -20,43 +20,56 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof ClientResponseError) {
-    return error.status === 0 || error.isAbort === true
-  }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    return (
-      msg.includes('failed to fetch') ||
-      msg.includes('network') ||
-      msg.includes('networkerror') ||
-      msg.includes('offline') ||
-      msg.includes('load failed') ||
-      msg.includes('aborterror')
-    )
-  }
-  if (typeof error === 'object' && error !== null) {
-    const anyErr = error as any
-    if (anyErr.status === 0 || anyErr.isAbort) return true
-    if (typeof anyErr.message === 'string') {
-      const msg = anyErr.message.toLowerCase()
-      return (
-        msg.includes('failed to fetch') ||
-        msg.includes('network') ||
-        msg.includes('networkerror') ||
-        msg.includes('offline') ||
-        msg.includes('load failed')
-      )
-    }
-  }
-  return false
-}
-
 export function getErrorMessage(error: unknown): string {
   if (!(error instanceof ClientResponseError)) {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
+}
+
+// REGRA PERMANENTE: esta exportação NUNCA pode ser removida deste arquivo.
+// Já quebrou o build 5x com MISSING_EXPORT (use-auth.tsx e Index.tsx dependem dela).
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+
+  if (error instanceof ClientResponseError) {
+    // O PocketBase marca falhas de rede (fetch rejeitado, DNS, offline) com status 0.
+    if (error.status === 0) return true
+    const msg = (error.message || '').toLowerCase()
+    return (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network error') ||
+      msg.includes('network request failed') ||
+      msg.includes('load failed') ||
+      msg.includes('fetch failed') ||
+      msg.includes('cors') ||
+      msg.includes('timed out') ||
+      msg.includes('timeout') ||
+      msg.includes('connection refused') ||
+      msg.includes('connection reset') ||
+      msg.includes('socket connection') ||
+      (msg.includes('insufficient') === false && msg.includes('connection closed'))
+    )
+  }
+
+  // Erros nativos de rede que chegam sem wrapper do PocketBase
+  if (error instanceof TypeError) return true
+
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    return (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network error') ||
+      msg.includes('network request failed') ||
+      msg.includes('load failed') ||
+      msg.includes('fetch failed') ||
+      msg.includes('timed out') ||
+      msg.includes('timeout')
+    )
+  }
+
+  return false
 }

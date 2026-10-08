@@ -37,16 +37,27 @@ import { toast } from 'sonner'
 import { parseToDate } from '@/lib/datetime'
 
 function relativeTime(dateStr: string | null | undefined) {
+  // Null-safe: qualquer data ausente/inválida cai no traço, nunca quebra o board.
   if (!dateStr) return '—'
   const d = parseToDate(dateStr)
   if (!d || isNaN(d.getTime())) return '—'
   const diff = Math.floor((Date.now() - d.getTime()) / 1000)
-  if (diff < 0) return 'em breve'
+  if (diff < 0) {
+    // Datas futuras (ex.: vencimento do plano do clube): "em 15d" / "em breve"
+    const days = Math.ceil(-diff / 86400)
+    return days > 1 ? `em ${days}d` : 'em breve'
+  }
   if (diff < 60) return 'agora'
   if (diff < 3600) return `${Math.floor(diff / 60)}m`
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`
   if (diff < 604800) return `${Math.floor(diff / 86400)}d`
   return d.toLocaleDateString('pt-BR')
+}
+
+/** Formata R$ de forma segura (aceita null/undefined/NaN). */
+function formatBRL(value: unknown): string {
+  if (typeof value !== 'number' || isNaN(value)) return ''
+  return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 interface CrmPipelineBoardProps {
@@ -85,8 +96,29 @@ export function CrmPipelineBoard({
   // Detecta se existem contatos com stage nulo, vazio ou não mapeado nas etapas cadastradas
   const orphanContacts = safeContacts.filter((c) => !c?.stage || !stageKeysSet.has(c.stage))
 
+  // Garante a coluna "Orçamento Enviado" logo após "Em atendimento", mesmo em
+  // contas cujo seed não criou a etapa (o board nunca depende só do banco).
+  const withBudgetColumn = (): CrmStage[] => {
+    if (safeStages.length === 0) return safeStages
+    if (stageKeysSet.has('orcamento_enviado')) return safeStages
+    const emAt = safeStages.find((s) => s.key === 'em_atendimento')
+    if (!emAt) return safeStages
+    const idx = safeStages.findIndex((s) => s.key === 'em_atendimento')
+    const injected: CrmStage = {
+      ...emAt,
+      id: 'fallback-orcamento-enviado-col',
+      key: 'orcamento_enviado',
+      label: 'Orçamento Enviado',
+      color: 'purple',
+      position: (emAt.position ?? 1) + 0.5,
+    }
+    const copy = [...safeStages]
+    copy.splice(idx + 1, 0, injected)
+    return copy
+  }
+
   const displayStages: CrmStage[] = [
-    ...safeStages,
+    ...withBudgetColumn(),
     ...(orphanContacts.length > 0
       ? [
           {
@@ -161,11 +193,21 @@ export function CrmPipelineBoard({
           if (!stage) return null
           const style = stageStyle(stage.color)
           const isUnassignedCol = stage.key === UNASSIGNED_STAGE_KEY
+          const isBudgetCol = stage.key === 'orcamento_enviado'
           const stageContacts = isUnassignedCol
             ? orphanContacts.sort((a, b) => (b.ai_priority || 0) - (a.ai_priority || 0))
             : safeContacts
                 .filter((c) => c?.stage === stage.key)
-                .sort((a, b) => (b.ai_priority || 0) - (a.ai_priority || 0))
+                .sort((a, b) => {
+                  // Na coluna de orçamento, sem valor vai por último
+                  if (isBudgetCol) {
+                    const av = typeof a?.budget_value === 'number' && !isNaN(a.budget_value)
+                    const bv = typeof b?.budget_value === 'number' && !isNaN(b.budget_value)
+                    if (av !== bv) return av ? -1 : 1
+                    if (av && bv) return b.budget_value - a.budget_value
+                  }
+                  return (b.ai_priority || 0) - (a.ai_priority || 0)
+                })
           const isDragOver = dragOverCol === stage.key
 
           return (
@@ -352,10 +394,7 @@ export function CrmPipelineBoard({
                             {contact.stage === 'orcamento_enviado' && (
                               <div className="flex items-center gap-1.5 mt-2 text-xs bg-purple-50 text-purple-700 border border-purple-200/60 rounded-md px-2 py-1">
                                 <span className="font-semibold">
-                                  {typeof contact.budget_value === 'number' &&
-                                  !isNaN(contact.budget_value)
-                                    ? `R$ ${contact.budget_value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                    : 'Orçamento sem valor'}
+                                  {formatBRL(contact.budget_value) || 'Orçamento sem valor'}
                                 </span>
                                 {contact.budget_sent_at && (
                                   <span className="text-[10px] text-purple-600/80">

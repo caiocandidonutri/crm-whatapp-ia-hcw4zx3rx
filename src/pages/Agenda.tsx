@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AgendaLogisticsReport } from '@/components/AgendaLogisticsReport'
 import { WaitlistSection } from '@/components/crm/WaitlistSection'
+import { AgendaReconciliationQueue } from '@/components/agenda/AgendaReconciliationQueue'
 import { buildPatientAppointmentsMap, getAppointmentHistoryInfo } from '@/lib/appointment-history'
 import { PatientBirthDateBadge } from '@/components/PatientBirthDateBadge'
 import {
@@ -1373,6 +1374,9 @@ export default function Agenda() {
           )
         })}
       </div>
+
+      {/* FILA DE RECONCILIAÇÃO — só aparece nas visões Dia/Semana quando há itens pendentes */}
+      {viewMode !== 'report' && viewMode !== 'waitlist' && <AgendaReconciliationQueue />}
 
       {/* Banner de recuperação graciosa caso tenha ocorrido rate limit temporário (429) */}
       {isRateLimited && (

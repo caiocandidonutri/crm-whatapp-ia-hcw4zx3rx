@@ -53,12 +53,16 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
         setRecallEnabled(settings.recall_enabled ?? true)
         setRecallDaysInactive(settings.recall_days_inactive ?? 14)
         setClubRecallDaysInactive(settings.club_recall_days_inactive ?? 45)
-        setBudgetFollowupDays(settings.budget_followup_days ?? 7)
-        setRenewalAlertDaysBefore(settings.renewal_alert_days_before ?? 15)
         setReturn30dRuleEnabled(settings.return_30d_rule_enabled ?? true)
-        setBudgetFollowupEnabled(settings.budget_followup_days > 0)
-        setRenewalAlertEnabled(settings.renewal_alert_days_before > 0)
         setGlobalPaused(settings.global_automations_paused ?? false)
+        // O toggle de cada régua é derivado do próprio campo de dias
+        // (0 = régua desligada — é assim que o cron do backend interpreta).
+        const budgetDays = settings.budget_followup_days ?? 7
+        const renewalDays = settings.renewal_alert_days_before ?? 15
+        setBudgetFollowupDays(budgetDays > 0 ? budgetDays : 7)
+        setRenewalAlertDaysBefore(renewalDays > 0 ? renewalDays : 15)
+        setBudgetFollowupEnabled(budgetDays > 0)
+        setRenewalAlertEnabled(renewalDays > 0)
       }
     } catch {
       /* defaults */
@@ -84,8 +88,10 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
         recall_enabled: recallEnabled,
         recall_days_inactive: recallDaysInactive,
         club_recall_days_inactive: clubRecallDaysInactive,
-        budget_followup_days: budgetFollowupDays,
-        renewal_alert_days_before: renewalAlertDaysBefore,
+        // Toggle das réguas é persistido no próprio campo de dias:
+        // desligar grava 0 (régua desativada no cron); ligar grava os dias.
+        budget_followup_days: budgetFollowupEnabled ? Math.max(1, budgetFollowupDays) : 0,
+        renewal_alert_days_before: renewalAlertEnabled ? Math.max(1, renewalAlertDaysBefore) : 0,
         return_30d_rule_enabled: return30dRuleEnabled,
         recall_daily_limit: recallDailyLimit,
       })

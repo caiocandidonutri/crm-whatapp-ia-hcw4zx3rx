@@ -207,6 +207,10 @@ export function CrmContactDetail({
               role,
               email,
               category_ids: categoryIds,
+              budget_value: budgetValue === '' ? null : Number(budgetValue),
+              budget_sent_at: budgetSentAt ? new Date(budgetSentAt).toISOString() : null,
+              plan_expires_at: planExpiresAt ? new Date(planExpiresAt).toISOString() : null,
+              is_club_member: isClubMember,
             }
           : null,
       )
@@ -313,6 +317,17 @@ export function CrmContactDetail({
                       className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200 capitalize"
                     >
                       Motivo: {contact.contact_reason_category}
+                    </Badge>
+                  )}
+                  {isClubMember && (
+                    <Badge
+                      variant="outline"
+                      className="text-xs bg-purple-50 text-purple-700 border-purple-200"
+                    >
+                      👑 Membro do Clube
+                      {planExpiresAt
+                        ? ` · vence ${safeFormatDate(planExpiresAt, 'dd/MM/yyyy', { locale: ptBR }, planExpiresAt)}`
+                        : ''}
                     </Badge>
                   )}
                 </div>
@@ -523,7 +538,6 @@ export function CrmContactDetail({
                       </Badge>
                     )}
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label className="text-[11px] font-medium text-muted-foreground">
@@ -557,33 +571,58 @@ export function CrmContactDetail({
                       />
                     </div>
                   </div>
-
                   <div className="pt-2 border-t border-purple-200/50 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label
-                        htmlFor="clubMemberSwitch"
-                        className="text-xs font-medium text-purple-950 cursor-pointer"
-                      >
-                        Membro do Clube / Acompanhamento
-                      </Label>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <Label
+                          htmlFor="clubMemberSwitch"
+                          className="text-xs font-medium text-purple-950 cursor-pointer"
+                        >
+                          Membro do Clube / Acompanhamento
+                        </Label>
+                        <p className="text-[10px] text-muted-foreground leading-snug">
+                          Clube tem régua própria de recall (45d) e vencimento de plano (15d)
+                        </p>
+                      </div>
                       <Switch
                         id="clubMemberSwitch"
                         checked={isClubMember}
-                        onCheckedChange={setIsClubMember}
+                        onCheckedChange={(v) => {
+                          setIsClubMember(v)
+                          // Ao entrar no clube sem data, sugere vencimento em 30 dias
+                          if (v && !planExpiresAt) {
+                            const d = new Date()
+                            d.setDate(d.getDate() + 30)
+                            setPlanExpiresAt(d.toISOString().split('T')[0])
+                          }
+                        }}
                       />
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-[11px] font-medium text-muted-foreground">
-                        Vencimento do Plano (Régua 15d)
-                      </Label>
-                      <Input
-                        type="date"
-                        value={planExpiresAt}
-                        onChange={(e) => setPlanExpiresAt(e.target.value)}
-                        className="h-8 bg-white/70 text-xs"
-                      />
-                    </div>
-                  </div>
+                    {isClubMember && (
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-medium text-muted-foreground">
+                          Vencimento do Plano (Régua 15d)
+                        </Label>
+                        <Input
+                          type="date"
+                          value={planExpiresAt}
+                          onChange={(e) => setPlanExpiresAt(e.target.value)}
+                          className="h-8 bg-white/70 text-xs"
+                        />
+                        {planExpiresAt && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Vence em{' '}
+                            {safeFormatDate(
+                              planExpiresAt,
+                              "dd 'de' MMMM 'de' yyyy",
+                              { locale: ptBR },
+                              planExpiresAt,
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>{' '}
                 </div>
 
                 <div className="space-y-1.5 flex flex-col">
