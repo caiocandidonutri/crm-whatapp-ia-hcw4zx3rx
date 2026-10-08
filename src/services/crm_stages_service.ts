@@ -17,9 +17,10 @@ export interface CrmStage extends RecordModel {
 export const DEFAULT_STAGES: Array<Pick<CrmStage, 'key' | 'label' | 'color' | 'position'>> = [
   { key: 'lead', label: 'Lead', color: 'blue', position: 0 },
   { key: 'em_atendimento', label: 'Em atendimento', color: 'amber', position: 1 },
-  { key: 'cliente', label: 'Cliente', color: 'emerald', position: 2 },
-  { key: 'perdido', label: 'Perdido', color: 'rose', position: 3 },
-  { key: 'nao_respondido', label: 'Não Respondidos', color: 'slate', position: 4 },
+  { key: 'orcamento_enviado', label: 'Orçamento Enviado', color: 'purple', position: 2 },
+  { key: 'cliente', label: 'Cliente', color: 'emerald', position: 3 },
+  { key: 'perdido', label: 'Perdido', color: 'rose', position: 4 },
+  { key: 'nao_respondido', label: 'Não Respondidos', color: 'slate', position: 5 },
 ]
 
 async function resolveAccountId(): Promise<string | undefined> {

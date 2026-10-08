@@ -64,7 +64,7 @@ cronAdd('confirmation_24h', '39 * * * *', () => {
           continue
         }
 
-        var hoursBefore = settings.getInt('confirmation_hours_before') || 24
+        var hoursBefore = settings.getInt('confirmation_hours_before') || 48
         var alertPhone = settings.getString('whatsapp_alert_phone') || ''
 
         var isSilenced = false
@@ -153,7 +153,10 @@ cronAdd('confirmation_24h', '39 * * * *', () => {
 
           var isDuplicate = false
           try {
-            var dupCutoff = new Date(Date.now() - 48 * 3600 * 1000).toISOString()
+            // Anti-duplicidade na janela de confirmação (pelo menos hoursBefore + 12h)
+            var dupCutoff = new Date(
+              Date.now() - Math.max(hoursBefore, 48) * 3600 * 1000,
+            ).toISOString()
             $app.findFirstRecordByFilter(
               'care_alerts',
               'crm_contact_id = {:cid} && type = {:t} && created >= {:c}',

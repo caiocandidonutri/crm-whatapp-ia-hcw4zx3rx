@@ -18,10 +18,14 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
   const [followupEnabled, setFollowupEnabled] = useState(true)
   const [needsCareEnabled, setNeedsCareEnabled] = useState(true)
   const [confirmationEnabled, setConfirmationEnabled] = useState(true)
-  const [hoursBefore, setHoursBefore] = useState(24)
+  const [hoursBefore, setHoursBefore] = useState(48)
   const [remindersEnabled, setRemindersEnabled] = useState(true)
   const [recallEnabled, setRecallEnabled] = useState(true)
   const [recallDaysInactive, setRecallDaysInactive] = useState(14)
+  const [clubRecallDaysInactive, setClubRecallDaysInactive] = useState(45)
+  const [budgetFollowupDays, setBudgetFollowupDays] = useState(7)
+  const [renewalAlertDaysBefore, setRenewalAlertDaysBefore] = useState(15)
+  const [return30dRuleEnabled, setReturn30dRuleEnabled] = useState(true)
   const [recallDailyLimit, setRecallDailyLimit] = useState(15)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -35,10 +39,14 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
         setFollowupEnabled(settings.followup_alert_enabled ?? true)
         setNeedsCareEnabled(settings.needs_care_alert_enabled ?? true)
         setConfirmationEnabled(settings.confirmation_alert_enabled ?? true)
-        setHoursBefore(settings.confirmation_hours_before ?? 24)
+        setHoursBefore(settings.confirmation_hours_before ?? 48)
         setRemindersEnabled(settings.reminders_enabled ?? true)
         setRecallEnabled(settings.recall_enabled ?? true)
         setRecallDaysInactive(settings.recall_days_inactive ?? 14)
+        setClubRecallDaysInactive(settings.club_recall_days_inactive ?? 45)
+        setBudgetFollowupDays(settings.budget_followup_days ?? 7)
+        setRenewalAlertDaysBefore(settings.renewal_alert_days_before ?? 15)
+        setReturn30dRuleEnabled(settings.return_30d_rule_enabled ?? true)
         setRecallDailyLimit(settings.recall_daily_limit ?? 15)
       }
     } catch {
@@ -64,6 +72,10 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
         reminders_enabled: remindersEnabled,
         recall_enabled: recallEnabled,
         recall_days_inactive: recallDaysInactive,
+        club_recall_days_inactive: clubRecallDaysInactive,
+        budget_followup_days: budgetFollowupDays,
+        renewal_alert_days_before: renewalAlertDaysBefore,
+        return_30d_rule_enabled: return30dRuleEnabled,
         recall_daily_limit: recallDailyLimit,
       })
       toast.success('Configurações salvas')
@@ -140,23 +152,88 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
         </div>
         {confirmationEnabled && (
           <div className="space-y-1.5 pl-1">
-            <Label className="text-xs text-muted-foreground">Horas de antecedência</Label>
+            <Label className="text-xs text-muted-foreground">
+              Horas de antecedência (Régua 1: padrão 48h)
+            </Label>
             <Input
               type="number"
               min={1}
               max={168}
               value={hoursBefore}
-              onChange={(e) => setHoursBefore(Math.max(1, Number(e.target.value) || 24))}
+              onChange={(e) => setHoursBefore(Math.max(1, Number(e.target.value) || 48))}
               className="h-9 w-28"
             />
             {fieldErrors.confirmation_hours_before && (
               <p className="text-xs text-destructive">{fieldErrors.confirmation_hours_before}</p>
             )}
             <p className="text-xs text-muted-foreground">
-              Quantas horas antes da consulta o lembrete será enviado.
+              Configurável: 48h antes da consulta para confirmação formal, mantendo o lembrete do
+              dia.
             </p>
           </div>
         )}
+      </div>
+
+      <Separator />
+
+      {/* Novas Réguas do Dr. Caio */}
+      <div className="space-y-4">
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Réguas do Dr. Caio
+        </h4>
+
+        {/* Régua 2: Retorno 30d */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label className="text-sm font-medium">Régua Retorno 30d</Label>
+            <p className="text-xs text-muted-foreground">
+              Gera tarefa para pacientes de 1ª consulta sem retorno quando completar 30 dias
+            </p>
+          </div>
+          <Switch checked={return30dRuleEnabled} onCheckedChange={setReturn30dRuleEnabled} />
+        </div>
+
+        {/* Régua 4: Orçamento 7d */}
+        <div className="space-y-1.5 pl-1">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium">Régua Orçamento (dias sem resposta)</Label>
+              <p className="text-xs text-muted-foreground">
+                Etapa 'Orçamento Enviado' sem resposta gera follow-up alta prioridade
+              </p>
+            </div>
+            <Input
+              type="number"
+              min={1}
+              max={60}
+              value={budgetFollowupDays}
+              onChange={(e) => setBudgetFollowupDays(Math.max(1, Number(e.target.value) || 7))}
+              className="h-9 w-24 text-right"
+            />
+          </div>
+        </div>
+
+        {/* Régua 5: Renovação de Plano */}
+        <div className="space-y-1.5 pl-1">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium">
+                Régua Renovação Plano/Clube (dias de antecedência)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Gera tarefa quando o plano/clube do paciente vencer em X dias
+              </p>
+            </div>
+            <Input
+              type="number"
+              min={1}
+              max={60}
+              value={renewalAlertDaysBefore}
+              onChange={(e) => setRenewalAlertDaysBefore(Math.max(1, Number(e.target.value) || 15))}
+              className="h-9 w-24 text-right"
+            />
+          </div>
+        </div>
       </div>
 
       <Separator />
@@ -184,17 +261,36 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
         </div>
 
         {recallEnabled && (
-          <div className="grid grid-cols-2 gap-3 pl-1 pt-1">
+          <div className="grid grid-cols-3 gap-3 pl-1 pt-1">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Dias de inatividade</Label>
-              <Input
-                type="number"
-                min={1}
-                max={365}
-                value={recallDaysInactive}
-                onChange={(e) => setRecallDaysInactive(Math.max(1, Number(e.target.value) || 14))}
-                className="h-9"
-              />
+              <Label className="text-xs text-muted-foreground">Pacientes Gerais</Label>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={recallDaysInactive}
+                  onChange={(e) => setRecallDaysInactive(Math.max(1, Number(e.target.value) || 14))}
+                  className="h-9"
+                />
+                <span className="text-xs text-muted-foreground">dias</span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Clube 45D</Label>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={clubRecallDaysInactive}
+                  onChange={(e) =>
+                    setClubRecallDaysInactive(Math.max(1, Number(e.target.value) || 45))
+                  }
+                  className="h-9"
+                />
+                <span className="text-xs text-muted-foreground">dias</span>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Limite diário</Label>

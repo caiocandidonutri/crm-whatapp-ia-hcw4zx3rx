@@ -140,7 +140,7 @@ cronAdd('daily_patient_recall', '37 13 * * *', () => {
 
     try {
       var res = $http.send({
-        url: instInfo.url + '/message/sendText/' + instInfo.name,
+        url: url,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -235,10 +235,12 @@ cronAdd('daily_patient_recall', '37 13 * * *', () => {
       if (st.get('recall_enabled') === false) continue
 
       var daysInactive = st.getInt('recall_days_inactive') || 14
+      var clubDaysInactive = st.getInt('club_recall_days_inactive') || 45
       var dailyLimit = st.getInt('recall_daily_limit') || 15
       accountsToProcess.push({
         accountId: aid,
         daysInactive: daysInactive,
+        clubDaysInactive: clubDaysInactive,
         dailyLimit: dailyLimit,
       })
     }
@@ -252,6 +254,7 @@ cronAdd('daily_patient_recall', '37 13 * * *', () => {
         accountsToProcess.push({
           accountId: accs[a].id,
           daysInactive: 14,
+          clubDaysInactive: 45,
           dailyLimit: 15,
         })
       }
@@ -279,6 +282,7 @@ cronAdd('daily_patient_recall', '37 13 * * *', () => {
     var item = accountsToProcess[ac]
     var accountId = item.accountId
     var daysInactive = item.daysInactive
+    var clubDaysInactive = item.clubDaysInactive || 45
     var dailyLimit = item.dailyLimit
 
     // KILL SWITCH GLOBAL: se automações pausadas, pular sem marcar flags
@@ -303,6 +307,7 @@ cronAdd('daily_patient_recall', '37 13 * * *', () => {
     if (!instInfo) continue
 
     var cutoffInactiveIso = new Date(nowMs - daysInactive * 86400 * 1000).toISOString()
+    var cutoffClubInactiveIso = new Date(nowMs - clubDaysInactive * 86400 * 1000).toISOString()
     var cutoffRecall30dIso = new Date(nowMs - 30 * 86400 * 1000).toISOString()
 
     // Buscar contatos potenciais:
@@ -364,7 +369,17 @@ cronAdd('daily_patient_recall', '37 13 * * *', () => {
       if (cleanP.length < 8) continue
       var phoneSuffix = cleanP.slice(-8)
 
-      // Verificar se houve alguma mensagem recente (últimos X dias)
+      // Régua 3: CLUBE 45D vs DEMAIS 14D
+      // Se contato é do clube/acompanhamento (is_club_member = true ou care_status = 'clube'/'acompanhamento'), usa cutoffClubInactiveIso (45d).
+      // Para os demais pacientes, continua recall_days_inactive (14d).
+      var isClub =
+        contact.getBool('is_club_member') ||
+        contact.getString('care_status') === 'clube' ||
+        contact.getString('care_status') === 'acompanhamento'
+
+      var effectiveCutoffIso = isClub ? cutoffClubInactiveIso : cutoffInactiveIso
+
+      // Verificar se houve alguma mensagem recente (últimos X dias da régua correspondente)
       var hasRecentMessage = false
       try {
         var recentMsgs = $app.findRecordsByFilter(
@@ -373,7 +388,7 @@ cronAdd('daily_patient_recall', '37 13 * * *', () => {
           '-created',
           1,
           0,
-          { suf: phoneSuffix, cutoff: cutoffInactiveIso },
+          { suf: phoneSuffix, cutoff: effectiveCutoffIso },
         )
         if (recentMsgs && recentMsgs.length > 0) {
           hasRecentMessage = true

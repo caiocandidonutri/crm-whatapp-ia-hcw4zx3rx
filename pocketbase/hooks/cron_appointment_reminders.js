@@ -465,20 +465,35 @@ cronAdd('appointment_reminders_and_followup', '18 * * * *', () => {
         // Instância Evolution pronta
         var instInfo = null
 
-        // CASO 1: Véspera (~24h antes: janela entre 18h e 30h antes)
+        // CASO 1: Confirmação antecedência configurável (padrão 48h antes: janela entre confHoursBefore - 6h e confHoursBefore + 6h)
         // Anti-duplicidade: confirmation_sent_at DEVE ser nulo
-        if (!confirmationSentAt && diffHours >= 18 && diffHours <= 30) {
+        var confHoursBefore = 48
+        try {
+          var careSet = $app.findFirstRecordByFilter('care_alert_settings', 'account_id = {:aid}', {
+            aid: accountId,
+          })
+          if (careSet && careSet.getInt('confirmation_hours_before')) {
+            confHoursBefore = careSet.getInt('confirmation_hours_before')
+          }
+        } catch (_) {}
+
+        var minConfWindow = Math.max(12, confHoursBefore - 6)
+        var maxConfWindow = confHoursBefore + 6
+
+        if (!confirmationSentAt && diffHours >= minConfWindow && diffHours <= maxConfWindow) {
           instInfo = resolveEvolutionInstance(accountId)
           if (instInfo) {
-            // Mensagem de confirmação 24h alinhada ao tom da Fabiana (secretária da clínica)
-            // Tom humano, caloroso, profissional e acolhedor (sem auto-identificação como IA)
+            // Mensagem de confirmação alinhada ao tom da Fabiana (secretária da clínica)
+            var dayLabel = confHoursBefore >= 36 ? 'em breve' : 'amanhã'
             var confText =
               'Olá, ' +
               firstName +
               ', tudo bem? Aqui é da equipe do Dr. Caio!\n\n' +
-              'Estou passando para confirmar o seu horário de consulta amanhã às *' +
+              'Estou passando para confirmar o seu horário de consulta ' +
+              dayLabel +
+              ' às *' +
               hhmm +
-              '*. Podemo contar com você? 🙏'
+              '*. Podemos contar com você? 🙏'
 
             if (isBioOrConsult) {
               confText += prepInstructions

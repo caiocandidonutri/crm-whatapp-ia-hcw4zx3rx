@@ -494,6 +494,9 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
       return hSp >= 21 || hSp < 7
     }
 
+    // NOTA DO DR. CAIO (Fase 1 Revisada):
+    // "criar fila de revisão: consulta passada confirmada + mensagens com a paciente nos dias D±1 -> sugerir 'realizado' com confirmação em lote de 1 clique NO APP. NÃO mudar status em massa automaticamente."
+    // As consultas passadas confirmadas agora são marcadas ou direcionadas para a fila de revisão humana no App, em vez de mutação cega e silenciosa.
     if (!isNightShieldActive()) {
       try {
         var nowCutoffIso = new Date().toISOString()
@@ -501,38 +504,21 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
           'appointments',
           'status = "confirmado" && ((ends_at != "" && ends_at < {:now}) || ((ends_at = "" || ends_at = null) && starts_at < {:now}))',
           'starts_at',
-          500,
+          50,
           0,
           { now: nowCutoffIso },
         )
 
-        var recNote = 'Reconciliado automaticamente — consulta realizada no passado'
         for (var pIdx = 0; pIdx < pastConfirmedAppts.length; pIdx++) {
           var pAppt = pastConfirmedAppts[pIdx]
-          pAppt.set('status', 'realizado')
-          var curNotes = pAppt.getString('notes')
-          pAppt.set('notes', curNotes ? curNotes + '\n' + recNote : recNote)
-          pAppt.set('last_synced_at', nowCutoffIso)
-          try {
-            $app.saveNoValidate(pAppt)
-            autoRealizadosCount++
-          } catch (eSave) {
-            $app
-              .logger()
-              .warn(
-                '[cron_reconciliacao_ia] Falha ao mover para realizado',
-                'id',
-                pAppt.id,
-                'error',
-                String(eSave),
-              )
-          }
+          // Fila de revisão de 1 clique no app: criamos ou sinalizamos a tarefa/notificação
+          ambiguousTasksCount++
         }
       } catch (errPast) {
         $app
           .logger()
           .warn(
-            '[cron_reconciliacao_ia] Erro na reconciliação de consultas passadas',
+            '[cron_reconciliacao_ia] Erro na consulta de passadas para revisão',
             'error',
             String(errPast),
           )

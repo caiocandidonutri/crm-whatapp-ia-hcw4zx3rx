@@ -139,6 +139,10 @@ export interface CrmContact extends RecordModel {
   assigned_to?: string
   category_ids?: string[]
   followup_rule_id?: string
+  budget_value?: number
+  budget_sent_at?: string
+  plan_expires_at?: string
+  is_club_member?: boolean
   // expand opcional do PB ao buscar com `?expand=company_id`
   expand?: {
     company_id?: CrmCompany
@@ -231,6 +235,10 @@ export interface CareAlertSettings extends RecordModel {
   needs_care_alert_enabled: boolean
   confirmation_alert_enabled: boolean
   confirmation_hours_before: number
+  club_recall_days_inactive?: number
+  budget_followup_days?: number
+  renewal_alert_days_before?: number
+  return_30d_rule_enabled?: boolean
   reminders_enabled?: boolean
   recall_enabled?: boolean
   recall_days_inactive?: number

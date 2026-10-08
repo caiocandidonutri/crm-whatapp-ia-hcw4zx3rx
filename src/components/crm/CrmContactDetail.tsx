@@ -91,6 +91,10 @@ export function CrmContactDetail({
   const [role, setRole] = useState('')
   const [email, setEmail] = useState('')
   const [assignedTo, setAssignedTo] = useState<string>('unassigned')
+  const [budgetValue, setBudgetValue] = useState<number | ''>('')
+  const [budgetSentAt, setBudgetSentAt] = useState<string>('')
+  const [planExpiresAt, setPlanExpiresAt] = useState<string>('')
+  const [isClubMember, setIsClubMember] = useState<boolean>(false)
   // Empresa vinculada — gerenciada pelo CompanyAutocomplete. Salvar
   // ali é imediato (PATCH no contato), então não vai pelo botão "Salvar".
   const [company, setCompany] = useState<CrmCompany | null>(null)
@@ -132,6 +136,10 @@ export function CrmContactDetail({
         setRole(data.role || '')
         setEmail(data.email || '')
         setAssignedTo(data.assigned_to || 'unassigned')
+        setBudgetValue(data.budget_value ?? '')
+        setBudgetSentAt(data.budget_sent_at ? data.budget_sent_at.split('T')[0] : '')
+        setPlanExpiresAt(data.plan_expires_at ? data.plan_expires_at.split('T')[0] : '')
+        setIsClubMember(data.is_club_member ?? false)
         setCompany(data.expand?.company_id || null)
         setCategoryIds(data.category_ids || [])
 
@@ -178,6 +186,10 @@ export function CrmContactDetail({
         role: role,
         email: email,
         category_ids: categoryIds,
+        budget_value: budgetValue === '' ? null : Number(budgetValue),
+        budget_sent_at: budgetSentAt ? new Date(budgetSentAt).toISOString() : null,
+        plan_expires_at: planExpiresAt ? new Date(planExpiresAt).toISOString() : null,
+        is_club_member: isClubMember,
       })
       toast.success('Alterações salvas')
       onUpdate()
@@ -473,7 +485,15 @@ export function CrmContactDetail({
               <div className="space-y-4">
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">Fase no Funil</Label>
-                  <Select value={stage} onValueChange={setStage}>
+                  <Select
+                    value={stage}
+                    onValueChange={(val) => {
+                      setStage(val)
+                      if (val === 'orcamento_enviado' && !budgetSentAt) {
+                        setBudgetSentAt(new Date().toISOString().split('T')[0])
+                      }
+                    }}
+                  >
                     <SelectTrigger className="h-9 bg-white/50">
                       <SelectValue />
                     </SelectTrigger>
@@ -485,6 +505,75 @@ export function CrmContactDetail({
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                {/* Campos da Fase 2: Orçamento e Plano/Clube */}
+                <div className="p-3.5 rounded-xl border border-purple-200/70 bg-purple-50/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-purple-900 flex items-center gap-1.5">
+                      Orçamento da Consulta / Plano
+                    </span>
+                    {stage === 'orcamento_enviado' && (
+                      <Badge className="bg-purple-100 text-purple-700 text-[10px] border-0">
+                        Régua 7d ativa
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-medium text-muted-foreground">
+                        Valor Proposta (R$)
+                      </Label>
+                      <Input
+                        type="number"
+                        placeholder="Ex.: 450.00"
+                        value={budgetValue}
+                        onChange={(e) =>
+                          setBudgetValue(e.target.value === '' ? '' : Number(e.target.value))
+                        }
+                        className="h-8 bg-white/70 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-medium text-muted-foreground">
+                        Data de Envio
+                      </Label>
+                      <Input
+                        type="date"
+                        value={budgetSentAt}
+                        onChange={(e) => setBudgetSentAt(e.target.value)}
+                        className="h-8 bg-white/70 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-purple-200/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label
+                        htmlFor="clubMemberSwitch"
+                        className="text-xs font-medium text-purple-950 cursor-pointer"
+                      >
+                        Membro do Clube / Acompanhamento
+                      </Label>
+                      <Switch
+                        id="clubMemberSwitch"
+                        checked={isClubMember}
+                        onCheckedChange={setIsClubMember}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-medium text-muted-foreground">
+                        Vencimento do Plano (Régua 15d)
+                      </Label>
+                      <Input
+                        type="date"
+                        value={planExpiresAt}
+                        onChange={(e) => setPlanExpiresAt(e.target.value)}
+                        className="h-8 bg-white/70 text-xs"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-1.5 flex flex-col">

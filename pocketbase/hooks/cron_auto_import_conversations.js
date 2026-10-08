@@ -13,13 +13,23 @@ cronAdd('auto_import_conversations', '26 */2 * * *', () => {
 
     let instances = []
     try {
+      // Priorizar a instância REAL conectada instance_1786021758855
       instances = $app.findRecordsByFilter(
         'whatsapp_instances',
-        "status = 'connected' && is_importing_history = false",
+        "instance_name = 'instance_1786021758855' && status = 'connected'",
         '-created',
-        50,
+        1,
         0,
       )
+      if (!instances || instances.length === 0) {
+        instances = $app.findRecordsByFilter(
+          'whatsapp_instances',
+          "status = 'connected' && is_importing_history = false",
+          '-created',
+          50,
+          0,
+        )
+      }
     } catch (err) {
       $app.logger().error('cron_auto_import_query_error', 'error', String(err))
       return
@@ -57,13 +67,14 @@ cronAdd('auto_import_conversations', '26 */2 * * *', () => {
       try {
         var conversations = []
         try {
+          // Buscar conversas da instância conectada. Se user_id estiver vazio ou desalinhado, busca por instance_name
           conversations = $app.findRecordsByFilter(
             'conversations',
-            'user_id = {:userId} && instance_name = {:inst} && is_group = false',
-            '-updated',
-            70,
+            'instance_name = {:inst} && is_group = false',
+            '-last_message_timestamp',
+            100,
             0,
-            { userId: authId, inst: instanceName },
+            { inst: instanceName },
           )
         } catch (_) {
           continue
@@ -94,14 +105,22 @@ cronAdd('auto_import_conversations', '26 */2 * * *', () => {
 
           var contact = null
           try {
+            // Busca contato por jid ou telefone em qualquer instância para manter histórico unificado
             contact = $app.findFirstRecordByFilter(
               'crm_contacts',
-              'instance_name = {:instance} && jid = {:jid}',
-              { instance: instanceName, jid: remoteJid },
+              'jid = {:jid} || (phone != "" && phone = {:ph})',
+              { jid: remoteJid, ph: phone },
             )
           } catch (_) {}
 
           if (contact) {
+            // Se o contato pertencia a outra instância antiga, atualiza para a instância real conectada
+            if (contact.getString('instance_name') !== instanceName) {
+              contact.set('instance_name', instanceName)
+              try {
+                $app.saveNoValidate(contact)
+              } catch (_) {}
+            }
             var exStage = contact.getString('stage')
             var exAction = contact.getString('ai_suggested_action')
             if (exStage && exStage !== 'lead' && exStage !== '' && exAction) {
