@@ -1,14 +1,17 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Task } from '@/types/models'
 import { getTasks } from '@/services/tasks'
 import { useRealtime } from '@/hooks/use-realtime'
 import { useAuth } from '@/hooks/use-auth'
+import { useCurrentAccount } from '@/hooks/use-current-account'
 
 export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { user } = useAuth()
+  const { accountId } = useCurrentAccount()
+  const activeControllerRef = useRef<AbortController | null>(null)
 
   const loadTasks = useCallback(async () => {
     if (!user) {
@@ -17,24 +20,49 @@ export function useTasks() {
       setError(null)
       return
     }
+
+    // Cancela requisição anterior em andamento
+    if (activeControllerRef.current) {
+      activeControllerRef.current.abort()
+    }
+    const controller = new AbortController()
+    activeControllerRef.current = controller
+
     try {
-      const data = await getTasks()
-      setTasks(Array.isArray(data) ? data : [])
+      const data = await getTasks({
+        accountId: accountId || undefined,
+        signal: controller.signal,
+        limit: 300,
+      })
+
+      if (controller.signal.aborted) return
+
+      const safeList = Array.isArray(data) ? data : []
+      setTasks(safeList)
       setError(null)
     } catch (err: any) {
+      if (controller.signal.aborted) return
+
       if (import.meta.env.DEV) {
         console.debug('[useTasks] Não foi possível carregar tarefas:', err?.message || err)
       }
       // Degradação graciosa: lista vazia e nunca quebra a tela
-      setTasks((prev) => (prev.length > 0 ? prev : []))
+      setTasks((prev) => (Array.isArray(prev) ? prev : []))
       setError('Não foi possível carregar as tarefas')
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) {
+        setLoading(false)
+      }
     }
-  }, [user])
+  }, [user, accountId])
 
   useEffect(() => {
     loadTasks()
+    return () => {
+      if (activeControllerRef.current) {
+        activeControllerRef.current.abort()
+      }
+    }
   }, [loadTasks])
 
   useRealtime<Task>('tasks', (e) => {

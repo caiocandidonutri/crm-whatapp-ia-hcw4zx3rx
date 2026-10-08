@@ -9,27 +9,121 @@ export const updateTask = async (id: string, data: Partial<Task>) => {
   return pb.collection('tasks').update<Task>(id, data, { requestKey: null })
 }
 
-export const getTasks = async (filter?: string) => {
+function isAnyAbortError(err: unknown): boolean {
+  if (!err) return false
+  if (typeof err === 'object') {
+    const e = err as any
+    if (e.name === 'AbortError' || e.name === 'CanceledError' || e.code === 20) return true
+    if (e.isAbort === true) return true
+    if (e.status === 0) return true
+    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
+    if (
+      msg.includes('aborted') ||
+      msg.includes('abort') ||
+      msg.includes('signal is aborted') ||
+      msg.includes('autocancelled') ||
+      msg.includes('canceled') ||
+      msg.includes('user aborted')
+    ) {
+      return true
+    }
+    if (e.originalError && isAnyAbortError(e.originalError)) return true
+    if (e.cause && isAnyAbortError(e.cause)) return true
+  }
+  return false
+}
+
+export interface GetTasksOptions {
+  filter?: string
+  signal?: AbortSignal
+  perPage?: number
+  limit?: number
+  accountId?: string
+}
+
+export const getTasks = async (filterOrOptions?: string | GetTasksOptions): Promise<Task[]> => {
+  const options: GetTasksOptions =
+    typeof filterOrOptions === 'string' ? { filter: filterOrOptions } : filterOrOptions || {}
+
+  const { filter, signal, accountId, limit } = options
+
+  // Se o signal já chegou cancelado, retorna vazio imediatamente
+  if (signal?.aborted) {
+    return []
+  }
+
+  // Prepara controller interno de timeout caso nenhum signal tenha sido fornecido
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  let effectiveSignal = signal
+
+  if (!effectiveSignal) {
+    const controller = new AbortController()
+    timeoutId = setTimeout(() => controller.abort(), 10000) // 10s de proteção contra timeout de 30s+
+    effectiveSignal = controller.signal
+  }
+
+  // Monta filtro composto garantindo account_id se fornecido
+  let finalFilter = filter || ''
+  if (accountId) {
+    const accClause = `account_id = "${accountId}"`
+    finalFilter = finalFilter ? `(${finalFilter}) && ${accClause}` : accClause
+  }
+
   try {
-    return await pb.collection('tasks').getFullList<Task>({
+    // 1ª Tentativa: busca com paginação razoável (ou getList se limitado) com expand
+    if (effectiveSignal.aborted) return []
+
+    // Usar getList(1, limit || 200) evita travar o SQLite com 1000+ linhas
+    const maxItems = limit && limit > 0 ? limit : 300
+    const res = await pb.collection('tasks').getList<Task>(1, maxItems, {
       sort: '-created',
-      filter: filter || undefined,
+      filter: finalFilter || undefined,
       expand: 'assigned_to,crm_contact_id,conversation_id',
+      signal: effectiveSignal,
       requestKey: null,
     })
+
+    return Array.isArray(res?.items) ? res.items : []
   } catch (err: any) {
-    // Se a query falhar com 400 por erro em expand/relation órfã, tenta fallback sem expand
-    if (err?.status === 400) {
+    if (isAnyAbortError(err) || effectiveSignal.aborted) {
+      return []
+    }
+
+    // 2ª Tentativa: fallback sem expand (caso haja relação quebrada ou 400)
+    try {
       if (import.meta.env.DEV) {
-        console.debug('[getTasks] Fallback sem expand acionado após erro 400:', err?.message || err)
+        console.debug(
+          '[getTasks] Falha na consulta de tarefas com expand (tentando sem expand):',
+          err?.message || err,
+        )
       }
-      return await pb.collection('tasks').getFullList<Task>({
+      if (effectiveSignal.aborted) return []
+
+      const maxItems = limit && limit > 0 ? limit : 300
+      const res = await pb.collection('tasks').getList<Task>(1, maxItems, {
         sort: '-created',
-        filter: filter || undefined,
+        filter: finalFilter || undefined,
+        signal: effectiveSignal,
         requestKey: null,
       })
+
+      return Array.isArray(res?.items) ? res.items : []
+    } catch (fallbackErr: any) {
+      if (isAnyAbortError(fallbackErr) || effectiveSignal.aborted) {
+        return []
+      }
+
+      // Em qualquer falha (400, 500, timeout, etc.), NUNCA lança para não derrubar a tela no ErrorBoundary
+      console.warn(
+        '[getTasks] Falha completa ao carregar tarefas (retornando lista vazia de fallback):',
+        fallbackErr?.message || fallbackErr,
+      )
+      return []
     }
-    throw err
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
   }
 }
 

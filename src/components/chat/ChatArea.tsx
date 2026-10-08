@@ -318,15 +318,25 @@ export function ChatArea({
 
   useEffect(() => {
     if (!chat?.id) return
+    const controller = new AbortController()
     const fetchTasks = async () => {
       try {
-        const data = await getTasks(`conversation_id = '${chat.id}'`)
-        setTasks(data)
-      } catch (err) {
+        const data = await getTasks({
+          filter: `conversation_id = '${chat.id}'`,
+          signal: controller.signal,
+          limit: 100,
+        })
+        if (!controller.signal.aborted) {
+          setTasks(Array.isArray(data) ? data : [])
+        }
+      } catch {
         // Ignorado no UI para não poluir
       }
     }
     fetchTasks()
+    return () => {
+      controller.abort()
+    }
   }, [chat?.id])
 
   useRealtime<Task>(

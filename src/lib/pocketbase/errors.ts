@@ -20,30 +20,41 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (typeof error === 'object') {
-    const err = error as any
-    // PocketBase ClientResponseError with status 0 is typically a network failure or aborted request
-    if (err.status === 0) return true
-    if (err.name === 'AbortError' || err.isAbort === true) return true
-    if (
-      typeof err.message === 'string' &&
-      (err.message.includes('Failed to fetch') ||
-        err.message.includes('NetworkError') ||
-        err.message.includes('signal is aborted') ||
-        err.message.includes('autocancelled'))
-    ) {
-      return true
-    }
-  }
-  return false
-}
-
 export function getErrorMessage(error: unknown): string {
   if (!(error instanceof ClientResponseError)) {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
+}
+
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0) return true
+    if (error.isAbort) return false
+    const msg = (error.message || '').toLowerCase()
+    if (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network error') ||
+      msg.includes('connection refused') ||
+      msg.includes('load failed')
+    ) {
+      return true
+    }
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    if (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network error') ||
+      msg.includes('connection refused') ||
+      msg.includes('load failed')
+    ) {
+      return true
+    }
+  }
+  return false
 }
