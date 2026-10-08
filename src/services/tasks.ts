@@ -77,59 +77,58 @@ export const getTasks = async (filterOrOptions?: string | GetTasksOptions): Prom
     finalFilter = finalFilter ? `(${finalFilter}) && ${accClause}` : accClause
   }
 
+  const maxItems = limit && limit > 0 ? limit : 300
+
   try {
-    // 1ª Tentativa: busca com paginação razoável (ou getList se limitado) com expand
     if (signal?.aborted || effectiveSignal.aborted) return []
 
-    // Usar getList(1, limit || 200) evita travar o SQLite com 1000+ linhas
-    const maxItems = limit && limit > 0 ? limit : 300
-    const res = await pb.collection('tasks').getList<Task>(1, maxItems, {
-      sort: '-created',
-      filter: finalFilter || undefined,
-      expand: 'assigned_to,crm_contact_id,conversation_id',
-      signal: effectiveSignal,
-      requestKey: null,
-    })
-
-    if (signal?.aborted || effectiveSignal.aborted) return []
-    return Array.isArray(res?.items) ? res.items : []
-  } catch (err: any) {
-    if (signal?.aborted || effectiveSignal.aborted || isAnyAbortError(err)) {
-      return []
-    }
-
-    // 2ª Tentativa: fallback sem expand (caso haja relação quebrada ou 400)
+    // 1ª Tentativa: expand apenas de relações leves e comprovadamente válidas (assigned_to, crm_contact_id).
+    // O expand de conversation_id é pesado e causa HTTP 400 / timeout em bases com muitas mensagens/conversas.
+    let items: Task[] = []
     try {
+      const res = await pb.collection('tasks').getList<Task>(1, maxItems, {
+        sort: '-created',
+        filter: finalFilter || undefined,
+        expand: 'assigned_to,crm_contact_id',
+        signal: effectiveSignal,
+        requestKey: null,
+      })
+      if (signal?.aborted || effectiveSignal.aborted) return []
+      items = Array.isArray(res?.items) ? res.items : []
+    } catch (expandErr: any) {
+      if (signal?.aborted || effectiveSignal.aborted || isAnyAbortError(expandErr)) {
+        return []
+      }
       if (import.meta.env.DEV) {
         console.debug(
           '[getTasks] Falha na consulta de tarefas com expand (tentando sem expand):',
-          err?.message || err,
+          expandErr?.message || expandErr,
         )
       }
-      if (signal?.aborted || effectiveSignal.aborted) return []
 
-      const maxItems = limit && limit > 0 ? limit : 300
-      const res = await pb.collection('tasks').getList<Task>(1, maxItems, {
+      // 2ª Tentativa: fallback totalmente sem expand
+      const fallbackRes = await pb.collection('tasks').getList<Task>(1, maxItems, {
         sort: '-created',
         filter: finalFilter || undefined,
         signal: effectiveSignal,
         requestKey: null,
       })
-
       if (signal?.aborted || effectiveSignal.aborted) return []
-      return Array.isArray(res?.items) ? res.items : []
-    } catch (fallbackErr: any) {
-      if (signal?.aborted || effectiveSignal.aborted || isAnyAbortError(fallbackErr)) {
-        return []
-      }
+      items = Array.isArray(fallbackRes?.items) ? fallbackRes.items : []
+    }
 
-      // Em qualquer falha (400, 500, timeout, etc.), NUNCA lança para não derrubar a tela no ErrorBoundary
-      console.warn(
-        '[getTasks] Falha completa ao carregar tarefas (retornando lista vazia de fallback):',
-        fallbackErr?.message || fallbackErr,
-      )
+    return Array.isArray(items) ? items : []
+  } catch (err: any) {
+    if (signal?.aborted || effectiveSignal.aborted || isAnyAbortError(err)) {
       return []
     }
+
+    // Em qualquer falha (400, 500, timeout, etc.), NUNCA lança para não derrubar a tela no ErrorBoundary
+    console.warn(
+      '[getTasks] Falha completa ao carregar tarefas (retornando lista vazia de fallback):',
+      err?.message || err,
+    )
+    return []
   } finally {
     if (timeoutId) {
       clearTimeout(timeoutId)

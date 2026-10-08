@@ -194,16 +194,32 @@ export default function Home() {
 
   // Atualização em tempo real das mensagens, conversas, contatos e tarefas
   useRealtime('whatsapp_messages', () => {
-    loadMetrics(true).catch(() => {})
+    try {
+      loadMetrics(true).catch(() => {})
+    } catch {
+      /* intentionally ignored */
+    }
   })
   useRealtime('conversations', () => {
-    loadMetrics(true).catch(() => {})
+    try {
+      loadMetrics(true).catch(() => {})
+    } catch {
+      /* intentionally ignored */
+    }
   })
   useRealtime('tasks', () => {
-    loadMetrics(true).catch(() => {})
+    try {
+      loadMetrics(true).catch(() => {})
+    } catch {
+      /* intentionally ignored */
+    }
   })
   useRealtime('crm_contacts', () => {
-    loadMetrics(true).catch(() => {})
+    try {
+      loadMetrics(true).catch(() => {})
+    } catch {
+      /* intentionally ignored */
+    }
   })
 
   // Tarefas urgentes do usuário logado com proteção contra undefined

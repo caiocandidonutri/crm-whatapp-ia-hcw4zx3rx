@@ -94,13 +94,19 @@ export function useTasks() {
   }, [loadTasks])
 
   useRealtime<Task>('tasks', (e) => {
-    if (!e || !e.record) return
-    if (e.action === 'create') {
-      setTasks((prev) => [e.record, ...prev])
-    } else if (e.action === 'update') {
-      setTasks((prev) => prev.map((t) => (t.id === e.record.id ? e.record : t)))
-    } else if (e.action === 'delete') {
-      setTasks((prev) => prev.filter((t) => t.id !== e.record.id))
+    try {
+      if (!e || !e.record) return
+      if (e.action === 'create') {
+        setTasks((prev) => (Array.isArray(prev) ? [e.record, ...prev] : [e.record]))
+      } else if (e.action === 'update') {
+        setTasks((prev) =>
+          Array.isArray(prev) ? prev.map((t) => (t.id === e.record.id ? e.record : t)) : [],
+        )
+      } else if (e.action === 'delete') {
+        setTasks((prev) => (Array.isArray(prev) ? prev.filter((t) => t.id !== e.record.id) : []))
+      }
+    } catch {
+      // Ignora erro de realtime para nunca derrubar a tela
     }
   })
 
