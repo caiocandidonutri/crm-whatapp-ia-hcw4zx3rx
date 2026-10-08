@@ -20,40 +20,30 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0 || error.isAbort) return true
+    if (error.status >= 500) return true
+  }
+  const err = error as { name?: string; message?: string; status?: number; isAbort?: boolean }
+  if (err.name === 'AbortError' || err.isAbort) return true
+  if (typeof err.status === 'number' && (err.status === 0 || err.status >= 500)) return true
+  const msg = (err.message || '').toLowerCase()
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network error') ||
+    msg.includes('load failed') ||
+    msg.includes('timeout') ||
+    msg.includes('aborted')
+  )
+}
+
 export function getErrorMessage(error: unknown): string {
   if (!(error instanceof ClientResponseError)) {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
-}
-
-/**
- * Detecta se um erro é tipicamente de falha de rede/conectividade
- * (offline, fetch failed, timeout, conexão recusada, status 0).
- * CRÍTICO: NÃO REMOVER OU RENOMEAR esta exportação — é consumida por múltiplos módulos.
- */
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (typeof error === 'object') {
-    const e = error as any
-    if (e.status === 0 || e.statusCode === 0) return true
-    if (e.name === 'NetworkError' || e.name === 'FetchError') return true
-    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
-    if (
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('network error') ||
-      msg.includes('connection refused') ||
-      msg.includes('timeout') ||
-      msg.includes('econnrefused') ||
-      msg.includes('net::err') ||
-      msg.includes('offline')
-    ) {
-      return true
-    }
-    if (e.originalError && isNetworkError(e.originalError)) return true
-    if (e.cause && isNetworkError(e.cause)) return true
-  }
-  return false
 }
