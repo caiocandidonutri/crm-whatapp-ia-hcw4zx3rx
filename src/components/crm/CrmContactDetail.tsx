@@ -109,10 +109,14 @@ export function CrmContactDetail({
   const isDirty =
     contact &&
     (contactName !== (contact.contact_name || '') ||
-      stage !== contact.stage ||
+      stage !== (contact.stage || '') ||
       notes !== (contact.notes || '') ||
       role !== (contact.role || '') ||
       email !== (contact.email || '') ||
+      budgetValue !== (contact.budget_value ?? '') ||
+      budgetSentAt !== (contact.budget_sent_at ? contact.budget_sent_at.split('T')[0] : '') ||
+      planExpiresAt !== (contact.plan_expires_at ? contact.plan_expires_at.split('T')[0] : '') ||
+      isClubMember !== (contact.is_club_member ?? false) ||
       JSON.stringify(categoryIds) !== JSON.stringify(contact.category_ids || []))
 
   useEffect(() => {
@@ -525,15 +529,21 @@ export function CrmContactDetail({
                       <Label className="text-[11px] font-medium text-muted-foreground">
                         Valor Proposta (R$)
                       </Label>
-                      <Input
-                        type="number"
-                        placeholder="Ex.: 450.00"
-                        value={budgetValue}
-                        onChange={(e) =>
-                          setBudgetValue(e.target.value === '' ? '' : Number(e.target.value))
-                        }
-                        className="h-8 bg-white/70 text-sm"
-                      />
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
+                          R$
+                        </span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0,00"
+                          value={budgetValue}
+                          onChange={(e) =>
+                            setBudgetValue(e.target.value === '' ? '' : Number(e.target.value))
+                          }
+                          className="h-8 pl-8 bg-white/70 text-sm"
+                        />
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-[11px] font-medium text-muted-foreground">

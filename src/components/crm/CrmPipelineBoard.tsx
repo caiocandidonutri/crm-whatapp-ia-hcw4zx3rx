@@ -347,6 +347,34 @@ export function CrmPipelineBoard({
                                 <span className="font-medium">Precisa de atenção</span>
                               </div>
                             )}
+
+                            {/* Badge Orçamento / Clube seguro contra nulos */}
+                            {contact.stage === 'orcamento_enviado' && (
+                              <div className="flex items-center gap-1.5 mt-2 text-xs bg-purple-50 text-purple-700 border border-purple-200/60 rounded-md px-2 py-1">
+                                <span className="font-semibold">
+                                  {typeof contact.budget_value === 'number' &&
+                                  !isNaN(contact.budget_value)
+                                    ? `R$ ${contact.budget_value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                    : 'Orçamento sem valor'}
+                                </span>
+                                {contact.budget_sent_at && (
+                                  <span className="text-[10px] text-purple-600/80">
+                                    • Enviado {relativeTime(contact.budget_sent_at)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {contact.is_club_member && (
+                              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-100 text-purple-800 mt-1.5 w-fit">
+                                👑 Clube
+                                {contact.plan_expires_at && (
+                                  <span className="ml-1 text-purple-700/80">
+                                    (vence {relativeTime(contact.plan_expires_at)})
+                                  </span>
+                                )}
+                              </span>
+                            )}
                           </div>
                         </div>
 

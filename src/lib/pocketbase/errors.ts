@@ -28,12 +28,27 @@ export function isNetworkError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase()
     return (
-      msg.includes('network') ||
       msg.includes('failed to fetch') ||
-      msg.includes('timeout') ||
-      msg.includes('connection') ||
-      msg.includes('offline')
+      msg.includes('network') ||
+      msg.includes('networkerror') ||
+      msg.includes('offline') ||
+      msg.includes('load failed') ||
+      msg.includes('aborterror')
     )
+  }
+  if (typeof error === 'object' && error !== null) {
+    const anyErr = error as any
+    if (anyErr.status === 0 || anyErr.isAbort) return true
+    if (typeof anyErr.message === 'string') {
+      const msg = anyErr.message.toLowerCase()
+      return (
+        msg.includes('failed to fetch') ||
+        msg.includes('network') ||
+        msg.includes('networkerror') ||
+        msg.includes('offline') ||
+        msg.includes('load failed')
+      )
+    }
   }
   return false
 }

@@ -31,6 +31,10 @@ export async function saveCareAlertSettings(
     survey_enabled?: boolean
     survey_q1?: string
     survey_q2?: string
+    club_recall_days_inactive?: number
+    budget_followup_days?: number
+    renewal_alert_days_before?: number
+    return_30d_rule_enabled?: boolean
   },
 ): Promise<CareAlertSettings> {
   const existing = await getCareAlertSettings(accountId)
@@ -42,10 +46,14 @@ export async function saveCareAlertSettings(
     followup_alert_enabled: true,
     needs_care_alert_enabled: true,
     confirmation_alert_enabled: true,
-    confirmation_hours_before: 24,
+    confirmation_hours_before: 48,
     reminders_enabled: true,
     recall_enabled: true,
     recall_days_inactive: 14,
+    club_recall_days_inactive: 45,
+    budget_followup_days: 7,
+    renewal_alert_days_before: 15,
+    return_30d_rule_enabled: true,
     recall_daily_limit: 15,
     after_hours_enabled: true,
     survey_enabled: true,

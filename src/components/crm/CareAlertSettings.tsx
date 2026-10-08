@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Phone, Save, Loader2, Clock } from 'lucide-react'
+import { Phone, Save, Loader2, Clock, Moon, PauseCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { getCareAlertSettings, saveCareAlertSettings } from '@/services/care_alerts_service'
+import {
+  getCareAlertSettings,
+  saveCareAlertSettings,
+  toggleGlobalAutomations,
+} from '@/services/care_alerts_service'
 import { extractFieldErrors, type FieldErrors } from '@/lib/pocketbase/errors'
 
 interface CareAlertSettingsProps {
@@ -26,9 +31,13 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
   const [budgetFollowupDays, setBudgetFollowupDays] = useState(7)
   const [renewalAlertDaysBefore, setRenewalAlertDaysBefore] = useState(15)
   const [return30dRuleEnabled, setReturn30dRuleEnabled] = useState(true)
+  const [budgetFollowupEnabled, setBudgetFollowupEnabled] = useState(true)
+  const [renewalAlertEnabled, setRenewalAlertEnabled] = useState(true)
   const [recallDailyLimit, setRecallDailyLimit] = useState(15)
+  const [globalPaused, setGlobalPaused] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [togglingKill, setTogglingKill] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
 
   const load = useCallback(async () => {
@@ -47,7 +56,9 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
         setBudgetFollowupDays(settings.budget_followup_days ?? 7)
         setRenewalAlertDaysBefore(settings.renewal_alert_days_before ?? 15)
         setReturn30dRuleEnabled(settings.return_30d_rule_enabled ?? true)
-        setRecallDailyLimit(settings.recall_daily_limit ?? 15)
+        setBudgetFollowupEnabled(settings.budget_followup_days > 0)
+        setRenewalAlertEnabled(settings.renewal_alert_days_before > 0)
+        setGlobalPaused(settings.global_automations_paused ?? false)
       }
     } catch {
       /* defaults */
@@ -84,6 +95,21 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
       toast.error('Erro ao salvar configurações')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleToggleKillSwitch = async (val: boolean) => {
+    setTogglingKill(true)
+    try {
+      const res = await toggleGlobalAutomations(val, accountId)
+      setGlobalPaused(!!res.paused)
+      toast.success(val ? 'Mensagens automáticas pausadas' : 'Mensagens automáticas reativadas')
+    } catch (err) {
+      console.error('Erro ao alternar kill-switch global:', err)
+      setGlobalPaused((prev) => !prev)
+      toast.error('Erro ao atualizar kill-switch global')
+    } finally {
+      setTogglingKill(false)
     }
   }
 
@@ -176,10 +202,10 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
 
       <Separator />
 
-      {/* Novas Réguas do Dr. Caio */}
+      {/* Réguas da Fase 2 */}
       <div className="space-y-4">
         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          Réguas do Dr. Caio
+          Réguas de Cuidado (Fase 2)
         </h4>
 
         {/* Régua 2: Retorno 30d */}
@@ -193,45 +219,85 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
           <Switch checked={return30dRuleEnabled} onCheckedChange={setReturn30dRuleEnabled} />
         </div>
 
-        {/* Régua 4: Orçamento 7d */}
-        <div className="space-y-1.5 pl-1">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-sm font-medium">Régua Orçamento (dias sem resposta)</Label>
-              <p className="text-xs text-muted-foreground">
-                Etapa 'Orçamento Enviado' sem resposta gera follow-up alta prioridade
-              </p>
-            </div>
+        {/* Régua 4: Orçamento 7d (toggle + dias) */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label className="text-sm font-medium">Régua Orçamento Enviado (7d)</Label>
+            <p className="text-xs text-muted-foreground">
+              Contato na etapa 'Orçamento Enviado' sem resposta gera follow-up de alta prioridade
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             <Input
               type="number"
               min={1}
               max={60}
               value={budgetFollowupDays}
               onChange={(e) => setBudgetFollowupDays(Math.max(1, Number(e.target.value) || 7))}
-              className="h-9 w-24 text-right"
+              className="h-9 w-20 text-right"
+              disabled={!budgetFollowupEnabled}
             />
+            <span className="text-xs text-muted-foreground w-10">dias</span>
+            <Switch checked={budgetFollowupEnabled} onCheckedChange={setBudgetFollowupEnabled} />
           </div>
         </div>
 
-        {/* Régua 5: Renovação de Plano */}
-        <div className="space-y-1.5 pl-1">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-sm font-medium">
-                Régua Renovação Plano/Clube (dias de antecedência)
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Gera tarefa quando o plano/clube do paciente vencer em X dias
-              </p>
-            </div>
+        {/* Régua 5: Renovação de Plano (toggle + dias) */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Label className="text-sm font-medium">Régua Renovação Plano/Clube</Label>
+            <p className="text-xs text-muted-foreground">
+              Gera tarefa quando o plano/clube do paciente vencer em X dias
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             <Input
               type="number"
               min={1}
               max={60}
               value={renewalAlertDaysBefore}
               onChange={(e) => setRenewalAlertDaysBefore(Math.max(1, Number(e.target.value) || 15))}
-              className="h-9 w-24 text-right"
+              className="h-9 w-20 text-right"
+              disabled={!renewalAlertEnabled}
             />
+            <span className="text-xs text-muted-foreground w-10">dias</span>
+            <Switch checked={renewalAlertEnabled} onCheckedChange={setRenewalAlertEnabled} />
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Kill-switch global + Night Shield (21h-07h) */}
+        <div className="p-3 rounded-xl border border-border/60 bg-muted/20 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <PauseCircle className="w-3.5 h-3.5 text-rose-500" />
+                Kill-switch global
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Pausa TODAS as mensagens automáticas (réguas, lembretes, recall e IA)
+              </p>
+            </div>
+            <Switch
+              checked={globalPaused}
+              onCheckedChange={handleToggleKillSwitch}
+              disabled={togglingKill}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <div className="min-w-0">
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <Moon className="w-3.5 h-3.5 text-indigo-500" />
+                Night Shield (21h – 07h)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Nenhuma mensagem automática sai durante a noite
+              </p>
+            </div>
+            <Badge variant="outline" className="text-[10px] font-semibold shrink-0">
+              Sempre ativo
+            </Badge>
           </div>
         </div>
       </div>
