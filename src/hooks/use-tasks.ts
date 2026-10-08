@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Task } from '@/types/models'
-import { getTasks } from '@/services/tasks'
+import { getTasks, isAnyAbortError } from '@/services/tasks'
 import { useRealtime } from '@/hooks/use-realtime'
 import { useAuth } from '@/hooks/use-auth'
 import { useCurrentAccount } from '@/hooks/use-current-account'
@@ -12,18 +12,25 @@ export function useTasks() {
   const { user } = useAuth()
   const { accountId } = useCurrentAccount()
   const activeControllerRef = useRef<AbortController | null>(null)
+  const isMountedRef = useRef<boolean>(true)
 
   const loadTasks = useCallback(async () => {
     if (!user) {
-      setTasks([])
-      setLoading(false)
-      setError(null)
+      if (isMountedRef.current) {
+        setTasks([])
+        setLoading(false)
+        setError(null)
+      }
       return
     }
 
     // Cancela requisição anterior em andamento
     if (activeControllerRef.current) {
-      activeControllerRef.current.abort()
+      try {
+        activeControllerRef.current.abort()
+      } catch {
+        // Ignora qualquer erro no abort
+      }
     }
     const controller = new AbortController()
     activeControllerRef.current = controller
@@ -33,34 +40,55 @@ export function useTasks() {
         accountId: accountId || undefined,
         signal: controller.signal,
         limit: 300,
+      }).catch((tasksErr) => {
+        // Proteção extra: nenhum erro/rejeição deve escapar de getTasks
+        if (isAnyAbortError(tasksErr) || controller.signal.aborted) {
+          return []
+        }
+        if (import.meta.env.DEV) {
+          console.debug('[useTasks] getTasks rejection swallowed:', tasksErr?.message || tasksErr)
+        }
+        return []
       })
 
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted || !isMountedRef.current) return
 
       const safeList = Array.isArray(data) ? data : []
       setTasks(safeList)
       setError(null)
     } catch (err: any) {
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted || !isMountedRef.current || isAnyAbortError(err)) {
+        return
+      }
 
       if (import.meta.env.DEV) {
         console.debug('[useTasks] Não foi possível carregar tarefas:', err?.message || err)
       }
       // Degradação graciosa: lista vazia e nunca quebra a tela
-      setTasks((prev) => (Array.isArray(prev) ? prev : []))
-      setError('Não foi possível carregar as tarefas')
+      if (isMountedRef.current) {
+        setTasks((prev) => (Array.isArray(prev) ? prev : []))
+        setError('Não foi possível carregar as tarefas')
+      }
     } finally {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && isMountedRef.current) {
         setLoading(false)
       }
     }
   }, [user, accountId])
 
   useEffect(() => {
-    loadTasks()
+    isMountedRef.current = true
+    loadTasks().catch(() => {
+      // Proteção absoluta contra qualquer unhandled rejection
+    })
     return () => {
+      isMountedRef.current = false
       if (activeControllerRef.current) {
-        activeControllerRef.current.abort()
+        try {
+          activeControllerRef.current.abort()
+        } catch {
+          // Ignora
+        }
       }
     }
   }, [loadTasks])

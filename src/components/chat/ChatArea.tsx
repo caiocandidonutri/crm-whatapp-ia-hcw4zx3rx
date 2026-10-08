@@ -325,7 +325,7 @@ export function ChatArea({
           filter: `conversation_id = '${chat.id}'`,
           signal: controller.signal,
           limit: 100,
-        })
+        }).catch(() => [])
         if (!controller.signal.aborted) {
           setTasks(Array.isArray(data) ? data : [])
         }
@@ -333,9 +333,13 @@ export function ChatArea({
         // Ignorado no UI para não poluir
       }
     }
-    fetchTasks()
+    fetchTasks().catch(() => {})
     return () => {
-      controller.abort()
+      try {
+        controller.abort()
+      } catch {
+        // Ignora
+      }
     }
   }, [chat?.id])
 

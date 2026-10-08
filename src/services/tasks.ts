@@ -9,13 +9,20 @@ export const updateTask = async (id: string, data: Partial<Task>) => {
   return pb.collection('tasks').update<Task>(id, data, { requestKey: null })
 }
 
-function isAnyAbortError(err: unknown): boolean {
+export function isAnyAbortError(err: unknown): boolean {
   if (!err) return false
   if (typeof err === 'object') {
     const e = err as any
-    if (e.name === 'AbortError' || e.name === 'CanceledError' || e.code === 20) return true
+    if (
+      e.name === 'AbortError' ||
+      e.name === 'CanceledError' ||
+      e.code === 20 ||
+      e.code === 'ERR_CANCELED'
+    ) {
+      return true
+    }
     if (e.isAbort === true) return true
-    if (e.status === 0) return true
+    if (e.status === 0 || e.statusCode === 0) return true
     const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
     if (
       msg.includes('aborted') ||
@@ -23,6 +30,7 @@ function isAnyAbortError(err: unknown): boolean {
       msg.includes('signal is aborted') ||
       msg.includes('autocancelled') ||
       msg.includes('canceled') ||
+      msg.includes('cancelled') ||
       msg.includes('user aborted')
     ) {
       return true
@@ -71,7 +79,7 @@ export const getTasks = async (filterOrOptions?: string | GetTasksOptions): Prom
 
   try {
     // 1ª Tentativa: busca com paginação razoável (ou getList se limitado) com expand
-    if (effectiveSignal.aborted) return []
+    if (signal?.aborted || effectiveSignal.aborted) return []
 
     // Usar getList(1, limit || 200) evita travar o SQLite com 1000+ linhas
     const maxItems = limit && limit > 0 ? limit : 300
@@ -83,9 +91,10 @@ export const getTasks = async (filterOrOptions?: string | GetTasksOptions): Prom
       requestKey: null,
     })
 
+    if (signal?.aborted || effectiveSignal.aborted) return []
     return Array.isArray(res?.items) ? res.items : []
   } catch (err: any) {
-    if (isAnyAbortError(err) || effectiveSignal.aborted) {
+    if (signal?.aborted || effectiveSignal.aborted || isAnyAbortError(err)) {
       return []
     }
 
@@ -97,7 +106,7 @@ export const getTasks = async (filterOrOptions?: string | GetTasksOptions): Prom
           err?.message || err,
         )
       }
-      if (effectiveSignal.aborted) return []
+      if (signal?.aborted || effectiveSignal.aborted) return []
 
       const maxItems = limit && limit > 0 ? limit : 300
       const res = await pb.collection('tasks').getList<Task>(1, maxItems, {
@@ -107,9 +116,10 @@ export const getTasks = async (filterOrOptions?: string | GetTasksOptions): Prom
         requestKey: null,
       })
 
+      if (signal?.aborted || effectiveSignal.aborted) return []
       return Array.isArray(res?.items) ? res.items : []
     } catch (fallbackErr: any) {
-      if (isAnyAbortError(fallbackErr) || effectiveSignal.aborted) {
+      if (signal?.aborted || effectiveSignal.aborted || isAnyAbortError(fallbackErr)) {
         return []
       }
 

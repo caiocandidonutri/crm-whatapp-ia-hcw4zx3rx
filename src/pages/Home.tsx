@@ -180,24 +180,30 @@ export default function Home() {
 
   useEffect(() => {
     const controller = new AbortController()
-    loadMetrics(false, controller.signal)
+    loadMetrics(false, controller.signal).catch(() => {
+      // Proteção absoluta contra unhandled rejection
+    })
     return () => {
-      controller.abort()
+      try {
+        controller.abort()
+      } catch {
+        // Ignora
+      }
     }
-  }, [])
+  }, [loadMetrics])
 
   // Atualização em tempo real das mensagens, conversas, contatos e tarefas
   useRealtime('whatsapp_messages', () => {
-    loadMetrics(true)
+    loadMetrics(true).catch(() => {})
   })
   useRealtime('conversations', () => {
-    loadMetrics(true)
+    loadMetrics(true).catch(() => {})
   })
   useRealtime('tasks', () => {
-    loadMetrics(true)
+    loadMetrics(true).catch(() => {})
   })
   useRealtime('crm_contacts', () => {
-    loadMetrics(true)
+    loadMetrics(true).catch(() => {})
   })
 
   // Tarefas urgentes do usuário logado com proteção contra undefined
