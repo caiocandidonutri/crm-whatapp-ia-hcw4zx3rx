@@ -332,31 +332,37 @@ export function ChatList({
   const { toast } = useToast()
 
   const groupChats = useMemo(() => {
-    return safeChats.filter((c) => c && c.type === 'group')
+    return (safeChats || []).filter((c) => c && c.type === 'group')
   }, [safeChats])
 
   const unreadGroupCount = useMemo(() => {
-    return groupChats.reduce((acc, c) => acc + (c.unread || 0), 0)
+    return groupChats.reduce((acc, c) => acc + (c?.unread || 0), 0)
   }, [groupChats])
 
   const filteredChats = useMemo(() => {
-    let filtered = safeChats.filter((c) => !!c)
+    let filtered = (safeChats || []).filter((c) => !!c)
 
     if (chatTypeFilter === 'direct') {
-      filtered = filtered.filter((c) => c.type !== 'group')
+      filtered = filtered.filter((c) => c && c.type !== 'group')
     } else if (chatTypeFilter === 'group') {
-      filtered = filtered.filter((c) => c.type === 'group')
+      filtered = filtered.filter((c) => c && c.type === 'group')
     }
 
     if (selectedCategory) {
-      filtered = filtered.filter((c) => c.category_ids?.includes(selectedCategory))
+      filtered = filtered.filter(
+        (c) => Array.isArray(c?.category_ids) && c.category_ids.includes(selectedCategory),
+      )
     }
 
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim()
       filtered = filtered.filter((c) => {
+        if (!c) return false
         const haystack = `${c.name || ''} ${c.phone || ''}`.toLowerCase()
-        return haystack.includes(q) || (messageMatchJids?.has(c.remote_jid || '') ?? false)
+        return (
+          haystack.includes(q) ||
+          (Boolean(c.remote_jid) && (messageMatchJids?.has(c.remote_jid || '') ?? false))
+        )
       })
     }
 

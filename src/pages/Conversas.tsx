@@ -372,21 +372,24 @@ export default function Conversas() {
 
   const adaptedChats = React.useMemo(
     () =>
-      conversationsToChats(conversations).map((chat) => {
-        const crmName = crmNameByJid.get(chat.remote_jid)
+      conversationsToChats(conversations || []).map((chat) => {
+        if (!chat) return chat
+        const crmName = chat.remote_jid ? crmNameByJid.get(chat.remote_jid) : undefined
         return crmName ? { ...chat, name: crmName } : chat
       }),
-    [crmNameByJid],
+    [conversations, crmNameByJid],
   )
 
   const activeChatWithMessages = React.useMemo(() => {
     if (!activeConversation) return null
-    const baseChat = conversationsToChats([activeConversation])[0]
-    const crmName = crmNameByJid.get(baseChat.remote_jid)
+    const baseChats = conversationsToChats([activeConversation])
+    if (!baseChats || baseChats.length === 0 || !baseChats[0]) return null
+    const baseChat = baseChats[0]
+    const crmName = baseChat.remote_jid ? crmNameByJid.get(baseChat.remote_jid) : undefined
     return {
       ...baseChat,
       ...(crmName ? { name: crmName } : {}),
-      messages: whatsappMessagesToMessages(rawMessages),
+      messages: whatsappMessagesToMessages(rawMessages || []),
     }
   }, [activeConversation, rawMessages, crmNameByJid])
 

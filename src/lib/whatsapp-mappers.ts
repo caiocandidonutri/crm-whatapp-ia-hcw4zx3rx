@@ -41,7 +41,8 @@ export function jidToDisplayName(jid?: string): string {
 }
 
 export function conversationsToChats(conversations: Conversation[]) {
-  return conversations.map((c) => {
+  if (!Array.isArray(conversations)) return []
+  return conversations.filter(Boolean).map((c) => {
     let lastMsgText = c.last_message || ''
     if (lastMsgText === '[image]') lastMsgText = 'Foto'
     else if (lastMsgText === '[video]') lastMsgText = 'Vídeo'
@@ -114,7 +115,8 @@ export function conversationsToChats(conversations: Conversation[]) {
 }
 
 export function whatsappMessagesToMessages(messages: WhatsappMessage[]) {
-  return messages.map((m) => {
+  if (!Array.isArray(messages)) return []
+  return messages.filter(Boolean).map((m) => {
     const typeStr = m.message_type || ''
     const isMedia = [
       'imageMessage',

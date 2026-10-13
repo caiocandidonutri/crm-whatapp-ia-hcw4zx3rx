@@ -308,8 +308,8 @@ export function ChatArea({
   // Task modal state
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false)
   const selectedMessagesArray = React.useMemo(() => {
-    if (!chat?.messages) return []
-    return chat.messages.filter((m: any) => selectedMessages.has(m.id))
+    if (!Array.isArray(chat?.messages)) return []
+    return chat.messages.filter((m: any) => m && selectedMessages.has(m.id))
   }, [chat?.messages, selectedMessages])
 
   const [tasks, setTasks] = useState<Task[]>([])
@@ -365,11 +365,14 @@ export function ChatArea({
 
   const tasksByMessageId = React.useMemo(() => {
     const map = new Map<string, Task[]>()
-    for (const task of tasks) {
-      if (task.linked_message_ids) {
-        for (const msgId of task.linked_message_ids) {
-          if (!map.has(msgId)) map.set(msgId, [])
-          map.get(msgId)!.push(task)
+    if (Array.isArray(tasks)) {
+      for (const task of tasks) {
+        if (task && Array.isArray(task.linked_message_ids)) {
+          for (const msgId of task.linked_message_ids) {
+            if (!msgId) continue
+            if (!map.has(msgId)) map.set(msgId, [])
+            map.get(msgId)!.push(task)
+          }
         }
       }
     }

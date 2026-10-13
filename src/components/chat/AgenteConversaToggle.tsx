@@ -224,14 +224,14 @@ export function AgenteConversaToggle({ chat, isMobile }: Props) {
               </div>
             </div>
 
-            {agents.length > 1 && (
+            {agents.length > 1 && activeAgent && (
               <div className="p-4 border-b border-border space-y-3">
                 <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                   Trocar agente
                 </span>
                 <div className="grid gap-1">
                   {agents
-                    .filter((a) => a.id !== activeAgent.id)
+                    .filter((a) => a.id !== activeAgent?.id)
                     .map((agent) => (
                       <Button
                         key={agent.id}

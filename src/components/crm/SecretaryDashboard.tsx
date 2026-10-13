@@ -145,6 +145,31 @@ export function SecretaryDashboard({ accountId }: SecretaryDashboardProps) {
 
   return (
     <div className="space-y-3">
+      {/* Banner / Botão de Acesso Direto à Fila do Dia (Fabiana) */}
+      <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center shrink-0">
+            <UserCheck className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-primary truncate">
+              Fila de Atendimento do Dia — Fabiana
+            </p>
+            <p className="text-[11px] text-muted-foreground truncate">
+              Lista prioritária de contatos para o expediente de hoje (sem disparos automáticos).
+            </p>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => navigate('/fila')}
+          className="h-8 text-xs font-medium gap-1.5 shrink-0 bg-primary text-white hover:bg-primary/90"
+        >
+          Abrir Fila
+          <ChevronRight className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {cards.map((card) => (
           <Card

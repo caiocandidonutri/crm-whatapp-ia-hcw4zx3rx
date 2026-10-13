@@ -20,6 +20,7 @@ import Tarefas from './pages/Tarefas'
 import Equipe from './pages/Equipe'
 import Integracoes from './pages/Integracoes'
 import Agenda from './pages/Agenda'
+import FilaDoDia from './pages/FilaDoDia'
 import NotFound from './pages/NotFound'
 
 const ProtectedRoute = () => {
@@ -75,6 +76,22 @@ function AppRoutes() {
               element={
                 <ErrorBoundary>
                   <Agenda />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/fila"
+              element={
+                <ErrorBoundary>
+                  <FilaDoDia />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/fila-do-dia"
+              element={
+                <ErrorBoundary>
+                  <FilaDoDia />
                 </ErrorBoundary>
               }
             />
