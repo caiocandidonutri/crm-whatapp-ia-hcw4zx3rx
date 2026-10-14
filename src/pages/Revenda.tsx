@@ -734,11 +734,13 @@ export default function Revenda() {
       ) : (
         <div className="space-y-2.5">
           {filteredItems.map((item) => {
+            const safeSegmentKey =
+              item?.segment && REVENDA_SEGMENTS[item.segment] ? item.segment : 'retomada'
             const seg =
-              item.segmentMeta || REVENDA_SEGMENTS[item.segment] || REVENDA_SEGMENTS.retomada
-            const Icon = SEGMENT_ICONS[item.segment] || SEGMENT_ICONS.retomada
+              item?.segmentMeta || REVENDA_SEGMENTS[safeSegmentKey] || REVENDA_SEGMENTS.retomada
+            const Icon = SEGMENT_ICONS[safeSegmentKey] || SEGMENT_ICONS.retomada
             const scoreVal =
-              typeof item.score === 'number' && Number.isFinite(item.score) ? item.score : 0
+              typeof item?.score === 'number' && Number.isFinite(item.score) ? item.score : 0
             const scoreColor =
               scoreVal >= 75
                 ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
@@ -749,16 +751,15 @@ export default function Revenda() {
                     : 'text-slate-600 bg-slate-50 border-slate-200'
 
             const appliedWeights =
-              item.breakdown?.appliedWeights || customWeights || REVENDA_DEFAULT_WEIGHTS
-            const triggerReasons = Array.isArray(item.breakdown?.triggerReasons)
+              item?.breakdown?.appliedWeights || customWeights || REVENDA_DEFAULT_WEIGHTS
+            const triggerReasons = Array.isArray(item?.breakdown?.triggerReasons)
               ? item.breakdown.triggerReasons
               : []
             const budgetVal =
-              typeof item.budgetValue === 'number' && Number.isFinite(item.budgetValue)
+              typeof item?.budgetValue === 'number' && Number.isFinite(item.budgetValue)
                 ? item.budgetValue
                 : 0
-            const cleanPhone = (item.phone || '').replace(/\D/g, '')
-
+            const cleanPhone = String(item?.phone || '').replace(/\D/g, '')
             return (
               <Card
                 key={item.id}
