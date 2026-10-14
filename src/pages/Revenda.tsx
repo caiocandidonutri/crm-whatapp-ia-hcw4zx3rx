@@ -96,6 +96,8 @@ export default function Revenda() {
   const [customWeights, setCustomWeights] = useState<RevendaScoreWeights>(REVENDA_DEFAULT_WEIGHTS)
   const [weightsDialogOpen, setWeightsDialogOpen] = useState(false)
 
+  const safeWeights = customWeights || REVENDA_DEFAULT_WEIGHTS
+
   const loadData = useCallback(async () => {
     if (!accountId) {
       setLoading(false)
@@ -111,7 +113,13 @@ export default function Revenda() {
             sort: '-updated',
             requestKey: null,
           })
-          .catch(() => [] as CrmContact[]),
+          .catch((err) => {
+            console.warn(
+              '[Revenda] Falha ao carregar crm_contacts (usando vazio):',
+              err?.message || err,
+            )
+            return [] as CrmContact[]
+          }),
         pb
           .collection('conversations')
           .getFullList<Conversation>({
@@ -119,22 +127,32 @@ export default function Revenda() {
             sort: '-last_message_timestamp',
             requestKey: null,
           })
-          .catch(() => [] as Conversation[]),
+          .catch((err) => {
+            console.warn(
+              '[Revenda] Falha ao carregar conversas (usando vazio):',
+              err?.message || err,
+            )
+            return [] as Conversation[]
+          }),
         pb
           .collection('tasks')
-          .getFullList<Task>({
+          .getList<Task>(1, 500, {
             filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
             sort: '-created',
             requestKey: null,
           })
-          .catch(() => [] as Task[]),
+          .then((res) => (Array.isArray(res?.items) ? res.items : []))
+          .catch((err) => {
+            console.warn('[Revenda] Falha ao carregar tarefas (usando vazio):', err?.message || err)
+            return [] as Task[]
+          }),
       ])
 
-      setContacts(contactsRes || [])
-      setConversations(convsRes || [])
-      setTasks(tasksRes || [])
+      setContacts(Array.isArray(contactsRes) ? contactsRes : [])
+      setConversations(Array.isArray(convsRes) ? convsRes : [])
+      setTasks(Array.isArray(tasksRes) ? tasksRes : [])
     } catch (err) {
-      console.warn('[Revenda] Erro ao carregar dados:', err)
+      console.warn('[Revenda] Erro inesperado ao carregar dados:', err)
       toast.error('Erro ao carregar os dados de Revenda')
     } finally {
       setLoading(false)
@@ -174,7 +192,7 @@ export default function Revenda() {
     return map
   }, [tasks])
 
-  // Processamento e Score de todos os contatos
+  // Processamento e Score de todos os contatos com blindagem total contra exceções
   const revendaItems: RevendaContactItem[] = useMemo(() => {
     if (!Array.isArray(contacts)) return []
 
@@ -182,22 +200,31 @@ export default function Revenda() {
       Boolean(c && typeof c === 'object' && c.id),
     )
 
-    return validContacts.map((c) => {
-      const rawJid = String(c.jid || '')
-      const rawPhone = String(c.phone || '')
-      const cleanPhone = (rawPhone || rawJid).replace(/\D/g, '')
-      const conv =
-        (rawJid ? convByJid.get(rawJid) : undefined) ||
-        (cleanPhone ? convByJid.get(cleanPhone) : undefined)
-      const contactTasks = (c.id ? tasksByContactId.get(c.id) : undefined) || []
+    const items: RevendaContactItem[] = []
+    for (const c of validContacts) {
+      try {
+        const rawJid = String(c.jid || '')
+        const rawPhone = String(c.phone || '')
+        const cleanPhone = (rawPhone || rawJid).replace(/\D/g, '')
+        const conv =
+          (rawJid ? convByJid.get(rawJid) : undefined) ||
+          (cleanPhone ? convByJid.get(cleanPhone) : undefined)
+        const contactTasks = (c.id ? tasksByContactId.get(c.id) : undefined) || []
 
-      return calculateRevendaItem(c, conv, contactTasks, {
-        weights: customWeights,
-      })
-    })
+        const calculated = calculateRevendaItem(c, conv, contactTasks, {
+          weights: customWeights,
+        })
+        if (calculated && typeof calculated === 'object' && calculated.id) {
+          items.push(calculated)
+        }
+      } catch (err) {
+        console.warn('[Revenda] Erro ao calcular item de contato:', c.id, err)
+      }
+    }
+    return items
   }, [contacts, convByJid, tasksByContactId, customWeights])
 
-  // Contagens por Segmento para os KPIs
+  // Contagens por Segmento para os KPIs blindadas contra segmentos inválidos ou nulos
   const segmentStats = useMemo(() => {
     const stats: Record<RevendaSegmentKey, { count: number; avgScore: number; sumScore: number }> =
       {
@@ -211,19 +238,26 @@ export default function Revenda() {
     let hotLeads = 0 // Score >= 70
     let totalScoreSum = 0
 
-    for (const item of revendaItems) {
-      if (item.score >= 70) hotLeads++
-      totalScoreSum += item.score
-      const s = stats[item.segment]
-      if (s) {
-        s.count++
-        s.sumScore += item.score
+    if (Array.isArray(revendaItems)) {
+      for (const item of revendaItems) {
+        if (!item) continue
+        const itemScore =
+          typeof item.score === 'number' && Number.isFinite(item.score) ? item.score : 0
+        if (itemScore >= 70) hotLeads++
+        totalScoreSum += itemScore
+
+        const segKey = item.segment as RevendaSegmentKey
+        const s = stats[segKey] || stats.retomada
+        if (s) {
+          s.count++
+          s.sumScore += itemScore
+        }
       }
     }
 
     const segments = Object.keys(stats) as RevendaSegmentKey[]
     for (const key of segments) {
-      if (stats[key].count > 0) {
+      if (stats[key]?.count > 0) {
         stats[key].avgScore = Math.round(stats[key].sumScore / stats[key].count)
       }
     }
@@ -236,12 +270,17 @@ export default function Revenda() {
     }
   }, [revendaItems])
 
-  // Filtragem e Ordenação da Lista
+  // Filtragem e Ordenação da Lista blindada contra valores nulos/indefinidos
   const filteredItems = useMemo(() => {
+    if (!Array.isArray(revendaItems)) return []
+
     return revendaItems
       .filter((item) => {
+        if (!item) return false
+        const score = typeof item.score === 'number' && Number.isFinite(item.score) ? item.score : 0
+
         // Filtro de Score mínimo
-        if (item.score < minScoreFilter) return false
+        if (score < minScoreFilter) return false
 
         // Filtro de Segmento
         if (segmentFilter !== 'all' && item.segment !== segmentFilter) return false
@@ -250,13 +289,21 @@ export default function Revenda() {
         if (searchTerm.trim()) {
           const q = searchTerm.toLowerCase().trim()
           const cleanQ = q.replace(/\D/g, '')
-          const matchName = item.name.toLowerCase().includes(q)
+          const nameStr = String(item.name || '').toLowerCase()
+          const phoneStr = String(item.phone || '').toLowerCase()
+          const actionStr = String(item.suggestedAction || '').toLowerCase()
+          const triggerReasons = Array.isArray(item.breakdown?.triggerReasons)
+            ? item.breakdown.triggerReasons
+            : []
+
+          const matchName = nameStr.includes(q)
           const matchPhone =
-            item.phone.toLowerCase().includes(q) ||
-            (cleanQ.length >= 4 && item.phone.includes(cleanQ))
-          const matchAction = item.suggestedAction.toLowerCase().includes(q)
-          const matchReasons = item.breakdown.triggerReasons.some((r) =>
-            r.toLowerCase().includes(q),
+            phoneStr.includes(q) || (cleanQ.length >= 4 && phoneStr.includes(cleanQ))
+          const matchAction = actionStr.includes(q)
+          const matchReasons = triggerReasons.some((r) =>
+            String(r || '')
+              .toLowerCase()
+              .includes(q),
           )
           if (!matchName && !matchPhone && !matchAction && !matchReasons) return false
         }
@@ -264,19 +311,34 @@ export default function Revenda() {
         return true
       })
       .sort((a, b) => {
+        const scoreA = typeof a.score === 'number' && Number.isFinite(a.score) ? a.score : 0
+        const scoreB = typeof b.score === 'number' && Number.isFinite(b.score) ? b.score : 0
+
         if (sortField === 'score') {
-          return sortAsc ? a.score - b.score : b.score - a.score
+          return sortAsc ? scoreA - scoreB : scoreB - scoreA
         }
         if (sortField === 'recency') {
-          const tA = a.lastContactAt?.getTime() || 0
-          const tB = b.lastContactAt?.getTime() || 0
+          const tA =
+            a.lastContactAt instanceof Date && !isNaN(a.lastContactAt.getTime())
+              ? a.lastContactAt.getTime()
+              : 0
+          const tB =
+            b.lastContactAt instanceof Date && !isNaN(b.lastContactAt.getTime())
+              ? b.lastContactAt.getTime()
+              : 0
           return sortAsc ? tA - tB : tB - tA
         }
         if (sortField === 'budget') {
-          return sortAsc ? a.budgetValue - b.budgetValue : b.budgetValue - a.budgetValue
+          const bA =
+            typeof a.budgetValue === 'number' && Number.isFinite(a.budgetValue) ? a.budgetValue : 0
+          const bB =
+            typeof b.budgetValue === 'number' && Number.isFinite(b.budgetValue) ? b.budgetValue : 0
+          return sortAsc ? bA - bB : bB - bA
         }
         if (sortField === 'name') {
-          return sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
+          const nA = String(a.name || '')
+          const nB = String(b.name || '')
+          return sortAsc ? nA.localeCompare(nB) : nB.localeCompare(nA)
         }
         return 0
       })
@@ -335,10 +397,10 @@ export default function Revenda() {
                   <div className="flex justify-between">
                     <span className="font-semibold text-foreground">Recência (Último Contato)</span>
                     <span className="font-mono font-bold text-primary">
-                      {customWeights.recencia} pts
+                      {safeWeights.recencia} pts
                     </span>
                   </div>
-                  <Progress value={(customWeights.recencia / 100) * 100} className="h-2" />
+                  <Progress value={((safeWeights.recencia || 0) / 100) * 100} className="h-2" />
                   <p className="text-[11px] text-muted-foreground">
                     Baseado no intervalo em dias desde a última interação.
                   </p>
@@ -350,10 +412,10 @@ export default function Revenda() {
                       Frequência (Histórico de Trocas)
                     </span>
                     <span className="font-mono font-bold text-primary">
-                      {customWeights.frequencia} pts
+                      {safeWeights.frequencia} pts
                     </span>
                   </div>
-                  <Progress value={(customWeights.frequencia / 100) * 100} className="h-2" />
+                  <Progress value={((safeWeights.frequencia || 0) / 100) * 100} className="h-2" />
                   <p className="text-[11px] text-muted-foreground">
                     Inbound, outbound, mensagens acumuladas e recall anterior.
                   </p>
@@ -365,10 +427,10 @@ export default function Revenda() {
                       Engajamento (Atenção Ativa)
                     </span>
                     <span className="font-mono font-bold text-primary">
-                      {customWeights.engajamento} pts
+                      {safeWeights.engajamento} pts
                     </span>
                   </div>
-                  <Progress value={(customWeights.engajamento / 100) * 100} className="h-2" />
+                  <Progress value={((safeWeights.engajamento || 0) / 100) * 100} className="h-2" />
                   <p className="text-[11px] text-muted-foreground">
                     Unread do cliente aguardando, ai_priority e resposta rápida.
                   </p>
@@ -380,10 +442,10 @@ export default function Revenda() {
                       Posição / Valor (Etapa e Clube)
                     </span>
                     <span className="font-mono font-bold text-primary">
-                      {customWeights.posicaoValor} pts
+                      {safeWeights.posicaoValor} pts
                     </span>
                   </div>
-                  <Progress value={(customWeights.posicaoValor / 100) * 100} className="h-2" />
+                  <Progress value={((safeWeights.posicaoValor || 0) / 100) * 100} className="h-2" />
                   <p className="text-[11px] text-muted-foreground">
                     Etapa no funil (orçamento enviado), valor de proposta e membro do clube.
                   </p>
@@ -395,10 +457,10 @@ export default function Revenda() {
                       Gatilhos Clínicos (Regras Temporais)
                     </span>
                     <span className="font-mono font-bold text-primary">
-                      {customWeights.gatilhos} pts
+                      {safeWeights.gatilhos} pts
                     </span>
                   </div>
-                  <Progress value={(customWeights.gatilhos / 100) * 100} className="h-2" />
+                  <Progress value={((safeWeights.gatilhos || 0) / 100) * 100} className="h-2" />
                   <p className="text-[11px] text-muted-foreground">
                     Orçamento 7d sem resposta, clube vencendo em 15d, retorno de rotina 30-45d.
                   </p>
@@ -461,9 +523,9 @@ export default function Revenda() {
       {/* Panorama dos 5 Segmentos de Revenda (KPIs Interativos) */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {(Object.keys(REVENDA_SEGMENTS) as RevendaSegmentKey[]).map((segKey) => {
-          const seg = REVENDA_SEGMENTS[segKey]
-          const stats = segmentStats.bySegment[segKey]
-          const Icon = SEGMENT_ICONS[segKey]
+          const seg = REVENDA_SEGMENTS[segKey] || REVENDA_SEGMENTS.retomada
+          const stats = segmentStats?.bySegment?.[segKey] || { count: 0, avgScore: 0, sumScore: 0 }
+          const Icon = SEGMENT_ICONS[segKey] || Repeat
           const isSelected = segmentFilter === segKey
 
           return (
@@ -480,27 +542,31 @@ export default function Revenda() {
                   <div
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                     style={{
-                      backgroundColor: `${seg.accentColor}18`,
-                      color: seg.accentColor,
+                      backgroundColor: `${seg?.accentColor || '#2563eb'}18`,
+                      color: seg?.accentColor || '#2563eb',
                     }}
                   >
                     <Icon className="w-4 h-4" />
                   </div>
-                  <Badge variant="outline" className={cn('text-[10px] py-0', seg.badgeClass)}>
-                    Score médio {stats.avgScore}
+                  <Badge variant="outline" className={cn('text-[10px] py-0', seg?.badgeClass)}>
+                    Score médio {stats?.avgScore ?? 0}
                   </Badge>
                 </div>
 
                 <div>
-                  <h3 className="text-xs font-semibold text-foreground truncate">{seg.label}</h3>
+                  <h3 className="text-xs font-semibold text-foreground truncate">
+                    {seg?.label || segKey}
+                  </h3>
                   <div className="flex items-baseline gap-1.5 mt-0.5">
-                    <span className="text-xl font-serif font-bold text-primary">{stats.count}</span>
+                    <span className="text-xl font-serif font-bold text-primary">
+                      {stats?.count ?? 0}
+                    </span>
                     <span className="text-[11px] text-muted-foreground">contatos</span>
                   </div>
                 </div>
 
                 <p className="text-[10px] text-muted-foreground line-clamp-1 leading-snug">
-                  {seg.description}
+                  {seg?.description || ''}
                 </p>
               </CardContent>
             </Card>
@@ -532,19 +598,19 @@ export default function Revenda() {
                 <SelectContent>
                   <SelectItem value="all">Todos os Segmentos ({revendaItems.length})</SelectItem>
                   <SelectItem value="retomada">
-                    Retomada ({segmentStats.bySegment.retomada.count})
+                    Retomada ({segmentStats?.bySegment?.retomada?.count ?? 0})
                   </SelectItem>
                   <SelectItem value="fechamento">
-                    Fechamento ({segmentStats.bySegment.fechamento.count})
+                    Fechamento ({segmentStats?.bySegment?.fechamento?.count ?? 0})
                   </SelectItem>
                   <SelectItem value="renovacao">
-                    Renovação ({segmentStats.bySegment.renovacao.count})
+                    Renovação ({segmentStats?.bySegment?.renovacao?.count ?? 0})
                   </SelectItem>
                   <SelectItem value="novo_servico">
-                    Novo Serviço ({segmentStats.bySegment.novo_servico.count})
+                    Novo Serviço ({segmentStats?.bySegment?.novo_servico?.count ?? 0})
                   </SelectItem>
                   <SelectItem value="reativacao">
-                    Reativação ({segmentStats.bySegment.reativacao.count})
+                    Reativação ({segmentStats?.bySegment?.reativacao?.count ?? 0})
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -603,7 +669,7 @@ export default function Revenda() {
               <span>·</span>
               <span className="flex items-center gap-1 text-emerald-700 font-medium">
                 <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                {segmentStats.hotLeads} contatos quentes (Score &gt;= 70)
+                {segmentStats?.hotLeads ?? 0} contatos quentes (Score &gt;= 70)
               </span>
             </div>
 
@@ -668,23 +734,37 @@ export default function Revenda() {
       ) : (
         <div className="space-y-2.5">
           {filteredItems.map((item) => {
-            const seg = item.segmentMeta
-            const Icon = SEGMENT_ICONS[item.segment]
+            const seg =
+              item.segmentMeta || REVENDA_SEGMENTS[item.segment] || REVENDA_SEGMENTS.retomada
+            const Icon = SEGMENT_ICONS[item.segment] || SEGMENT_ICONS.retomada
+            const scoreVal =
+              typeof item.score === 'number' && Number.isFinite(item.score) ? item.score : 0
             const scoreColor =
-              item.score >= 75
+              scoreVal >= 75
                 ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-                : item.score >= 50
+                : scoreVal >= 50
                   ? 'text-purple-700 bg-purple-50 border-purple-200'
-                  : item.score >= 30
+                  : scoreVal >= 30
                     ? 'text-amber-700 bg-amber-50 border-amber-200'
                     : 'text-slate-600 bg-slate-50 border-slate-200'
+
+            const appliedWeights =
+              item.breakdown?.appliedWeights || customWeights || REVENDA_DEFAULT_WEIGHTS
+            const triggerReasons = Array.isArray(item.breakdown?.triggerReasons)
+              ? item.breakdown.triggerReasons
+              : []
+            const budgetVal =
+              typeof item.budgetValue === 'number' && Number.isFinite(item.budgetValue)
+                ? item.budgetValue
+                : 0
+            const cleanPhone = (item.phone || '').replace(/\D/g, '')
 
             return (
               <Card
                 key={item.id}
                 className={cn(
                   'border-border/50 transition-all hover:border-primary/40 hover:shadow-sm bg-card',
-                  item.score >= 75 && 'border-emerald-300/60 bg-emerald-50/5',
+                  scoreVal >= 75 && 'border-emerald-300/60 bg-emerald-50/5',
                 )}
               >
                 <CardContent className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -699,7 +779,7 @@ export default function Revenda() {
                               scoreColor,
                             )}
                           >
-                            <span className="text-lg font-bold leading-none">{item.score}</span>
+                            <span className="text-lg font-bold leading-none">{scoreVal}</span>
                             <span className="text-[9px] font-sans font-medium uppercase tracking-tight text-muted-foreground">
                               pts
                             </span>
@@ -709,45 +789,39 @@ export default function Revenda() {
                           <p className="font-bold text-foreground">Breakdown do Score (0–100):</p>
                           <div className="space-y-1 text-[11px]">
                             <div className="flex justify-between">
-                              <span>Recência (max {item.breakdown.appliedWeights.recencia}):</span>
+                              <span>Recência (max {appliedWeights.recencia}):</span>
                               <span className="font-mono font-bold">
-                                {item.breakdown.recencia} pts
+                                {item.breakdown?.recencia ?? 0} pts
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span>
-                                Frequência (max {item.breakdown.appliedWeights.frequencia}):
-                              </span>
+                              <span>Frequência (max {appliedWeights.frequencia}):</span>
                               <span className="font-mono font-bold">
-                                {item.breakdown.frequencia} pts
+                                {item.breakdown?.frequencia ?? 0} pts
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span>
-                                Engajamento (max {item.breakdown.appliedWeights.engajamento}):
-                              </span>
+                              <span>Engajamento (max {appliedWeights.engajamento}):</span>
                               <span className="font-mono font-bold">
-                                {item.breakdown.engajamento} pts
+                                {item.breakdown?.engajamento ?? 0} pts
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span>
-                                Posição/Valor (max {item.breakdown.appliedWeights.posicaoValor}):
-                              </span>
+                              <span>Posição/Valor (max {appliedWeights.posicaoValor}):</span>
                               <span className="font-mono font-bold">
-                                {item.breakdown.posicaoValor} pts
+                                {item.breakdown?.posicaoValor ?? 0} pts
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span>Gatilhos (max {item.breakdown.appliedWeights.gatilhos}):</span>
+                              <span>Gatilhos (max {appliedWeights.gatilhos}):</span>
                               <span className="font-mono font-bold">
-                                {item.breakdown.gatilhos} pts
+                                {item.breakdown?.gatilhos ?? 0} pts
                               </span>
                             </div>
                           </div>
-                          {item.breakdown.triggerReasons.length > 0 && (
+                          {triggerReasons.length > 0 && (
                             <p className="text-[10px] text-amber-600 pt-1 border-t">
-                              Gatilho: {item.breakdown.triggerReasons.join(', ')}
+                              Gatilho: {triggerReasons.join(', ')}
                             </p>
                           )}
                         </TooltipContent>
@@ -758,10 +832,10 @@ export default function Revenda() {
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <Badge
                           variant="outline"
-                          className={cn('text-[10px] font-semibold py-0.5 border', seg.badgeClass)}
+                          className={cn('text-[10px] font-semibold py-0.5 border', seg?.badgeClass)}
                         >
                           <Icon className="w-3 h-3 mr-1" />
-                          {seg.label}
+                          {seg?.label || 'Revenda'}
                         </Badge>
 
                         {item.isClubMember && (
@@ -773,12 +847,12 @@ export default function Revenda() {
                           </Badge>
                         )}
 
-                        {item.budgetValue > 0 && (
+                        {budgetVal > 0 && (
                           <Badge
                             variant="secondary"
                             className="text-[9px] py-0 font-mono text-purple-700 bg-purple-50"
                           >
-                            R$ {item.budgetValue.toLocaleString('pt-BR')}
+                            R$ {budgetVal.toLocaleString('pt-BR')}
                           </Badge>
                         )}
                       </div>
@@ -799,12 +873,18 @@ export default function Revenda() {
                   {/* Bloco 2: Identificação do Paciente / Contato */}
                   <div className="flex flex-col min-w-0 md:w-1/4">
                     <div className="flex items-center gap-1.5">
-                      <Link
-                        to={`/crm?contact=${item.contactId}`}
-                        className="font-semibold text-sm hover:underline hover:text-primary transition-colors truncate"
-                      >
-                        {item.name}
-                      </Link>
+                      {item.contactId ? (
+                        <Link
+                          to={`/crm?contact=${item.contactId}`}
+                          className="font-semibold text-sm hover:underline hover:text-primary transition-colors truncate"
+                        >
+                          {item.name || 'Contato sem nome'}
+                        </Link>
+                      ) : (
+                        <span className="font-semibold text-sm truncate">
+                          {item.name || 'Contato sem nome'}
+                        </span>
+                      )}
                       {item.isPatient && (
                         <Badge
                           variant="outline"
@@ -818,14 +898,14 @@ export default function Revenda() {
                     <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                       <span className="font-mono flex items-center gap-1">
                         <Phone className="w-3 h-3 text-muted-foreground/70" />
-                        {formatPhoneBR(item.phone)}
+                        {formatPhoneBR(item.phone) || 'Sem telefone'}
                       </span>
                     </div>
 
-                    {item.breakdown.triggerReasons.length > 0 && (
+                    {triggerReasons.length > 0 && (
                       <div className="flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400 mt-1">
                         <Zap className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{item.breakdown.triggerReasons[0]}</span>
+                        <span className="truncate">{triggerReasons[0]}</span>
                       </div>
                     )}
                   </div>
@@ -839,13 +919,15 @@ export default function Revenda() {
                           Abordagem Sugerida:
                         </span>
                         <span className="text-[10px] text-muted-foreground">
-                          R:{item.breakdown.recencia} · F:{item.breakdown.frequencia} · E:
-                          {item.breakdown.engajamento} · P:{item.breakdown.posicaoValor} · G:
-                          {item.breakdown.gatilhos}
+                          R:{item.breakdown?.recencia ?? 0} · F:{item.breakdown?.frequencia ?? 0} ·
+                          E:
+                          {item.breakdown?.engajamento ?? 0} · P:{item.breakdown?.posicaoValor ?? 0}{' '}
+                          · G:
+                          {item.breakdown?.gatilhos ?? 0}
                         </span>
                       </div>
                       <p className="text-muted-foreground line-clamp-2 leading-relaxed text-[11px]">
-                        {item.suggestedAction}
+                        {item.suggestedAction || 'Propor contato acolhedor.'}
                       </p>
                     </div>
                   </div>
@@ -855,22 +937,27 @@ export default function Revenda() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => navigate(`/conversas?phone=${item.phone}`)}
+                      onClick={() => {
+                        const targetPhone = cleanPhone || item.phone
+                        navigate(targetPhone ? `/conversas?phone=${targetPhone}` : '/conversas')
+                      }}
                       className="h-8 text-xs gap-1.5"
                     >
                       <MessageSquare className="w-3.5 h-3.5 text-primary" />
                       Conversar
                     </Button>
 
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => navigate(`/crm?contact=${item.contactId}`)}
-                      className="h-8 w-8 p-0"
-                      title="Abrir ficha no CRM"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-                    </Button>
+                    {item.contactId && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => navigate(`/crm?contact=${item.contactId}`)}
+                        className="h-8 w-8 p-0"
+                        title="Abrir ficha no CRM"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>

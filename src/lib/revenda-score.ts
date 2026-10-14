@@ -169,7 +169,6 @@ export function calculateRevendaItem(
 
   // 1. Apuração temporal (Recência)
   let lastContactAt: Date | null = null
-  let lastInboundAt: Date | null = null
 
   if (conv?.last_message_timestamp) {
     const ts = Number(conv.last_message_timestamp)
@@ -181,10 +180,10 @@ export function calculateRevendaItem(
       }
     }
   }
-  if (!lastContactAt && contact.last_synced_at) {
+  if (!lastContactAt && contact?.last_synced_at) {
     lastContactAt = parseToDate(contact.last_synced_at)
   }
-  if (!lastContactAt && contact.updated) {
+  if (!lastContactAt && contact?.updated) {
     lastContactAt = parseToDate(contact.updated)
   }
 
@@ -206,8 +205,9 @@ export function calculateRevendaItem(
   // 2. Frequência (25 pts max)
   // Baseada em sinais de volume de troca: mensagens não lidas, contatos frequentes, recall count, tarefas
   const unreadCount = Number(conv?.unread_count) || 0
-  const recallCount = Number(contact.recall_count) || 0
-  const tasksCount = contactTasks.length
+  const recallCount = Number(contact?.recall_count) || 0
+  const safeTasksList = Array.isArray(contactTasks) ? contactTasks : []
+  const tasksCount = safeTasksList.length
 
   let frequenciaScore = 0
   // Interações históricas e trocas registradas
@@ -215,7 +215,7 @@ export function calculateRevendaItem(
   if (unreadCount > 0) freqSignal += 2
   if (recallCount > 0) freqSignal += Math.min(3, recallCount)
   if (tasksCount > 0) freqSignal += Math.min(3, tasksCount)
-  if (contact.is_patient) freqSignal += 2
+  if (contact?.is_patient) freqSignal += 2
 
   if (freqSignal >= 5) frequenciaScore = weights.frequencia
   else if (freqSignal >= 3) frequenciaScore = Math.round(weights.frequencia * 0.75)
@@ -225,7 +225,7 @@ export function calculateRevendaItem(
   // 3. Engajamento (20 pts max)
   // Mensagem do cliente esperando resposta, ai_priority, care_status
   let engajamentoScore = 0
-  const aiPriority = Number(contact.ai_priority) || 0
+  const aiPriority = Number(contact?.ai_priority) || 0
 
   if (unreadCount > 0) {
     engajamentoScore += Math.round(weights.engajamento * 0.5) // Mensagem esperando
@@ -242,15 +242,20 @@ export function calculateRevendaItem(
   // 4. Posição / Valor (15 pts max)
   // Estágio no funil, orçamento enviado, membro do clube
   let posicaoScore = 0
+  const rawBudgetValue = contact?.budget_value
   const budgetValue =
-    typeof contact.budget_value === 'number'
-      ? contact.budget_value
-      : Number(contact.budget_value) || 0
-  const stage = String(contact.stage || 'lead').toLowerCase()
+    typeof rawBudgetValue === 'number' && Number.isFinite(rawBudgetValue)
+      ? rawBudgetValue
+      : Number(rawBudgetValue) && Number.isFinite(Number(rawBudgetValue))
+        ? Number(rawBudgetValue)
+        : 0
+  const stage = String(contact?.stage || 'lead')
+    .trim()
+    .toLowerCase()
 
   if (stage === 'orcamento_enviado') {
     posicaoScore = weights.posicaoValor // Top valor potencial
-  } else if (contact.is_club_member) {
+  } else if (contact?.is_club_member) {
     posicaoScore = Math.round(weights.posicaoValor * 0.85) // Membro de clube recorrente
   } else if (stage === 'cliente') {
     posicaoScore = Math.round(weights.posicaoValor * 0.7)
@@ -278,7 +283,7 @@ export function calculateRevendaItem(
 
   // Gatilho: Plano de Clube vencendo em até 20 dias ou recém expirado (-5 a 20 dias)
   let planDaysRemaining: number | null = null
-  if (contact.plan_expires_at) {
+  if (contact?.plan_expires_at) {
     const exp = parseToDate(contact.plan_expires_at)
     if (exp && !isNaN(exp.getTime())) {
       planDaysRemaining = Math.round((exp.getTime() - now) / 86400000)
@@ -294,16 +299,17 @@ export function calculateRevendaItem(
   }
 
   // Gatilho: Alerta clínico ou cuidado especial
-  if (contact.care_status === 'precisa_atencao' || contact.care_status === 'alta_demanda') {
+  const careStatus = contact?.care_status
+  if (careStatus === 'precisa_atencao' || careStatus === 'alta_demanda') {
     gatilhosScore += 3
     triggerReasons.push('Alerta de cuidado clínico ativo')
-  } else if (contact.care_status === 'precisa_retorno') {
+  } else if (careStatus === 'precisa_retorno') {
     gatilhosScore += 3
     triggerReasons.push('Paciente precisa de retorno programado')
   }
 
   // Gatilho: Inatividade prolongada de paciente (retorno de rotina ~30-45 dias)
-  if (contact.is_patient && daysSinceLastContact >= 30 && daysSinceLastContact <= 60) {
+  if (contact?.is_patient && daysSinceLastContact >= 30 && daysSinceLastContact <= 60) {
     gatilhosScore += 3
     triggerReasons.push('Janela ideal para retorno de 30-45 dias')
   }
@@ -320,13 +326,13 @@ export function calculateRevendaItem(
   // 6. DETERMINAÇÃO DO SEGMENTO DE REVENDA (Hierarquia ajustável)
   let segment: RevendaSegmentKey = 'retomada'
 
-  if (contact.is_club_member && (planDaysRemaining === null || planDaysRemaining <= 30)) {
+  if (contact?.is_club_member && (planDaysRemaining === null || planDaysRemaining <= 30)) {
     segment = 'renovacao'
   } else if (stage === 'orcamento_enviado' || budgetValue > 0) {
     segment = 'fechamento'
   } else if (daysSinceLastContact > 45) {
     segment = 'reativacao'
-  } else if (contact.is_patient && stage === 'cliente') {
+  } else if (contact?.is_patient && stage === 'cliente') {
     // Paciente que já fez procedimentos e está em dia
     if (daysSinceLastContact <= 35) {
       segment = 'novo_servico'
@@ -351,50 +357,68 @@ export function calculateRevendaItem(
     priorityLevel = 'baixa'
   }
 
-  const segMeta = REVENDA_SEGMENTS[segment]
+  const safeSegment: RevendaSegmentKey = REVENDA_SEGMENTS[segment] ? segment : 'retomada'
+  const segMeta = REVENDA_SEGMENTS[safeSegment] || REVENDA_SEGMENTS.retomada
+
   const actionSuggested =
-    contact.ai_suggested_action?.trim() ||
+    (typeof contact.ai_suggested_action === 'string' && contact.ai_suggested_action.trim()) ||
     (triggerReasons.length > 0
       ? `${triggerReasons[0]}. Propor contato.`
       : segMeta.suggestedActionPattern)
 
-  const openTaskTitle = contactTasks[0]?.title
+  const openTaskTitle =
+    Array.isArray(contactTasks) && contactTasks[0]?.title
+      ? String(contactTasks[0].title)
+      : undefined
+
+  const contactName =
+    (typeof contact.contact_name === 'string' && contact.contact_name.trim()) ||
+    (typeof contact.push_name === 'string' && contact.push_name.trim()) ||
+    (typeof contact.phone === 'string' && contact.phone.trim()) ||
+    (typeof contact.jid === 'string' && contact.jid.trim()) ||
+    'Contato sem nome'
+
+  const contactPhone =
+    (typeof contact.phone === 'string' && contact.phone.trim()) ||
+    (typeof contact.jid === 'string' && contact.jid.trim()) ||
+    ''
 
   return {
-    id: contact.id,
-    contactId: contact.id,
-    name:
-      contact.contact_name?.trim() ||
-      contact.push_name?.trim() ||
-      contact.phone ||
-      'Contato sem nome',
-    phone: contact.phone || contact.jid || '',
-    formattedPhone: contact.phone || contact.jid || '',
-    instanceName: contact.instance_name || 'Principal',
-    stageKey: stage,
-    stageLabel: stage,
-    segment,
+    id: String(contact.id || ''),
+    contactId: String(contact.id || ''),
+    name: contactName,
+    phone: contactPhone,
+    formattedPhone: contactPhone,
+    instanceName: String(contact.instance_name || 'Principal'),
+    stageKey: stage || 'lead',
+    stageLabel: stage || 'lead',
+    segment: safeSegment,
     segmentMeta: segMeta,
-    score: totalScore,
+    score: Number.isFinite(totalScore) ? Math.max(0, Math.min(100, Math.round(totalScore))) : 0,
     breakdown: {
-      recencia: recenciaScore,
-      frequencia: frequenciaScore,
-      engajamento: engajamentoScore,
-      posicaoValor: posicaoScore,
-      gatilhos: gatilhosScore,
-      total: totalScore,
+      recencia: Number.isFinite(recenciaScore) ? recenciaScore : 0,
+      frequencia: Number.isFinite(frequenciaScore) ? frequenciaScore : 0,
+      engajamento: Number.isFinite(engajamentoScore) ? engajamentoScore : 0,
+      posicaoValor: Number.isFinite(posicaoScore) ? posicaoScore : 0,
+      gatilhos: Number.isFinite(gatilhosScore) ? gatilhosScore : 0,
+      total: Number.isFinite(totalScore) ? Math.max(0, Math.min(100, Math.round(totalScore))) : 0,
       appliedWeights: weights,
-      triggerReasons,
+      triggerReasons: Array.isArray(triggerReasons) ? triggerReasons : [],
     },
-    suggestedAction: actionSuggested,
+    suggestedAction: actionSuggested || 'Propor contato e verificar necessidades clínicas.',
     lastContactAt,
-    daysSinceLastContact: Math.round(daysSinceLastContact),
-    budgetValue,
+    daysSinceLastContact: Number.isFinite(daysSinceLastContact)
+      ? Math.round(daysSinceLastContact)
+      : 999,
+    budgetValue: Number.isFinite(budgetValue) ? Math.max(0, budgetValue) : 0,
     isClubMember: Boolean(contact.is_club_member),
     isPatient: Boolean(contact.is_patient),
     planExpiresAt: contact.plan_expires_at || null,
-    planDaysRemaining,
-    hasOpenTask: contactTasks.length > 0,
+    planDaysRemaining:
+      typeof planDaysRemaining === 'number' && Number.isFinite(planDaysRemaining)
+        ? planDaysRemaining
+        : null,
+    hasOpenTask: Array.isArray(contactTasks) && contactTasks.length > 0,
     openTaskTitle,
     priorityLevel,
   }
