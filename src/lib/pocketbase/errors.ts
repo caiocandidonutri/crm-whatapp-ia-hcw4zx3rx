@@ -23,18 +23,29 @@ export function extractFieldErrors(error: unknown): FieldErrors {
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
   if (error instanceof ClientResponseError) {
-    return error.status === 0 || error.isAbort
+    if (error.status === 0) return true
+    if (error.isAbort) return true
   }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    return (
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('network request failed') ||
-      msg.includes('connection refused') ||
-      msg.includes('aborterror')
-    )
+  const msg = String(
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error && 'message' in error
+        ? (error as { message: unknown }).message
+        : error,
+  ).toLowerCase()
+
+  if (
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('aborterror') ||
+    msg.includes('signal is aborted') ||
+    msg.includes('network request failed') ||
+    msg.includes('err_connection_refused') ||
+    msg.includes('load failed')
+  ) {
+    return true
   }
+
   return false
 }
 
