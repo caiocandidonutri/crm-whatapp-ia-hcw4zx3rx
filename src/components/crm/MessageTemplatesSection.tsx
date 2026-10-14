@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, Pencil, Check, X } from 'lucide-react'
+import { Plus, Trash2, Pencil, Check, X, Sparkles } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -41,6 +44,7 @@ export function MessageTemplatesSection({ accountId }: Props) {
   const [name, setName] = useState('')
   const [triggerType, setTriggerType] = useState<TriggerType>('primeiro_contato')
   const [content, setContent] = useState('')
+  const [isFabianaVoice, setIsFabianaVoice] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
 
   const load = useCallback(async () => {
@@ -62,6 +66,7 @@ export function MessageTemplatesSection({ accountId }: Props) {
     setName('')
     setTriggerType('primeiro_contato')
     setContent('')
+    setIsFabianaVoice(false)
     setFieldErrors({})
     setShowForm(true)
   }
@@ -71,6 +76,7 @@ export function MessageTemplatesSection({ accountId }: Props) {
     setName(t.name)
     setTriggerType(t.trigger_type)
     setContent(t.content)
+    setIsFabianaVoice(!!t.is_fabiana_voice)
     setFieldErrors({})
     setShowForm(true)
   }
@@ -78,6 +84,7 @@ export function MessageTemplatesSection({ accountId }: Props) {
   const cancelForm = () => {
     setShowForm(false)
     setEditingId(null)
+    setIsFabianaVoice(false)
     setFieldErrors({})
   }
 
@@ -89,6 +96,7 @@ export function MessageTemplatesSection({ accountId }: Props) {
           name: name.trim(),
           trigger_type: triggerType,
           content: content.trim(),
+          is_fabiana_voice: isFabianaVoice,
         })
         toast.success('Modelo atualizado')
       } else {
@@ -96,6 +104,7 @@ export function MessageTemplatesSection({ accountId }: Props) {
           name: name.trim(),
           trigger_type: triggerType,
           content: content.trim(),
+          is_fabiana_voice: isFabianaVoice,
         })
         toast.success('Modelo criado')
       }
@@ -144,7 +153,17 @@ export function MessageTemplatesSection({ accountId }: Props) {
                 {items.map((t) => (
                   <div key={t.id} className="rounded-lg border border-border/40 p-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm flex-1 truncate">{t.name}</span>
+                      <span className="text-sm flex-1 truncate font-medium">{t.name}</span>
+                      {t.is_fabiana_voice && (
+                        <Badge
+                          variant="secondary"
+                          className="bg-purple-100 text-purple-700 hover:bg-purple-200 border-purple-200 text-[10px] px-1.5 py-0 flex items-center gap-1 font-semibold shrink-0"
+                          title="Este template é injetado como referência de tom de voz para a Fabiana IA"
+                        >
+                          <Sparkles className="w-2.5 h-2.5 text-purple-600" />
+                          Voz da Fabiana
+                        </Badge>
+                      )}
                       <Button
                         size="icon"
                         variant="ghost"
@@ -203,6 +222,22 @@ export function MessageTemplatesSection({ accountId }: Props) {
             className="h-20 text-xs resize-none"
           />
           {fieldErrors.content && <p className="text-xs text-destructive">{fieldErrors.content}</p>}
+          <div className="flex items-center justify-between p-2 rounded-md border border-purple-200 bg-purple-50/50">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-semibold flex items-center gap-1 text-purple-900 cursor-pointer">
+                <Sparkles className="w-3 h-3 text-purple-600" />
+                Voz da Fabiana
+              </Label>
+              <p className="text-[11px] text-purple-700/80">
+                Injeta este modelo no prompt do agente de IA como exemplo de tom oficial.
+              </p>
+            </div>
+            <Switch
+              checked={isFabianaVoice}
+              onCheckedChange={setIsFabianaVoice}
+              aria-label="Voz da Fabiana"
+            />
+          </div>
           <p className="text-[10px] text-muted-foreground">
             Variáveis: {'{nome}'}, {'{data}'}, {'{horario}'}
           </p>

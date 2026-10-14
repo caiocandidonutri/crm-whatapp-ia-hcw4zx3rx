@@ -100,9 +100,21 @@ export function TemplatePicker({
                     <button
                       key={t.id}
                       onClick={() => onSelect(t.content)}
-                      className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/50 transition-colors text-sm"
+                      className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/50 transition-colors text-sm group"
                     >
-                      <p className="font-medium truncate">{t.name}</p>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <p className="font-medium truncate">{t.name}</p>
+                        {t.is_fabiana_voice && (
+                          <Badge
+                            variant="secondary"
+                            className="bg-purple-100 text-purple-700 border-purple-200 text-[9px] h-4 px-1 shrink-0 font-medium"
+                            title="Modelo com tom de voz da Fabiana"
+                          >
+                            <Sparkles className="w-2 h-2 mr-0.5 text-purple-600" />
+                            Voz Fabiana
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
                         {t.content}
                       </p>

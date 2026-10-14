@@ -13,14 +13,25 @@ export async function getMessageTemplates(accountId: string): Promise<MessageTem
 
 export async function createMessageTemplate(
   accountId: string,
-  data: { name: string; trigger_type: TriggerType; content: string; created_by?: string },
+  data: {
+    name: string
+    trigger_type: TriggerType
+    content: string
+    created_by?: string
+    is_fabiana_voice?: boolean
+  },
 ): Promise<MessageTemplate> {
   return pb.collection('message_templates').create({ ...data, account_id: accountId })
 }
 
 export async function updateMessageTemplate(
   id: string,
-  data: { name?: string; trigger_type?: TriggerType; content?: string },
+  data: {
+    name?: string
+    trigger_type?: TriggerType
+    content?: string
+    is_fabiana_voice?: boolean
+  },
 ): Promise<MessageTemplate> {
   return pb.collection('message_templates').update(id, data)
 }

@@ -271,6 +271,14 @@ export interface MessageTemplate extends RecordModel {
   trigger_type: 'primeiro_contato' | 'reengajamento' | 'pos_consulta'
   content: string
   created_by?: string
+  is_fabiana_voice?: boolean
+}
+
+export interface OnboardingProgress extends RecordModel {
+  user_id: string
+  account_id?: string
+  completed_tasks?: Record<string, boolean> | string[]
+  notes?: string
 }
 
 export interface CareSilencePeriod extends RecordModel {
