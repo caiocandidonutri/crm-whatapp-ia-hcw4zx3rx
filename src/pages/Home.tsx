@@ -23,6 +23,7 @@ import {
   TrendingUp,
   AlertCircle,
   Activity,
+  ShieldCheck,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
 import { useCurrentAccount } from '@/hooks/use-current-account'
@@ -289,6 +290,14 @@ export default function Home() {
 
   // Atalhos rápidos
   const shortcuts = [
+    {
+      title: 'Checklist Recepção',
+      description: 'Rotinas operacionais da clínica (Plano Fabiana)',
+      icon: ShieldCheck,
+      color: 'text-purple-600',
+      bg: 'bg-purple-100',
+      link: '/recepcao',
+    },
     {
       title: 'Abrir Conversas',
       description: 'Acesse seu inbox WhatsApp',

@@ -23,6 +23,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import {
@@ -1068,7 +1069,13 @@ export function ChatArea({
             <div className="flex-1 space-y-1">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900 dark:text-amber-300">
                 <Wand2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                <span>Sugestão da Fabiana IA (Modo Assistente — revise antes de enviar)</span>
+                <span>Rascunho na Voz da Fabiana (revisão humana obrigatória antes do envio)</span>
+                <Badge
+                  variant="outline"
+                  className="text-[10px] bg-purple-100 text-purple-800 border-purple-300 ml-1 py-0 h-4"
+                >
+                  Voz da Fabiana
+                </Badge>
               </div>
               <p className="text-sm text-foreground/90 bg-white/80 dark:bg-card/80 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-900/40 whitespace-pre-wrap leading-relaxed shadow-xs">
                 {suggestedReplyText}

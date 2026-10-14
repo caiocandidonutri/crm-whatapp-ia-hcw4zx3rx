@@ -119,6 +119,44 @@ routerAdd(
         userAgentPrompt = agentRecord.getString('system_prompt')
       }
 
+      // Buscar templates oficiais da conta marcados como "Voz da Fabiana" (tom acolhedor, clareza clínica e fechamento humanizado)
+      var fabianaVoiceBlock = ''
+      try {
+        var tplFilter = 'is_fabiana_voice = true'
+        if (accountId) {
+          tplFilter += ' && account_id = "' + accountId + '"'
+        }
+        var fabianaTemplates = $app.findRecordsByFilter(
+          'message_templates',
+          tplFilter,
+          '-updated',
+          8,
+        )
+        if (fabianaTemplates && fabianaTemplates.length > 0) {
+          var tplExamples = []
+          for (var ti = 0; ti < fabianaTemplates.length; ti++) {
+            var tContent = fabianaTemplates[ti].getString('content')
+            var tTitle = fabianaTemplates[ti].getString('title')
+            if (tContent && tContent.trim()) {
+              tplExamples.push(
+                '- [' + (tTitle || 'Padrão Fabiana') + ']: "' + tContent.trim() + '"',
+              )
+            }
+          }
+          if (tplExamples.length > 0) {
+            fabianaVoiceBlock =
+              '\n\n[EXEMPLOS DO TOM E REPERTÓRIO OFICIAL DA SECRETÁRIA FABIANA]\n' +
+              'Use estes modelos reais cadastrados na clínica para guiar o estilo: saudações acolhedoras, clareza clínica empática e fechamento humanizado:\n' +
+              tplExamples.join('\n') +
+              '\n[FIM DOS EXEMPLOS DA VOZ DA FABIANA]'
+          }
+        }
+      } catch (voiceErr) {
+        $app
+          .logger()
+          .warn('suggest_reply: failed to load fabiana voice templates', 'error', String(voiceErr))
+      }
+
       // Contexto CRM do contato
       var crmContact = null
       try {
@@ -366,7 +404,13 @@ routerAdd(
       var finalMessage =
         '<system_instruction>\nSiga estritamente esta Persona/Instrucao:\n' +
         userAgentPrompt +
-        '\n</system_instruction>' +
+        '\n\nDIRETRIZES DA VOZ DA FABIANA:\n' +
+        '- Saudações acolhedoras, calorosas e educadas, transmitindo segurança e cuidado clínico.\n' +
+        '- Clareza clínica com empatia: orientar sobre consultas, retornos e valores com total transparência.\n' +
+        '- Fechamento humanizado e atencioso.\n' +
+        '- Esta resposta é sempre um RASCUNHO que a atendente humana irá revisar antes de enviar via WhatsApp.\n' +
+        '</system_instruction>' +
+        fabianaVoiceBlock +
         crmContextBlock +
         agendaContextBlock +
         historyBlock +
@@ -374,7 +418,7 @@ routerAdd(
         contactName.toUpperCase() +
         ']:\n' +
         lastIncomingText +
-        '\n\nGere a melhor sugestão de resposta para a Fabiana humana enviar neste momento, seguindo o ritmo acolhedor, respondendo APENAS ao que foi perguntado e sem inventar disponibilidade de agenda.'
+        '\n\nGere a melhor sugestão de resposta em formato de rascunho com a Voz da Fabiana para a atendente humana aprovar e enviar neste momento, seguindo o ritmo acolhedor, respondendo APENAS ao que foi perguntado e sem inventar disponibilidade de agenda.'
 
       // Isolamento de sessão por contato
       var aiConvId = conv.getString('ai_conversation_id') || ''

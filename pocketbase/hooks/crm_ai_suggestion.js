@@ -90,6 +90,48 @@ routerAdd(
         messages.length > 0 ? 'Mensagens recentes:\n' + messages.join('\n') : '',
       ].filter(Boolean)
 
+      // Detecção de valores de orçamento BRL em mensagens recentes (R$ 1.234,56, "1200 reais", "1,2k")
+      // IMPORTANTE: NUNCA grava automaticamente no contato — apenas sugere para confirmação humana com 1 clique
+      let detectedBudgetValue = null
+      let detectedBudgetLabel = ''
+      const budgetRegex1 = /r\$\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?|[0-9]+(?:,[0-9]{2})?)/i
+      const budgetRegex2 = /\b([0-9]+(?:[.,][0-9]+)?)\s*k\b/i
+      const budgetRegex3 =
+        /\b([0-9]{1,3}(?:\.[0-9]{3})*|[0-9]+)(?:,[0-9]{2})?\s*(?:reais|real|conto)\b/i
+
+      for (const rawMsg of messages) {
+        const m1 = budgetRegex1.exec(rawMsg)
+        if (m1 && m1[1]) {
+          const num = parseFloat(m1[1].replace(/\./g, '').replace(',', '.'))
+          if (!isNaN(num) && num >= 50 && num <= 50000) {
+            detectedBudgetValue = num
+            detectedBudgetLabel = m1[0].trim()
+            break
+          }
+        }
+        const m2 = budgetRegex2.exec(rawMsg)
+        if (m2 && m2[1]) {
+          const k = parseFloat(m2[1].replace(',', '.'))
+          if (!isNaN(k)) {
+            const num = Math.round(k * 1000)
+            if (num >= 50 && num <= 50000) {
+              detectedBudgetValue = num
+              detectedBudgetLabel = m2[0].trim()
+              break
+            }
+          }
+        }
+        const m3 = budgetRegex3.exec(rawMsg)
+        if (m3 && m3[1]) {
+          const num = parseFloat(m3[1].replace(/\./g, ''))
+          if (!isNaN(num) && num >= 50 && num <= 50000) {
+            detectedBudgetValue = num
+            detectedBudgetLabel = m3[0].trim()
+            break
+          }
+        }
+      }
+
       const systemPrompt =
         'Você é o assistente de inteligência e CRM da clínica de nutrição do Dr. Caio Cândido.\n' +
         'Papéis fixos: "Dr. Caio" é o nutricionista responsável; "Fabiana" é a assistente/secretária. NUNCA interpretá-los como pacientes.\n' +
@@ -125,6 +167,12 @@ routerAdd(
         contact_id: contactId,
         suggested_action: parsed.suggested_action || '',
         priority: parsed.priority || 3,
+        detected_budget: detectedBudgetValue
+          ? {
+              value: detectedBudgetValue,
+              label: detectedBudgetLabel,
+            }
+          : null,
       })
     } catch (err) {
       if (err instanceof SkipAiConfigError) {

@@ -82,6 +82,7 @@ import { CrmAiReport } from '@/components/crm/CrmAiReport'
 import { DailySummaryBanner } from '@/components/crm/DailySummaryBanner'
 import { PipelineEditorSheet } from '@/components/crm/PipelineEditorSheet'
 import { CrmBatchActionBar } from '@/components/crm/CrmBatchActionBar'
+import { CrmClubBatchModal } from '@/components/crm/CrmClubBatchModal'
 import { executeCrmBatchAction } from '@/services/crm_batch_service'
 import { Checkbox } from '@/components/ui/checkbox'
 import { CategoriesSheet } from '@/components/categories/CategoriesSheet'
@@ -118,6 +119,7 @@ export default function CRM() {
   const { stages, loading: stagesLoading } = useCrmStages(accountId || undefined, { seed: true })
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false)
   const [isPipelineEditorOpen, setIsPipelineEditorOpen] = useState(false)
+  const [isClubBatchOpen, setIsClubBatchOpen] = useState(false)
 
   const [viewMode, setViewMode] = useState<ViewMode>('lista')
   const [activeTab, setActiveTab] = useState('all')
@@ -573,6 +575,19 @@ export default function CRM() {
               IA
             </Button>
           </div>
+
+          {/* Lote do Clube */}
+          {!isCompanies && viewMode !== 'relatorio' && (
+            <Button
+              variant="outline"
+              className="rounded-full h-9 px-4 font-sans font-medium whitespace-nowrap shrink-0 bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
+              onClick={() => setIsClubBatchOpen(true)}
+              title="Cadastro em lote de membros do Clube"
+            >
+              <Sparkles className="w-3.5 h-3.5 mr-1.5 text-purple-600" />
+              Lote Clube
+            </Button>
+          )}
 
           {/* Editar pipeline */}
           {!isCompanies && viewMode !== 'relatorio' && (
@@ -1365,6 +1380,12 @@ export default function CRM() {
         onClearSelection={() => setSelectedBatchIds(new Set())}
         onAction={handleBatchAction}
         loading={batchLoading}
+      />
+
+      <CrmClubBatchModal
+        open={isClubBatchOpen}
+        onClose={() => setIsClubBatchOpen(false)}
+        onSuccess={reload}
       />
     </div>
   )

@@ -26,6 +26,8 @@ import pb from '@/lib/pocketbase/client'
 import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { getCareCategoryMeta, getPriorityMeta, getStatusMeta } from '@/lib/task-meta'
 import { format } from 'date-fns'
+import { toast } from 'sonner'
+import { extractBrlBudgetFromText } from '@/services/crm_service'
 import { listAppointments } from '@/services/appointments'
 import { ptBR } from 'date-fns/locale'
 import {
@@ -71,6 +73,10 @@ export function PatientContextPanel({
   const [tasks, setTasks] = useState<Task[]>([])
   const [patientAppointments, setPatientAppointments] = useState<Appointment[]>([])
   const [conversationNotifications, setConversationNotifications] = useState<Notification[]>([])
+  const [detectedBudget, setDetectedBudget] = useState<{ value: number; matched: string } | null>(
+    null,
+  )
+  const [isSavingBudget, setIsSavingBudget] = useState(false)
 
   useEffect(() => {
     if (!open || !remoteJid) return
@@ -140,6 +146,31 @@ export function PatientContextPanel({
           }
         } catch {
           /* intentionally ignored */
+        }
+
+        // Buscar mensagens recentes para detectar menções de orçamento BRL (se contato não tiver budget já salvo)
+        if (!foundContact?.budget_value && remoteJid) {
+          try {
+            const recentMsgs = await pb.collection('whatsapp_messages').getList(1, 15, {
+              filter: `remote_jid = "${remoteJid}"`,
+              sort: '-timestamp',
+              requestKey: null,
+            })
+            if (!cancelled && recentMsgs.items.length > 0) {
+              for (const m of recentMsgs.items) {
+                const text = (m as any).content || ''
+                const extracted = extractBrlBudgetFromText(text)
+                if (extracted) {
+                  setDetectedBudget(extracted)
+                  break
+                }
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+        } else {
+          setDetectedBudget(null)
         }
       } catch (err) {
         if (!cancelled) setContact(null)
@@ -237,6 +268,31 @@ export function PatientContextPanel({
   const displayPhone = formatPhoneBR(contact?.phone || remoteJid)
 
   const careMeta = contact?.care_status ? getCareCategoryMeta(contact.care_status) : null
+
+  const handleConfirmBudget = async () => {
+    if (!contact?.id || !detectedBudget || isSavingBudget) return
+    setIsSavingBudget(true)
+    try {
+      const nowIso = new Date().toISOString()
+      const updated = await pb.collection('crm_contacts').update<CrmContact>(
+        contact.id,
+        {
+          budget_value: detectedBudget.value,
+          budget_sent_at: nowIso,
+        },
+        { requestKey: null },
+      )
+      setContact(updated)
+      setDetectedBudget(null)
+      toast.success(
+        `Orçamento de R$ ${detectedBudget.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} confirmado no cadastro!`,
+      )
+    } catch (err: any) {
+      toast.error('Erro ao salvar orçamento: ' + (err?.message || 'tente novamente'))
+    } finally {
+      setIsSavingBudget(false)
+    }
+  }
 
   return (
     <aside className="fixed inset-0 md:static md:inset-auto md:w-80 w-full bg-white flex flex-col h-full z-50 md:z-20 border-l border-border shadow-lg md:shadow-sm shrink-0 animate-in slide-in-from-right duration-200">
@@ -514,6 +570,55 @@ export function PatientContextPanel({
               </div>
             )}
 
+            {/* Banner de Orçamento Detectado (NUNCA gravação automática: confirmação com 1 clique) */}
+            {detectedBudget && !contact.budget_value && (
+              <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800 text-xs space-y-2 shadow-xs animate-in fade-in">
+                <div className="flex items-center justify-between text-emerald-900 dark:text-emerald-200 font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    Orçamento Detectado
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] bg-emerald-100 text-emerald-800 border-emerald-300"
+                  >
+                    {detectedBudget.matched}
+                  </Badge>
+                </div>
+                <p className="text-emerald-950 dark:text-emerald-100 leading-snug">
+                  Valor mencionado na conversa recente:{' '}
+                  <strong className="text-emerald-900 font-bold">
+                    R$ {detectedBudget.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </strong>
+                  . Deseja registrar no contato para as réguas automáticas?
+                </p>
+                <div className="flex items-center gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    onClick={handleConfirmBudget}
+                    disabled={isSavingBudget}
+                    className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md px-3"
+                  >
+                    {isSavingBudget ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                    )}
+                    Confirmar R$ {detectedBudget.value.toLocaleString('pt-BR')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setDetectedBudget(null)}
+                    disabled={isSavingBudget}
+                    className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Ignorar
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Informações Básicas do Paciente */}
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12 border">
@@ -560,6 +665,29 @@ export function PatientContextPanel({
             )}
 
             <Separator />
+
+            {/* Orçamento já cadastrado no contato */}
+            {contact.budget_value ? (
+              <div className="p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 text-xs flex items-center justify-between">
+                <div>
+                  <span className="text-emerald-800 font-medium block">Orçamento Registrado</span>
+                  <span className="text-xs text-muted-foreground">
+                    {contact.budget_sent_at
+                      ? `Enviado em ${formatBrazilianDate(contact.budget_sent_at)}`
+                      : 'Data não informada'}
+                  </span>
+                </div>
+                <Badge
+                  variant="outline"
+                  className="bg-emerald-100 text-emerald-900 border-emerald-300 font-bold text-xs py-0.5"
+                >
+                  R${' '}
+                  {Number(contact.budget_value).toLocaleString('pt-BR', {
+                    minimumFractionDigits: 2,
+                  })}
+                </Badge>
+              </div>
+            ) : null}
 
             {/* Estágio do Pipeline & Cuidado */}
             <div className="space-y-2.5">

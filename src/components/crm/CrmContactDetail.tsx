@@ -56,6 +56,8 @@ import { CrmContact, CrmCompany } from '@/types/models'
 import { CompanyAutocomplete } from './CompanyAutocomplete'
 import { PatientCareInfo } from './PatientCareInfo'
 import { linkContactToCompany } from '@/services/crm_companies_service'
+import { extractBrlBudgetFromText } from '@/services/crm_service'
+import { Sparkles, CheckCircle2 } from 'lucide-react'
 import { PatientBirthDateBadge } from '@/components/PatientBirthDateBadge'
 import { useTeamMembers } from '@/hooks/use-team-members'
 import { CategoryPicker } from '@/components/categories/CategoryPicker'
@@ -84,6 +86,10 @@ export function CrmContactDetail({
   const [messages, setMessages] = useState<any[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [showAllMessages, setShowAllMessages] = useState(false)
+  const [detectedBudgetInMessages, setDetectedBudgetInMessages] = useState<{
+    value: number
+    matched: string
+  } | null>(null)
 
   const [contactName, setContactName] = useState('')
   const [stage, setStage] = useState('')
@@ -157,6 +163,16 @@ export function CrmContactDetail({
           .then((res) => {
             if (!isMounted) return
             setMessages(res.items)
+            // Detecção de valores BRL em mensagens recentes (se contato não possuir orçamento ou se quiser sugerir)
+            if (!data.budget_value && res.items.length > 0) {
+              for (const item of res.items) {
+                const found = extractBrlBudgetFromText((item as any).content)
+                if (found) {
+                  setDetectedBudgetInMessages(found)
+                  break
+                }
+              }
+            }
           })
           .catch((err) => {
             console.error('Error fetching messages', err)
@@ -538,6 +554,51 @@ export function CrmContactDetail({
                       </Badge>
                     )}
                   </div>
+                  {/* Banner de Orçamento Detectado com confirmação de 1 clique */}
+                  {detectedBudgetInMessages && (
+                    <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-300 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between text-emerald-900 font-semibold">
+                        <span className="flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                          Sugerir orçamento detectado
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] bg-emerald-100 text-emerald-800 border-emerald-300"
+                        >
+                          {detectedBudgetInMessages.matched}
+                        </Badge>
+                      </div>
+                      <p className="text-[11px] text-emerald-950">
+                        Valor detectado na conversa:{' '}
+                        <strong>
+                          R${' '}
+                          {detectedBudgetInMessages.value.toLocaleString('pt-BR', {
+                            minimumFractionDigits: 2,
+                          })}
+                        </strong>
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          setBudgetValue(detectedBudgetInMessages.value)
+                          if (!budgetSentAt) {
+                            setBudgetSentAt(new Date().toISOString().split('T')[0])
+                          }
+                          setDetectedBudgetInMessages(null)
+                          toast.success(
+                            'Valor aplicado! Clique em "Salvar alterações" para confirmar.',
+                          )
+                        }}
+                        className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md px-2.5 w-full mt-1"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                        Preencher R$ {detectedBudgetInMessages.value.toLocaleString('pt-BR')} (1
+                        clique)
+                      </Button>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label className="text-[11px] font-medium text-muted-foreground">
