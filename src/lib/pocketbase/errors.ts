@@ -35,7 +35,13 @@ export function isNetworkError(error: unknown): boolean {
   }
   if (error instanceof Error) {
     const msg = error.message.toLowerCase()
-    return msg.includes('network') || msg.includes('failed to fetch') || msg.includes('load failed')
+    return (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network request failed') ||
+      msg.includes('load failed') ||
+      msg.includes('connection refused')
+    )
   }
   return false
 }

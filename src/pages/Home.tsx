@@ -20,6 +20,7 @@ import {
   Sparkles,
   Users,
   Calendar,
+  TrendingUp,
   AlertCircle,
   Activity,
 } from 'lucide-react'
@@ -1108,6 +1109,47 @@ export default function Home() {
                 Acionados / Pendentes (2m)
               </span>
             </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* ═══ BANNER DE DESTAQUE: FASE 4 — PAINEL DE REVENDA ═══ */}
+      <Card
+        onClick={() => navigate('/revenda')}
+        className="border-border/50 bg-gradient-to-r from-purple-50/70 via-white/80 to-indigo-50/50 backdrop-blur-md shadow-sm hover:shadow-md hover:border-purple-300 transition-all cursor-pointer rounded-2xl p-5"
+      >
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-serif font-bold text-base text-primary">
+                  Painel de Revenda — Score de Interesse (Fase 4)
+                </h3>
+                <Badge
+                  variant="outline"
+                  className="text-[10px] bg-purple-50 text-purple-800 border-purple-200"
+                >
+                  Score 0–100
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Priorização de oportunidades nos 5 segmentos: Retomada, Fechamento, Renovação, Novo
+                serviço e Reativação.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs border-purple-200 text-purple-800 hover:bg-purple-100/50 pointer-events-none"
+            >
+              Abrir Painel de Revenda <ArrowRight className="w-3.5 h-3.5 ml-1" />
+            </Button>
           </div>
         </div>
       </Card>

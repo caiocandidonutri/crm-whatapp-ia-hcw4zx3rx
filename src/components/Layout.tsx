@@ -25,6 +25,7 @@ const NAV_LINKS = [
   { name: 'CRM', path: '/crm' },
   { name: 'Agenda', path: '/agenda' },
   { name: 'Fila do Dia', path: '/fila' },
+  { name: 'Revenda', path: '/revenda' },
   { name: 'Chat', path: '/chat' },
   { name: 'Agentes', path: '/agentes' },
   { name: 'Tarefas', path: '/tarefas' },

@@ -258,187 +258,215 @@ export default function FilaDoDia() {
     return map
   }, [tasks])
 
-  // Derivação estrita da fila a partir dos dados existentes
+  // Derivação estrita da fila a partir dos dados existentes com blindagem total contra nulos
   const queueItems: FilaItem[] = useMemo(() => {
     const now = Date.now()
 
-    return contacts.map((c) => {
-      const cleanPhone = (c.phone || c.jid || '').replace(/\D/g, '')
-      const conv = convByJid.get(c.jid) || (cleanPhone ? convByJid.get(cleanPhone) : undefined)
-      const contactTasks = tasksByContactId.get(c.id) || []
-      const hasOpenTask = contactTasks.length > 0
-      const openTaskTitle = contactTasks[0]?.title
+    if (!Array.isArray(contacts)) return []
 
-      // Identificação da última mensagem / contato
-      let lastContactAt: Date | null = null
-      let lastContactWho: 'cliente' | 'equipe' | 'desconhecido' = 'desconhecido'
+    return contacts
+      .filter((c): c is CrmContact => Boolean(c && typeof c === 'object' && c.id))
+      .map((c) => {
+        const rawJid = String(c.jid || '')
+        const rawPhone = String(c.phone || '')
+        const cleanPhone = (rawPhone || rawJid).replace(/\D/g, '')
+        const conv =
+          (rawJid ? convByJid.get(rawJid) : undefined) ||
+          (cleanPhone ? convByJid.get(cleanPhone) : undefined)
+        const contactTasks = (c.id ? tasksByContactId.get(c.id) : undefined) || []
+        const hasOpenTask = contactTasks.length > 0
+        const openTaskTitle = contactTasks[0]?.title || ''
 
-      if (conv?.last_message_timestamp) {
-        const ts = conv.last_message_timestamp
-        const ms = ts > 1e12 ? ts : ts * 1000
-        lastContactAt = new Date(ms)
-      } else if (c.last_synced_at) {
-        lastContactAt = parseToDate(c.last_synced_at)
-      } else if (c.updated) {
-        lastContactAt = parseToDate(c.updated)
-      }
+        // Identificação da última mensagem / contato
+        let lastContactAt: Date | null = null
+        let lastContactWho: 'cliente' | 'equipe' | 'desconhecido' = 'desconhecido'
 
-      // Se temos unread_count > 0, o cliente mandou mensagem e aguarda retorno
-      const hasUnreadFromClient = (conv?.unread_count || 0) > 0
-      if (hasUnreadFromClient) {
-        lastContactWho = 'cliente'
-      }
-
-      // Cálculo de Status da Fila
-      let status: FilaStatus = 'NAO_PRECISA'
-      let suggestedAction =
-        c.ai_suggested_action || 'Manter contato ativo conforme necessidade clínica.'
-
-      const stageKey = c.stage || 'lead'
-      const hoursSinceLastContact = lastContactAt ? (now - lastContactAt.getTime()) / 3600000 : 9999
-      const daysSinceLastContact = hoursSinceLastContact / 24
-
-      // Lógica de Priorização e Status
-      if (
-        c.care_status === 'precisa_atencao' ||
-        c.care_status === 'alta_demanda' ||
-        (hasOpenTask && contactTasks.some((t) => t.priority === 'urgente'))
-      ) {
-        status = 'ALERTA'
-        suggestedAction =
-          openTaskTitle ||
-          c.ai_suggested_action ||
-          'Paciente em alerta de cuidado — verificar histórico e acolher.'
-      } else if (stageKey === 'orcamento_enviado') {
-        status = 'EM_NEGOCIACAO'
-        suggestedAction =
-          c.ai_suggested_action ||
-          (daysSinceLastContact >= 3
-            ? 'Proposta em aberto há mais de 3 dias — fazer follow-up acolhedor via WhatsApp.'
-            : 'Acompanhar decisão do orçamento enviado.')
-      } else if (hasUnreadFromClient || c.care_status === 'precisa_retorno') {
-        status = 'PRECISA_DE_MENSAGEM'
-        suggestedAction = hasUnreadFromClient
-          ? 'Mensagem nova não respondida — responder e dar andamento ao atendimento.'
-          : 'Paciente precisa de retorno (agendamento ou dúvidas clínicas).'
-      } else if (c.care_status === 'nao_respondeu' || stageKey === 'nao_respondido') {
-        if (daysSinceLastContact >= 5) {
-          status = 'PRECISA_DE_MENSAGEM'
-          suggestedAction =
-            'Paciente não respondeu aos últimos contatos — enviar tentativa suave de reengajamento.'
-        } else {
-          status = 'AGUARDANDO_RESPOSTA'
-          suggestedAction = 'Aguardando paciente visualizar e responder mensagem recente.'
-        }
-      } else if (stageKey === 'em_atendimento' || stageKey === 'lead') {
-        if (hoursSinceLastContact >= 12) {
-          status = 'PRECISA_DE_MENSAGEM'
-          suggestedAction =
-            'Lead/Atendimento em aberto sem interação há mais de 12h — avançar próximo passo.'
-        } else {
-          status = 'AGUARDANDO_RESPOSTA'
-          suggestedAction = 'Em atendimento ativo hoje — acompanhar troca de mensagens.'
-        }
-      } else if (stageKey === 'cliente') {
-        // Verificar se plano está expirando
-        if (c.plan_expires_at) {
-          const expDate = parseToDate(c.plan_expires_at)
-          if (expDate) {
-            const daysUntilExp = (expDate.getTime() - now) / 86400000
-            if (daysUntilExp <= 20 && daysUntilExp >= -5) {
-              status = 'EM_NEGOCIACAO'
-              suggestedAction = `Plano/clube vence em ${Math.max(0, Math.round(daysUntilExp))} dias — propor renovação.`
+        if (conv?.last_message_timestamp) {
+          const ts = Number(conv.last_message_timestamp)
+          if (!isNaN(ts) && ts > 0) {
+            const ms = ts > 1e12 ? ts : ts * 1000
+            const parsed = new Date(ms)
+            if (!isNaN(parsed.getTime())) {
+              lastContactAt = parsed
             }
           }
         }
-      }
+        if (!lastContactAt && c.last_synced_at) {
+          lastContactAt = parseToDate(c.last_synced_at)
+        }
+        if (!lastContactAt && c.updated) {
+          lastContactAt = parseToDate(c.updated)
+        }
 
-      // Prioridade numérica (para ordenação)
-      let priorityScore = 100
-      let priority: 'baixa' | 'media' | 'alta' | 'urgente' = 'media'
+        // Se temos unread_count > 0, o cliente mandou mensagem e aguarda retorno
+        const unreadCount = Number(conv?.unread_count) || 0
+        const hasUnreadFromClient = unreadCount > 0
+        if (hasUnreadFromClient) {
+          lastContactWho = 'cliente'
+        }
 
-      if (c.ai_priority && c.ai_priority > 0) {
-        priorityScore += c.ai_priority * 10
-      }
+        // Cálculo de Status da Fila
+        let status: FilaStatus = 'NAO_PRECISA'
+        let suggestedAction =
+          String(c.ai_suggested_action || '').trim() ||
+          'Manter contato ativo conforme necessidade clínica.'
 
-      if (status === 'ALERTA') {
-        priorityScore += 300
-        priority = 'urgente'
-      } else if (status === 'PRECISA_DE_MENSAGEM') {
-        priorityScore += 200
-        priority = 'alta'
-      } else if (status === 'EM_NEGOCIACAO') {
-        priorityScore += 150
-        priority = 'alta'
-      } else if (status === 'AGUARDANDO_RESPOSTA') {
-        priorityScore += 80
-        priority = 'media'
-      } else {
-        priorityScore += 20
-        priority = 'baixa'
-      }
+        const stageKey = String(c.stage || 'lead')
+          .trim()
+          .toLowerCase()
+        const hoursSinceLastContact =
+          lastContactAt && !isNaN(lastContactAt.getTime())
+            ? (now - lastContactAt.getTime()) / 3600000
+            : 9999
+        const daysSinceLastContact = hoursSinceLastContact / 24
 
-      // Se tem tarefa de alta prioridade aberta
-      if (
-        hasOpenTask &&
-        contactTasks.some((t) => t.priority === 'alta' || t.priority === 'urgente')
-      ) {
-        priorityScore += 100
-        priority = 'urgente'
-      }
+        // Lógica de Priorização e Status
+        if (
+          c.care_status === 'precisa_atencao' ||
+          c.care_status === 'alta_demanda' ||
+          (hasOpenTask && contactTasks.some((t) => t?.priority === 'urgente'))
+        ) {
+          status = 'ALERTA'
+          suggestedAction =
+            openTaskTitle ||
+            c.ai_suggested_action ||
+            'Paciente em alerta de cuidado — verificar histórico e acolher.'
+        } else if (stageKey === 'orcamento_enviado') {
+          status = 'EM_NEGOCIACAO'
+          suggestedAction =
+            c.ai_suggested_action ||
+            (daysSinceLastContact >= 3
+              ? 'Proposta em aberto há mais de 3 dias — fazer follow-up acolhedor via WhatsApp.'
+              : 'Acompanhar decisão do orçamento enviado.')
+        } else if (hasUnreadFromClient || c.care_status === 'precisa_retorno') {
+          status = 'PRECISA_DE_MENSAGEM'
+          suggestedAction = hasUnreadFromClient
+            ? 'Mensagem nova não respondida — responder e dar andamento ao atendimento.'
+            : 'Paciente precisa de retorno (agendamento ou dúvidas clínicas).'
+        } else if (c.care_status === 'nao_respondeu' || stageKey === 'nao_respondido') {
+          if (daysSinceLastContact >= 5) {
+            status = 'PRECISA_DE_MENSAGEM'
+            suggestedAction =
+              'Paciente não respondeu aos últimos contatos — enviar tentativa suave de reengajamento.'
+          } else {
+            status = 'AGUARDANDO_RESPOSTA'
+            suggestedAction = 'Aguardando paciente visualizar e responder mensagem recente.'
+          }
+        } else if (stageKey === 'em_atendimento' || stageKey === 'lead') {
+          if (hoursSinceLastContact >= 12) {
+            status = 'PRECISA_DE_MENSAGEM'
+            suggestedAction =
+              'Lead/Atendimento em aberto sem interação há mais de 12h — avançar próximo passo.'
+          } else {
+            status = 'AGUARDANDO_RESPOSTA'
+            suggestedAction = 'Em atendimento ativo hoje — acompanhar troca de mensagens.'
+          }
+        } else if (stageKey === 'cliente') {
+          // Verificar se plano está expirando
+          if (c.plan_expires_at) {
+            const expDate = parseToDate(c.plan_expires_at)
+            if (expDate && !isNaN(expDate.getTime())) {
+              const daysUntilExp = (expDate.getTime() - now) / 86400000
+              if (daysUntilExp <= 20 && daysUntilExp >= -5) {
+                status = 'EM_NEGOCIACAO'
+                suggestedAction = `Plano/clube vence em ${Math.max(0, Math.round(daysUntilExp))} dias — propor renovação.`
+              }
+            }
+          }
+        }
 
-      const isCompletedToday = doneTodayIds.has(c.id)
+        // Prioridade numérica (para ordenação)
+        let priorityScore = 100
+        let priority: 'baixa' | 'media' | 'alta' | 'urgente' = 'media'
 
-      // Identificação da Unidade
-      let unidade = 'Carmo do Rio Claro'
-      if (c.notes?.toLowerCase().includes('alfenas')) unidade = 'Alfenas'
-      else if (c.notes?.toLowerCase().includes('monte belo')) unidade = 'Monte Belo'
-      else if (c.notes?.toLowerCase().includes('online')) unidade = 'Online'
+        const aiPriorityNum = Number(c.ai_priority)
+        if (!isNaN(aiPriorityNum) && aiPriorityNum > 0) {
+          priorityScore += aiPriorityNum * 10
+        }
 
-      const displayName =
-        c.contact_name || c.push_name || (c.phone ? formatPhoneBR(c.phone) : 'Sem Nome')
-      const formattedPhone = formatPhoneBR(c.phone || c.jid)
+        if (status === 'ALERTA') {
+          priorityScore += 300
+          priority = 'urgente'
+        } else if (status === 'PRECISA_DE_MENSAGEM') {
+          priorityScore += 200
+          priority = 'alta'
+        } else if (status === 'EM_NEGOCIACAO') {
+          priorityScore += 150
+          priority = 'alta'
+        } else if (status === 'AGUARDANDO_RESPOSTA') {
+          priorityScore += 80
+          priority = 'media'
+        } else {
+          priorityScore += 20
+          priority = 'baixa'
+        }
 
-      return {
-        id: c.id,
-        contactId: c.id,
-        name: displayName,
-        phone: c.phone || c.jid || '',
-        formattedPhone,
-        instanceName: c.instance_name || 'Principal',
-        unidade,
-        stageKey,
-        stageLabel: STAGE_LABELS[stageKey] || stageKey,
-        lastContactAt,
-        lastContactWho,
-        status,
-        statusLabel: STATUS_CONFIG[status].label,
-        priority,
-        priorityScore,
-        suggestedAction,
-        completedToday: isCompletedToday,
-        budget: c.budget_value,
-        isPatient: c.is_patient,
-        isClubMember: c.is_club_member,
-        planExpiresAt: c.plan_expires_at,
-        hasOpenTask,
-        taskTitle: openTaskTitle,
-      }
-    })
+        // Se tem tarefa de alta prioridade aberta
+        if (
+          hasOpenTask &&
+          contactTasks.some((t) => t?.priority === 'alta' || t?.priority === 'urgente')
+        ) {
+          priorityScore += 100
+          priority = 'urgente'
+        }
+
+        const isCompletedToday = doneTodayIds.has(c.id)
+
+        // Identificação da Unidade
+        const notesStr = String(c.notes || '').toLowerCase()
+        let unidade = 'Carmo do Rio Claro'
+        if (notesStr.includes('alfenas')) unidade = 'Alfenas'
+        else if (notesStr.includes('monte belo')) unidade = 'Monte Belo'
+        else if (notesStr.includes('online')) unidade = 'Online'
+
+        const displayName =
+          c.contact_name?.trim() ||
+          c.push_name?.trim() ||
+          (rawPhone ? formatPhoneBR(rawPhone) : 'Sem Nome')
+        const formattedPhone = formatPhoneBR(rawPhone || rawJid)
+
+        const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.NAO_PRECISA
+
+        return {
+          id: c.id,
+          contactId: c.id,
+          name: displayName,
+          phone: rawPhone || rawJid,
+          formattedPhone,
+          instanceName: c.instance_name || 'Principal',
+          unidade,
+          stageKey,
+          stageLabel: STAGE_LABELS[stageKey] || stageKey,
+          lastContactAt,
+          lastContactWho,
+          status,
+          statusLabel: cfg.label,
+          priority,
+          priorityScore,
+          suggestedAction,
+          completedToday: isCompletedToday,
+          budget: typeof c.budget_value === 'number' ? c.budget_value : Number(c.budget_value) || 0,
+          isPatient: Boolean(c.is_patient),
+          isClubMember: Boolean(c.is_club_member),
+          planExpiresAt: c.plan_expires_at,
+          hasOpenTask,
+          taskTitle: openTaskTitle,
+        }
+      })
   }, [contacts, convByJid, tasksByContactId, doneTodayIds])
 
   // Alterna o status "concluído hoje" para a secretária Fabiana
   const toggleDoneToday = (contactId: string, name: string) => {
-    if (!accountId) return
+    if (!accountId || !contactId) return
     setDoneTodayIds((prev) => {
       const next = new Set(prev)
       const isNowDone = !next.has(contactId)
       if (isNowDone) {
         next.add(contactId)
-        toast.success(`Atendimento de ${name} marcado como concluído hoje!`)
+        toast.success(`Atendimento de ${name || 'Contato'} marcado como concluído hoje!`)
       } else {
         next.delete(contactId)
-        toast.info(`Marcação de ${name} removida.`)
+        toast.info(`Marcação de ${name || 'Contato'} removida.`)
       }
       saveDoneSet(accountId, next)
       return next
@@ -564,6 +592,16 @@ export default function FilaDoDia() {
           >
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
             Atualizar
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate('/revenda')}
+            className="h-9 gap-1.5 text-xs border-primary/30 text-primary hover:bg-primary/5"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            Painel de Revenda
           </Button>
 
           <Button
@@ -862,7 +900,7 @@ export default function FilaDoDia() {
       ) : (
         <div className="space-y-2">
           {filteredItems.map((item) => {
-            const statusCfg = STATUS_CONFIG[item.status]
+            const statusCfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.NAO_PRECISA
             const isDone = item.completedToday
 
             return (
