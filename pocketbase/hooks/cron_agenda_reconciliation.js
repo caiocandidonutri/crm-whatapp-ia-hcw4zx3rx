@@ -214,14 +214,17 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
     function createTask(title, description, crmContactId) {
       if (!tasksCol) return
       try {
+        // DEDUPE 24h: checar se já existe tarefa com o mesmo título ou para o mesmo contato nas últimas 24h
+        var cutoff24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
         try {
-          var exTask = $app.findFirstRecordByFilter(
-            'tasks',
-            'title = {:t} && status = "pendente"',
-            {
-              t: title,
-            },
-          )
+          var filterStr = 'title = {:t} && (status = "pendente" || created >= {:cutoff})'
+          var filterParams = { t: title, cutoff: cutoff24h }
+          if (crmContactId) {
+            filterStr =
+              '(title = {:t} || crm_contact_id = {:cid}) && (status = "pendente" || created >= {:cutoff})'
+            filterParams.cid = crmContactId
+          }
+          var exTask = $app.findFirstRecordByFilter('tasks', filterStr, filterParams)
           if (exTask) return
         } catch (_) {}
 

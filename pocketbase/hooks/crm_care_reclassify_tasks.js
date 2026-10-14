@@ -400,6 +400,25 @@ onRecordAfterUpdateSuccess((e) => {
 
       if (alreadyExists) continue
 
+      // Dedupe estrito nas últimas 24h: não recriar tarefa para mesmo contato/tipo se já houve criação recente
+      var recent24hCutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+      var duplicateIn24h = false
+      try {
+        var recentTasks24h = $app.findRecordsByFilter(
+          'tasks',
+          'crm_contact_id = {:cid} && (care_category = {:cat} || title = {:t}) && created >= {:cutoff}',
+          '-created',
+          1,
+          0,
+          { cid: contactId, cat: category, t: title, cutoff: recent24hCutoff },
+        )
+        if (recentTasks24h && recentTasks24h.length > 0) {
+          duplicateIn24h = true
+        }
+      } catch (_) {}
+
+      if (duplicateIn24h) continue
+
       try {
         var taskCol = $app.findCollectionByNameOrId('tasks')
         var newTask = new Record(taskCol)
