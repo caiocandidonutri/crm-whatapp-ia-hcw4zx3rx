@@ -24,6 +24,10 @@ import {
   AlertCircle,
   Activity,
   ShieldCheck,
+  Inbox,
+  CalendarClock,
+  Timer,
+  ShieldAlert,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
 import { useCurrentAccount } from '@/hooks/use-current-account'
@@ -53,10 +57,15 @@ import {
   formatLongDateSaoPaulo,
   formatRecentActivityDate,
   formatBrazilianDate,
+  formatTimeSaoPaulo,
   getDayKeySaoPaulo,
   parseToDate,
 } from '@/lib/datetime'
-
+import {
+  fetchCommandCenterMetrics,
+  DEFAULT_COMMAND_CENTER_METRICS,
+  type CommandCenterMetrics,
+} from '@/services/command_center'
 export default function Home() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -102,6 +111,48 @@ export default function Home() {
 
   const [sessionExpired, setSessionExpired] = useState(false)
   const [surveyStats, setSurveyStats] = useState<SurveySummaryStats | null>(null)
+
+  // ═══ Painel de Comando (X-ray): métricas leves e resilientes ═══
+  const [commandCenter, setCommandCenter] = useState<CommandCenterMetrics>(
+    DEFAULT_COMMAND_CENTER_METRICS,
+  )
+
+  const loadCommandCenter = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const res = await fetchCommandCenterMetrics(accountId, signal)
+        if (signal?.aborted) return
+        setCommandCenter(res)
+      } catch {
+        // Proteção absoluta: qualquer falha mantém os valores silenciosos (null/0)
+        if (!signal?.aborted) {
+          setCommandCenter(DEFAULT_COMMAND_CENTER_METRICS)
+        }
+      }
+    },
+    [accountId],
+  )
+
+  useEffect(() => {
+    const controller = new AbortController()
+    loadCommandCenter(controller.signal).catch(() => {
+      // Nenhum rejection escapa: a /home nunca pode cair por causa deste cartão
+    })
+    return () => {
+      try {
+        controller.abort()
+      } catch {
+        // Ignora (AbortError ao desmontar é inofensivo)
+      }
+    }
+  }, [loadCommandCenter])
+
+  // Recarrega junto com o refresh manual do painel
+  const refreshCommandCenter = useCallback(() => {
+    loadCommandCenter().catch(() => {
+      // Ignora silenciosamente
+    })
+  }, [loadCommandCenter])
 
   const loadMetrics = useCallback(
     async (silent = false, signal?: AbortSignal) => {
@@ -270,6 +321,21 @@ export default function Home() {
 
   const myTaskCount = myPendingTasks.length
   const otherTeamTasksCount = pendingTasks.length - myPendingTasks.length
+
+  // ═══ Painel de Comando: derivados de tarefas (cálculo leve no cliente) ═══
+  const pendingTasksCount = pendingTasks.length
+
+  const overdueTasksCount = useMemo(() => {
+    const nowMs = Date.now()
+    const HOUR_MS = 60 * 60 * 1000
+    const OVERDUE_MS = 24 * HOUR_MS
+    return pendingTasks.filter((t) => {
+      const dueMs = t?.due_date ? (parseToDate(t.due_date)?.getTime() ?? null) : null
+      if (dueMs && dueMs < nowMs - OVERDUE_MS) return true
+      const createdMs = t?.created ? (parseToDate(t.created)?.getTime() ?? null) : null
+      return !!(createdMs && createdMs < nowMs - OVERDUE_MS)
+    }).length
+  }, [pendingTasks])
 
   let headerTaskText = ''
   if (myTaskCount > 0 || otherTeamTasksCount > 0) {
@@ -681,7 +747,10 @@ export default function Home() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => loadMetrics()}
+            onClick={() => {
+              loadMetrics()
+              refreshCommandCenter()
+            }}
             disabled={loading || isRefreshing}
             className="rounded-full bg-white/80 border-border/40 hover:bg-white min-h-[44px] px-3.5 text-xs md:text-sm font-medium text-foreground/80 shadow-sm transition-all"
             title="Atualizar métricas agora"
@@ -779,6 +848,180 @@ export default function Home() {
           </div>
         </Alert>
       )}
+
+      {/* ═══ PAINEL DE COMANDO (X-RAY) — 4 MÉTRICAS + SAÚDE DAS AUTOMAÇÕES ═══ */}
+      <Card className="border-border/40 bg-white/60 backdrop-blur-md shadow-sm rounded-2xl overflow-hidden">
+        <CardHeader className="pb-3 border-b border-border/30">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-primary/10 rounded-xl text-primary">
+                <Activity className="w-4 h-4" />
+              </div>
+              <div>
+                <CardTitle className="font-serif text-lg md:text-xl font-bold text-primary">
+                  Painel de Comando
+                </CardTitle>
+                <CardDescription className="text-xs text-muted-foreground font-sans">
+                  Situação operacional da clínica neste momento
+                </CardDescription>
+              </div>
+            </div>
+            <Badge
+              variant="outline"
+              className={cn(
+                'text-[10px] font-bold border-0 shrink-0',
+                (commandCenter.unreadConversations ?? 0) +
+                  pendingTasksCount +
+                  (commandCenter.todayAppointments ?? 0) +
+                  overdueTasksCount >
+                  0
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-emerald-100 text-emerald-800',
+              )}
+            >
+              {(commandCenter.unreadConversations ?? 0) +
+                pendingTasksCount +
+                (commandCenter.todayAppointments ?? 0) +
+                overdueTasksCount >
+              0
+                ? 'Ação necessária'
+                : 'Tudo em dia'}
+            </Badge>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-4 md:p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {/* (a) Conversas não lidas */}
+            <button
+              type="button"
+              onClick={() => navigate('/conversas')}
+              className="flex items-center gap-3 p-3 rounded-xl border border-border/40 bg-white text-left transition-all hover:shadow-sm hover:border-primary/40 min-h-[56px]"
+            >
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <Inbox className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="block font-serif font-bold text-xl text-primary leading-none">
+                  {commandCenter.unreadConversations ?? '—'}
+                </span>
+                <span className="block text-[11px] text-muted-foreground font-medium mt-1 leading-tight">
+                  Conversas não lidas
+                </span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground/50 shrink-0" />
+            </button>
+
+            {/* (b) Tarefas pendentes */}
+            <button
+              type="button"
+              onClick={() => navigate('/tarefas')}
+              className="flex items-center gap-3 p-3 rounded-xl border border-border/40 bg-white text-left transition-all hover:shadow-sm hover:border-primary/40 min-h-[56px]"
+            >
+              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <ListTodo className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="block font-serif font-bold text-xl text-primary leading-none">
+                  {pendingTasksCount}
+                </span>
+                <span className="block text-[11px] text-muted-foreground font-medium mt-1 leading-tight">
+                  Tarefas pendentes
+                </span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground/50 shrink-0" />
+            </button>
+
+            {/* (c) Agendamentos de hoje */}
+            <button
+              type="button"
+              onClick={() => navigate('/agenda')}
+              className="flex items-center gap-3 p-3 rounded-xl border border-border/40 bg-white text-left transition-all hover:shadow-sm hover:border-primary/40 min-h-[56px]"
+            >
+              <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                <CalendarClock className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="block font-serif font-bold text-xl text-primary leading-none">
+                  {commandCenter.todayAppointments ?? '—'}
+                </span>
+                <span className="block text-[11px] text-muted-foreground font-medium mt-1 leading-tight">
+                  Agendamentos de hoje
+                </span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground/50 shrink-0" />
+            </button>
+
+            {/* (d) Pendências há mais de 24h */}
+            <button
+              type="button"
+              onClick={() => navigate('/tarefas')}
+              className="flex items-center gap-3 p-3 rounded-xl border border-border/40 bg-white text-left transition-all hover:shadow-sm hover:border-rose-300 min-h-[56px]"
+            >
+              <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <Timer className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="block font-serif font-bold text-xl text-primary leading-none">
+                  {overdueTasksCount}
+                </span>
+                <span className="block text-[11px] text-muted-foreground font-medium mt-1 leading-tight">
+                  Pendências &gt; 24h
+                </span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground/50 shrink-0" />
+            </button>
+          </div>
+
+          {/* (e) Saúde das automações */}
+          <div className="mt-3.5 pt-3.5 border-t border-border/30 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <ShieldAlert className="w-3.5 h-3.5" />
+              Saúde das automações
+            </span>
+            <span className="flex items-center gap-1.5">
+              {commandCenter.automations.globalPaused ? (
+                <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+              ) : commandCenter.automations.globalPaused === false ? (
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" />
+              )}
+              <span className="font-medium text-foreground/80">
+                {commandCenter.automations.globalPaused
+                  ? 'Pausadas globalmente (nada envia mensagem)'
+                  : commandCenter.automations.globalPaused === false
+                    ? 'Ativas globalmente'
+                    : 'Estado desconhecido'}
+              </span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  'w-2 h-2 rounded-full shrink-0',
+                  commandCenter.automations.nightShield ? 'bg-indigo-500' : 'bg-gray-300',
+                )}
+              />
+              <span className="font-medium text-foreground/80">
+                Night Shield{' '}
+                {commandCenter.automations.nightShield ? 'ativo (21h–07h)' : '(21h–07h)'}
+              </span>
+            </span>
+            <span className="flex items-center gap-1.5 text-muted-foreground font-medium">
+              <Clock className="w-3.5 h-3.5" />
+              {commandCenter.automations.lastSyncAt ? (
+                <>
+                  Última sincronia: {formatRecentActivityDate(commandCenter.automations.lastSyncAt)}
+                  {' · '}
+                  {formatTimeSaoPaulo(commandCenter.automations.lastSyncAt)}
+                </>
+              ) : (
+                'Última sincronia: sem registro'
+              )}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ═══ CONTROLE DE MENSAGENS AUTOMÁTICAS (KILL SWITCH GLOBAL) ═══ */}
       <AutomationsControlCard />

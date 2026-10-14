@@ -311,9 +311,11 @@ function MessageItemComponent({
                 <div className="px-2 pb-2 pt-1">
                   {msg.transcription ? (
                     <div className="mt-1 p-2 rounded-lg bg-primary/5 border border-primary/20 text-xs text-foreground/90">
-                      <div className="flex items-center gap-1 font-semibold text-[11px] text-primary mb-1">
-                        <Sparkles className="w-3 h-3" />
-                        Transcrição IA:
+                      <div className="flex items-center gap-1 mb-1">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                          <Sparkles className="w-3 h-3" />
+                          transcrição (rascunho — revise)
+                        </span>
                       </div>
                       <p className="leading-relaxed select-text">{msg.transcription}</p>
                     </div>
