@@ -185,6 +185,9 @@ export function whatsappMessagesToMessages(messages: WhatsappMessage[]) {
             },
           }
         : {}),
+      // Transcrição de áudio (gerada pelo cron transcribe_audio_queue / endpoint
+      // transcribe-audio). Vazia = campo ausente, nada aparece no chat (null-safe).
+      transcription: (m.transcription || '').trim(),
     }
   })
 }

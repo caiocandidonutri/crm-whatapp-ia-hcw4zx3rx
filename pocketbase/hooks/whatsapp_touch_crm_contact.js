@@ -95,10 +95,13 @@ onRecordAfterCreateSuccess((e) => {
 
     var isInvalidPushName = isOwnInstance || isInvalidOrClinicName(pushName)
 
+    var candidateName = !isInvalidPushName ? pushName : ''
+
     // Se a conversa já possuir um contact_name válido, usa como prioridade
     var convContactName = ''
+    var convRec = null
     try {
-      var convRec = $app.findFirstRecordByFilter(
+      convRec = $app.findFirstRecordByFilter(
         'conversations',
         'instance_name = {:inst} && remote_jid = {:jid}',
         { inst: instanceName, jid: remoteJid },
@@ -107,11 +110,40 @@ onRecordAfterCreateSuccess((e) => {
         var cNameCandidate = convRec.getString('contact_name') || ''
         if (!isInvalidOrClinicName(cNameCandidate)) {
           convContactName = cNameCandidate
+          candidateName = cNameCandidate
+        }
+
+        // ENRIQUECIMENTO CONTÍNUO (mensagem entrante com push_name válido):
+        // preenche conversations.contact_phone e contact_name quando vazio ou
+        // anômalo (JID cru, só dígitos, genérico). NUNCA sobrescreve nome
+        // humano preenchido manualmente (só age se o atual for inválido).
+        var convDirty = false
+        var jidPhone = remoteJid.split('@')[0] || ''
+        // JIDs @lid não são telefones reais — nunca poluir contact_phone com LID
+        if (remoteJid.indexOf('@lid') !== -1) jidPhone = ''
+        var curPhoneDigits = (convRec.getString('contact_phone') || '').replace(/\D/g, '')
+        var curSuffix = curPhoneDigits.length >= 8 ? curPhoneDigits.slice(-8) : curPhoneDigits
+        var jidSuffix = jidPhone.replace(/\D/g, '')
+        jidSuffix = jidSuffix.length >= 8 ? jidSuffix.slice(-8) : jidSuffix
+        if (jidPhone && (!curPhoneDigits || (jidSuffix && curSuffix !== jidSuffix))) {
+          convRec.set('contact_phone', jidPhone)
+          convDirty = true
+        }
+        if (candidateName && isInvalidOrClinicName(convRec.getString('contact_name') || '')) {
+          convRec.set('contact_name', candidateName)
+          convDirty = true
+        }
+        if (convDirty) {
+          try {
+            $app.save(convRec)
+          } catch (convSaveErr) {
+            $app
+              .logger()
+              .warn('whatsapp_touch_crm_contact: conv enrich failed', 'error', String(convSaveErr))
+          }
         }
       }
     } catch (_) {}
-
-    var candidateName = convContactName || (!isInvalidPushName ? pushName : '')
 
     if (contact) {
       contact.set('last_synced_at', nowIso)
@@ -126,6 +158,10 @@ onRecordAfterCreateSuccess((e) => {
         if (contact.getString('care_status') === 'nao_respondeu') {
           contact.set('care_status', 'em_dia')
         }
+      }
+      // Telefone do contato: preenche se vazio (nunca sobrescreve um já preenchido)
+      if (!contact.getString('phone') && remoteJid && remoteJid.indexOf('@lid') === -1) {
+        contact.set('phone', remoteJid.split('@')[0] || '')
       }
       // Se tivermos um nome válido e o contato estiver sem contact_name válido, atualiza
       if (candidateName && !isInvalidOrClinicName(candidateName)) {
