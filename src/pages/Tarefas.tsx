@@ -341,8 +341,19 @@ export default function Tarefas() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div>
-          <h1 className="font-serif text-3xl font-bold text-primary">Tarefas</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Gerencie as demandas da equipe.</p>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="font-serif text-3xl font-bold text-primary">Tarefas</h1>
+            <Badge
+              variant="outline"
+              className="bg-primary/5 text-primary border-primary/20 text-xs font-semibold"
+            >
+              Demandas e follow-ups da equipe
+            </Badge>
+          </div>
+          <p className="text-muted-foreground mt-1 text-sm">
+            <strong>Tarefas — demandas e follow-ups da equipe.</strong> Acompanhamento por
+            prioridade, prazos e cuidado do paciente.
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Button

@@ -12,33 +12,31 @@ export function AutomationsPausedBanner() {
   }
 
   return (
-    <div className="w-full bg-amber-500 text-amber-950 border-b border-amber-600/30 px-4 py-2.5 transition-all animate-fade-in shadow-sm">
-      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-sm">
-        <div className="flex items-center gap-2.5 text-center sm:text-left">
-          <div className="p-1 bg-amber-600/20 rounded-full shrink-0">
-            <AlertTriangle className="w-4 h-4 text-amber-950" />
-          </div>
-          <span className="font-medium">
-            Mensagens automáticas pausadas — nada é enviado aos pacientes até você ativar.
+    <div className="w-full bg-slate-50 border-b border-border/40 px-4 py-2 text-xs text-muted-foreground transition-all">
+      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+          <span className="font-medium text-foreground/80">
+            Automações pausadas — nenhum disparo ativo no momento.
           </span>
         </div>
 
         <Button
           size="sm"
-          variant="secondary"
+          variant="ghost"
           onClick={() => toggle()}
           disabled={toggling}
-          className="bg-amber-950 hover:bg-black text-amber-100 border-none shrink-0 font-semibold h-8 px-4 rounded-lg shadow-sm"
+          className="h-7 text-xs px-2.5 text-muted-foreground hover:text-foreground shrink-0"
         >
           {toggling ? (
             <span className="inline-flex items-center gap-1.5">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Ativando...
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Atualizando...
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5">
-              <Play className="w-3.5 h-3.5 fill-current" />
-              Ativar agora
+              <Play className="w-3 h-3 fill-current text-emerald-600" />
+              Revisar / Ativar
             </span>
           )}
         </Button>

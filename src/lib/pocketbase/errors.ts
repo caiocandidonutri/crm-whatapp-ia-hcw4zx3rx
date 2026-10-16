@@ -2,6 +2,34 @@ import { ClientResponseError } from 'pocketbase'
 
 export type FieldErrors = Record<string, string>
 
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (typeof error === 'object') {
+    const err = error as any
+    if (err.name === 'AbortError' || err.name === 'CanceledError' || err.name === 'TimeoutError') {
+      return true
+    }
+    if (err.isAbort === true) return true
+    if (err.status === 0 || err.statusCode === 0) return true
+    const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+    if (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network error') ||
+      msg.includes('aborterror') ||
+      msg.includes('abort') ||
+      msg.includes('signal is aborted') ||
+      msg.includes('autocancelled') ||
+      msg.includes('load failed')
+    ) {
+      return true
+    }
+    if (err.originalError && isNetworkError(err.originalError)) return true
+    if (err.cause && isNetworkError(err.cause)) return true
+  }
+  return false
+}
+
 export function extractFieldErrors(error: unknown): FieldErrors {
   if (!(error instanceof ClientResponseError)) return {}
   const data = error.response?.data
@@ -18,33 +46,6 @@ export function extractFieldErrors(error: unknown): FieldErrors {
     }
   }
   return errors
-}
-
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (typeof error === 'object') {
-    const err = error as any
-    if (err.name === 'AbortError' || err.name === 'CanceledError' || err.code === 20) return true
-    if (err.isAbort === true) return true
-    if (err.status === 0 || err.statusCode === 0) return true
-    const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
-    if (
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('network error') ||
-      msg.includes('abort') ||
-      msg.includes('signal is aborted') ||
-      msg.includes('timeout') ||
-      msg.includes('autocancelled') ||
-      msg.includes('load failed') ||
-      msg.includes('user aborted')
-    ) {
-      return true
-    }
-    if (err.originalError && isNetworkError(err.originalError)) return true
-    if (err.cause && isNetworkError(err.cause)) return true
-  }
-  return false
 }
 
 export function getErrorMessage(error: unknown): string {

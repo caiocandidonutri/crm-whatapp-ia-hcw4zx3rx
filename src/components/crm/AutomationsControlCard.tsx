@@ -25,11 +25,13 @@ import { getAutomationsAudit, type AutomationAuditItem } from '@/services/care_a
 interface AutomationsControlCardProps {
   className?: string
   showAuditButton?: boolean
+  compact?: boolean
 }
 
 export function AutomationsControlCard({
   className = '',
   showAuditButton = true,
+  compact = false,
 }: AutomationsControlCardProps) {
   const { paused, pausedAt, pausedBy, loading, toggling, toggle } = useAutomationsStatus()
   const [auditOpen, setAuditOpen] = useState(false)
@@ -71,113 +73,183 @@ export function AutomationsControlCard({
   return (
     <>
       <Card
-        className={`border-border/60 bg-white/70 backdrop-blur-sm shadow-sm rounded-2xl overflow-hidden transition-all ${className}`}
+        className={`border-border/50 bg-white/60 backdrop-blur-xs shadow-2xs rounded-2xl overflow-hidden transition-all ${
+          compact ? 'p-3 sm:p-3.5' : ''
+        } ${className}`}
       >
-        <CardHeader className="p-4 sm:p-5 pb-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
+        {compact ? (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
               <div
-                className={`p-2.5 rounded-xl transition-colors ${
+                className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                  paused ? 'bg-amber-500' : 'bg-emerald-500'
+                }`}
+              />
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <span className="font-semibold text-foreground text-xs">
+                  {paused ? 'Automações pausadas' : 'Automações ativas'}
+                </span>
+                <span className="text-muted-foreground text-[11px] truncate">
+                  {paused
+                    ? 'Disparos sob controle manual — clique para revisar ou retomar'
+                    : 'Lembretes e réguas operando com Blindagem Noturna (21h–07h)'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+              {showAuditButton && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={openAudit}
+                  className="h-7 text-[11px] px-2 text-muted-foreground hover:text-foreground gap-1"
+                >
+                  <History className="w-3 h-3" />
+                  Auditoria
+                </Button>
+              )}
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => toggle()}
+                disabled={loading || toggling}
+                className={`h-7 text-xs px-2.5 rounded-lg font-medium transition-all ${
                   paused
-                    ? 'bg-rose-50 text-rose-600 border border-rose-100'
-                    : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                    ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50'
+                    : 'border-border text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Radio className={`w-5 h-5 ${!paused ? 'animate-pulse' : ''}`} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <CardTitle className="text-base sm:text-lg font-bold text-foreground">
-                    Mensagens automáticas
-                  </CardTitle>
-                  {loading ? (
-                    <Badge variant="outline" className="text-xs">
-                      <Loader2 className="w-3 h-3 mr-1 animate-spin" /> Carregando
-                    </Badge>
+                {toggling ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    ...
+                  </span>
+                ) : paused ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Play className="w-3 h-3 fill-current text-emerald-600" />
+                    Revisar / Ativar
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1">
+                    <Pause className="w-3 h-3 fill-current text-muted-foreground" />
+                    Pausar envios
+                  </span>
+                )}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <CardHeader className="p-4 sm:p-5 pb-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`p-2.5 rounded-xl transition-colors ${
+                      paused
+                        ? 'bg-rose-50 text-rose-600 border border-rose-100'
+                        : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                    }`}
+                  >
+                    <Radio className={`w-5 h-5 ${!paused ? 'animate-pulse' : ''}`} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-base sm:text-lg font-bold text-foreground">
+                        Mensagens automáticas
+                      </CardTitle>
+                      {loading ? (
+                        <Badge variant="outline" className="text-xs">
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" /> Carregando
+                        </Badge>
+                      ) : paused ? (
+                        <Badge className="bg-rose-100 hover:bg-rose-100 text-rose-700 border-rose-200 text-xs font-semibold">
+                          Pausadas
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-emerald-100 hover:bg-emerald-100 text-emerald-700 border-emerald-200 text-xs font-semibold">
+                          Ativas
+                        </Badge>
+                      )}
+                    </div>
+                    <CardDescription className="text-xs sm:text-sm mt-0.5">
+                      Controle global dos envios de lembretes, confirmações, recall e respostas da
+                      IA.
+                    </CardDescription>
+                  </div>
+                </div>
+
+                <Button
+                  size="sm"
+                  variant={paused ? 'default' : 'outline'}
+                  onClick={() => toggle()}
+                  disabled={loading || toggling}
+                  className={`shrink-0 font-medium h-9 px-4 rounded-xl shadow-sm transition-all ${
+                    paused
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-none'
+                      : 'border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800'
+                  }`}
+                >
+                  {toggling ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      {paused ? 'Ativando...' : 'Pausando...'}
+                    </span>
                   ) : paused ? (
-                    <Badge className="bg-rose-100 hover:bg-rose-100 text-rose-700 border-rose-200 text-xs font-semibold">
-                      Pausadas
-                    </Badge>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      Ativar envios
+                    </span>
                   ) : (
-                    <Badge className="bg-emerald-100 hover:bg-emerald-100 text-emerald-700 border-emerald-200 text-xs font-semibold">
-                      Ativas
-                    </Badge>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Pause className="w-3.5 h-3.5 fill-current" />
+                      Pausar envios
+                    </span>
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+
+            <CardContent className="px-4 sm:px-5 pb-4 pt-0">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-border/40 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" />
+                  {paused ? (
+                    <span>
+                      Pausado
+                      {pausedAt
+                        ? ` em ${new Date(pausedAt).toLocaleDateString('pt-BR', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}`
+                        : ''}
+                      {pausedBy ? ` por ${pausedBy}` : ''}. Nenhum disparo aos pacientes.
+                    </span>
+                  ) : (
+                    <span className="text-emerald-700 font-medium">
+                      Sistema operando normalmente. Blindagem noturna ativa das 21h às 07h.
+                    </span>
                   )}
                 </div>
-                <CardDescription className="text-xs sm:text-sm mt-0.5">
-                  Controle global dos envios de lembretes, confirmações, recall e respostas da IA.
-                </CardDescription>
+
+                {showAuditButton && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={openAudit}
+                    className="h-7 text-xs px-2 text-muted-foreground hover:text-primary self-start sm:self-auto gap-1"
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    Ver auditoria de envios
+                  </Button>
+                )}
               </div>
-            </div>
-
-            <Button
-              size="sm"
-              variant={paused ? 'default' : 'outline'}
-              onClick={() => toggle()}
-              disabled={loading || toggling}
-              className={`shrink-0 font-medium h-9 px-4 rounded-xl shadow-sm transition-all ${
-                paused
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-none'
-                  : 'border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800'
-              }`}
-            >
-              {toggling ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  {paused ? 'Ativando...' : 'Pausando...'}
-                </span>
-              ) : paused ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  Ativar envios
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5">
-                  <Pause className="w-3.5 h-3.5 fill-current" />
-                  Pausar envios
-                </span>
-              )}
-            </Button>
-          </div>
-        </CardHeader>
-
-        <CardContent className="px-4 sm:px-5 pb-4 pt-0">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-border/40 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5" />
-              {paused ? (
-                <span>
-                  Pausado
-                  {pausedAt
-                    ? ` em ${new Date(pausedAt).toLocaleDateString('pt-BR', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}`
-                    : ''}
-                  {pausedBy ? ` por ${pausedBy}` : ''}. Nenhum disparo aos pacientes.
-                </span>
-              ) : (
-                <span className="text-emerald-700 font-medium">
-                  Sistema operando normalmente. Blindagem noturna ativa das 21h às 07h.
-                </span>
-              )}
-            </div>
-
-            {showAuditButton && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={openAudit}
-                className="h-7 text-xs px-2 text-muted-foreground hover:text-primary self-start sm:self-auto gap-1"
-              >
-                <History className="w-3.5 h-3.5" />
-                Ver auditoria de envios
-              </Button>
-            )}
-          </div>
-        </CardContent>
+            </CardContent>
+          </>
+        )}
       </Card>
 
       {/* Modal de Auditoria de Envios */}

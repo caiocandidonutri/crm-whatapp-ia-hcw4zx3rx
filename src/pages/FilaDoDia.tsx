@@ -566,19 +566,19 @@ export default function FilaDoDia() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-serif font-bold text-primary tracking-tight">
-              Fila do Dia — Atendimento
+            <h1 className="text-2xl sm:text-3xl font-serif font-bold text-primary tracking-tight">
+              Fila do Dia
             </h1>
             <Badge
               variant="outline"
-              className="bg-primary/5 text-primary border-primary/20 text-xs"
+              className="bg-primary/5 text-primary border-primary/20 text-xs font-semibold"
             >
-              Fabiana (Secretária)
+              Quem precisa de contato hoje
             </Badge>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            Lista priorizada de pacientes e contatos para o expediente de hoje. Sem disparos
-            automáticos — 100% humanizado e sob controle da clínica.
+          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+            <strong>Fila do Dia — quem precisa de contato hoje.</strong> Central unificada da
+            secretária com confirmações, retornos e tarefas ordenados por prioridade clínica do dia.
           </p>
         </div>
 

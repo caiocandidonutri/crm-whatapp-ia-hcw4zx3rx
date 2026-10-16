@@ -25,6 +25,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { useQrConnection } from '@/hooks/use-qr-connection'
 import {
   Dialog,
@@ -663,302 +664,328 @@ export default function Conversas() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] animate-fade-in flex flex-col bg-background rounded-2xl shadow-elevation border border-border overflow-hidden">
-      <ImportProgressBanner instance={instance} />
-      <AutoRecoveryNotice instance={instance} />
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        <div
-          className={cn(
-            'w-full md:w-[380px] lg:w-[420px] shrink-0 transition-transform duration-300 ease-in-out flex flex-col',
-            isMobile && activeChatId
-              ? '-translate-x-full absolute h-full'
-              : 'translate-x-0 relative',
-          )}
-        >
-          <div className="flex-1 overflow-hidden relative flex flex-col">
-            <ChatList
-              chats={adaptedChats}
-              activeChatId={activeChatId}
-              onSelectChat={handleSelectChat}
-              loading={loadingChats || isConnecting}
-              loadingMore={loadingMoreChats}
-              showArchived={showArchived}
-              onToggleArchived={() => setShowArchived((v) => !v)}
-              onRefresh={reloadChats}
-              onReimportHistory={
-                role === 'owner' ? () => setIsReimportConfirmOpen(true) : undefined
-              }
-              onDiagnose={
-                role === 'owner' && instance
-                  ? () => handleDiagnose(instance.instance_name)
-                  : undefined
-              }
-              onDisconnect={
-                role === 'owner' && instance ? () => disconnect(instance.instance_name) : undefined
-              }
-              onFactoryReset={role === 'owner' ? () => setIsResetConfirmOpen(true) : undefined}
-              onSearchChange={handleSearchChange}
-              messageMatchJids={messageMatchJids}
-              messageMatchPreviews={messageMatchPreviews}
-              realtimeStatus={realtimeStatus}
-            />
-          </div>
-        </div>
-        <div
-          className={cn(
-            'flex-1 min-w-0 bg-[#f0f2f5] transition-transform duration-300 ease-in-out flex flex-col',
-            isMobile && !activeChatId && !isConnecting
-              ? 'translate-x-full absolute w-full h-full'
-              : 'translate-x-0 relative w-full',
-            !isMobile && !activeChatId && !isConnecting
-              ? 'hidden md:flex items-center justify-center text-center p-8'
-              : '',
-          )}
-        >
-          {isConnecting && (
-            <div
-              className={cn(
-                'w-full p-3 text-center text-sm font-medium flex items-center justify-center gap-2 shadow-sm shrink-0 z-20 transition-colors duration-300',
-                isTimeout ? 'bg-red-500 text-white' : 'bg-yellow-500 text-yellow-950',
-              )}
+    <div className="space-y-3 pb-8">
+      {/* Subtítulo explicativo da tela */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-serif font-bold text-primary tracking-tight">
+              Conversas
+            </h1>
+            <Badge
+              variant="outline"
+              className="bg-primary/5 text-primary border-primary/20 text-xs font-semibold"
             >
-              {isTimeout ? (
-                <span className="inline-flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4" />
-                  Falha ao estabilizar conexão.
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="ml-4 h-7 text-xs bg-white/20 hover:bg-white/30 text-white border-none"
-                    onClick={() => disconnect(instance?.instance_name || '')}
-                  >
-                    Reconectar
-                  </Button>
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Estabilizando conexão com o WhatsApp... Aguarde alguns segundos.
-                </span>
-              )}
-            </div>
-          )}
-
-          <div
-            className={cn(
-              'flex-1 relative overflow-hidden flex flex-col',
-              !activeChatId ? 'items-center justify-center' : '',
-            )}
-          >
-            {activeChatWithMessages ? (
-              <ChatArea
-                chat={activeChatWithMessages}
-                onBack={() => {
-                  setActiveChatId(null)
-                  setHighlightMsgId(null)
-                }}
-                onSendMessage={handleSendMessage}
-                onSendMedia={handleSendMedia}
-                onLoadOlder={handleLoadOlder}
-                hasMoreOlderDb={hasMoreOlderMessages}
-                loadingOlderDb={loadingOlderMessages}
-                onLoadOlderDb={loadOlderMessagesFn}
-                onArchive={(archived) => handleArchive(activeChatWithMessages.id, archived)}
-                isArchived={activeConversation?.archived === true}
-                isMobile={isMobile}
-                highlightMsgId={highlightMsgId}
-                conversations={conversations}
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50 space-y-4">
-                <div className="w-24 h-24 bg-border rounded-full flex items-center justify-center">
-                  <MessageSquare className="w-12 h-12" />
-                </div>
-                <p className="text-xl font-medium">
-                  {isConnecting
-                    ? 'Aguardando sincronização...'
-                    : 'Selecione uma conversa para começar'}
-                </p>
-              </div>
-            )}
+              Inbox WhatsApp da clínica
+            </Badge>
           </div>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+            <strong>Conversas — o canal direto com o paciente.</strong> Atenda, envie áudios,
+            registre tarefas e mova etapas sem sair do chat.
+          </p>
         </div>
       </div>
 
-      {isDiagnosing && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4 p-6 glass-card rounded-xl">
-            <Loader2 className="w-10 h-10 animate-spin text-primary" />
-            <p className="text-sm font-medium animate-pulse">Diagnosticando Webhook...</p>
+      <div className="h-[calc(100vh-10.5rem)] animate-fade-in flex flex-col bg-background rounded-2xl shadow-elevation border border-border overflow-hidden">
+        <ImportProgressBanner instance={instance} />
+        <AutoRecoveryNotice instance={instance} />
+        <div className="flex-1 flex min-h-0 overflow-hidden">
+          {' '}
+          <div
+            className={cn(
+              'w-full md:w-[380px] lg:w-[420px] shrink-0 transition-transform duration-300 ease-in-out flex flex-col',
+              isMobile && activeChatId
+                ? '-translate-x-full absolute h-full'
+                : 'translate-x-0 relative',
+            )}
+          >
+            <div className="flex-1 overflow-hidden relative flex flex-col">
+              <ChatList
+                chats={adaptedChats}
+                activeChatId={activeChatId}
+                onSelectChat={handleSelectChat}
+                loading={loadingChats || isConnecting}
+                loadingMore={loadingMoreChats}
+                showArchived={showArchived}
+                onToggleArchived={() => setShowArchived((v) => !v)}
+                onRefresh={reloadChats}
+                onReimportHistory={
+                  role === 'owner' ? () => setIsReimportConfirmOpen(true) : undefined
+                }
+                onDiagnose={
+                  role === 'owner' && instance
+                    ? () => handleDiagnose(instance.instance_name)
+                    : undefined
+                }
+                onDisconnect={
+                  role === 'owner' && instance
+                    ? () => disconnect(instance.instance_name)
+                    : undefined
+                }
+                onFactoryReset={role === 'owner' ? () => setIsResetConfirmOpen(true) : undefined}
+                onSearchChange={handleSearchChange}
+                messageMatchJids={messageMatchJids}
+                messageMatchPreviews={messageMatchPreviews}
+                realtimeStatus={realtimeStatus}
+              />
+            </div>
+          </div>
+          <div
+            className={cn(
+              'flex-1 min-w-0 bg-[#f0f2f5] transition-transform duration-300 ease-in-out flex flex-col',
+              isMobile && !activeChatId && !isConnecting
+                ? 'translate-x-full absolute w-full h-full'
+                : 'translate-x-0 relative w-full',
+              !isMobile && !activeChatId && !isConnecting
+                ? 'hidden md:flex items-center justify-center text-center p-8'
+                : '',
+            )}
+          >
+            {isConnecting && (
+              <div
+                className={cn(
+                  'w-full p-3 text-center text-sm font-medium flex items-center justify-center gap-2 shadow-sm shrink-0 z-20 transition-colors duration-300',
+                  isTimeout ? 'bg-red-500 text-white' : 'bg-yellow-500 text-yellow-950',
+                )}
+              >
+                {isTimeout ? (
+                  <span className="inline-flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    Falha ao estabilizar conexão.
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="ml-4 h-7 text-xs bg-white/20 hover:bg-white/30 text-white border-none"
+                      onClick={() => disconnect(instance?.instance_name || '')}
+                    >
+                      Reconectar
+                    </Button>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Estabilizando conexão com o WhatsApp... Aguarde alguns segundos.
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div
+              className={cn(
+                'flex-1 relative overflow-hidden flex flex-col',
+                !activeChatId ? 'items-center justify-center' : '',
+              )}
+            >
+              {activeChatWithMessages ? (
+                <ChatArea
+                  chat={activeChatWithMessages}
+                  onBack={() => {
+                    setActiveChatId(null)
+                    setHighlightMsgId(null)
+                  }}
+                  onSendMessage={handleSendMessage}
+                  onSendMedia={handleSendMedia}
+                  onLoadOlder={handleLoadOlder}
+                  hasMoreOlderDb={hasMoreOlderMessages}
+                  loadingOlderDb={loadingOlderMessages}
+                  onLoadOlderDb={loadOlderMessagesFn}
+                  onArchive={(archived) => handleArchive(activeChatWithMessages.id, archived)}
+                  isArchived={activeConversation?.archived === true}
+                  isMobile={isMobile}
+                  highlightMsgId={highlightMsgId}
+                  conversations={conversations}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50 space-y-4">
+                  <div className="w-24 h-24 bg-border rounded-full flex items-center justify-center">
+                    <MessageSquare className="w-12 h-12" />
+                  </div>
+                  <p className="text-xl font-medium">
+                    {isConnecting
+                      ? 'Aguardando sincronização...'
+                      : 'Selecione uma conversa para começar'}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      )}
 
-      <Dialog
-        open={isResetConfirmOpen}
-        onOpenChange={(open) => !isResetting && setIsResetConfirmOpen(open)}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="w-5 h-5" />
-              Apagar conta e começar de novo
-            </DialogTitle>
-            <DialogDescription className="pt-2 space-y-2 text-sm">
-              <span className="block">
-                Esta ação <strong>não pode ser desfeita</strong>. Vamos apagar permanentemente:
-              </span>
-              <ul className="list-disc list-inside text-xs text-muted-foreground space-y-0.5 pl-1">
-                <li>Sua sessão WhatsApp pareada</li>
-                <li>Todas as conversas e mensagens importadas</li>
-                <li>Todos os contatos do CRM</li>
-                <li>Sua conta de usuário</li>
-              </ul>
-              <span className="block text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2 text-xs mt-2">
-                Você precisará fazer um novo cadastro depois disso.
-              </span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="mt-2 space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground">
-              Para confirmar, digite{' '}
-              <span className="font-mono text-destructive font-bold">APAGAR</span>:
-            </label>
-            <Input
-              value={resetConfirmText}
-              onChange={(e) => setResetConfirmText(e.target.value)}
-              disabled={isResetting}
-              placeholder="APAGAR"
-              className="font-mono"
-              autoFocus
-            />
-          </div>
-
-          <DialogFooter className="gap-2 sm:justify-end mt-4">
-            <Button
-              variant="ghost"
-              onClick={() => setIsResetConfirmOpen(false)}
-              disabled={isResetting}
-              className="rounded-xl"
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleFactoryReset}
-              disabled={isResetting || resetConfirmText.trim().toUpperCase() !== 'APAGAR'}
-              variant="destructive"
-              className="rounded-xl"
-            >
-              {isResetting ? (
-                <span className="inline-flex items-center">
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Apagando...
-                </span>
-              ) : (
-                <span className="inline-flex items-center">
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Apagar tudo
-                </span>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={isReimportConfirmOpen}
-        onOpenChange={(open) => !isReimporting && setIsReimportConfirmOpen(open)}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <History className="w-5 h-5 text-amber-600" />
-              Reimportar histórico do WhatsApp
-            </DialogTitle>
-            <DialogDescription className="pt-2 space-y-2 text-sm">
-              <span className="block">
-                Vamos <strong>desconectar</strong> sua sessão atual e gerar um novo QR Code.
-              </span>
-              <span className="block">
-                Ao reconectar pelo celular, o WhatsApp enviará o histórico do período escolhido
-                abaixo.
-              </span>
-              <span className="block text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2 text-xs">
-                ⚠ Períodos maiores levam mais tempo para sincronizar. Você pode usar o app
-                normalmente enquanto isso.
-              </span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="mt-2 space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Período da importação
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {(
-                [
-                  { value: 1 as SyncPeriod, label: '24 horas' },
-                  { value: 7 as SyncPeriod, label: '7 dias' },
-                  { value: 30 as SyncPeriod, label: '30 dias' },
-                  { value: 90 as SyncPeriod, label: '90 dias' },
-                  { value: 0 as SyncPeriod, label: 'Tudo' },
-                ] as const
-              ).map((opt) => {
-                const active = reimportPeriod === opt.value
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setReimportPeriod(opt.value)}
-                    disabled={isReimporting}
-                    className={cn(
-                      'px-3 py-2 rounded-lg border text-sm font-medium transition-all',
-                      active
-                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                        : 'bg-white border-border hover:border-amber-300 text-foreground/80',
-                      isReimporting && 'opacity-50 cursor-not-allowed',
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                )
-              })}
+        {isDiagnosing && (
+          <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
+            <div className="flex flex-col items-center gap-4 p-6 glass-card rounded-xl">
+              <Loader2 className="w-10 h-10 animate-spin text-primary" />
+              <p className="text-sm font-medium animate-pulse">Diagnosticando Webhook...</p>
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              Recomendado: 7 dias (rápido e cobre conversas ativas).
-            </p>
           </div>
+        )}
 
-          <DialogFooter className="gap-2 sm:justify-end mt-4">
-            <Button
-              variant="ghost"
-              onClick={() => setIsReimportConfirmOpen(false)}
-              disabled={isReimporting}
-              className="rounded-xl"
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleReimport}
-              disabled={isReimporting}
-              className="rounded-xl bg-amber-600 hover:bg-amber-700"
-            >
-              {isReimporting ? (
-                <span className="inline-flex items-center">
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Reimportando...
+        <Dialog
+          open={isResetConfirmOpen}
+          onOpenChange={(open) => !isResetting && setIsResetConfirmOpen(open)}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-destructive">
+                <Trash2 className="w-5 h-5" />
+                Apagar conta e começar de novo
+              </DialogTitle>
+              <DialogDescription className="pt-2 space-y-2 text-sm">
+                <span className="block">
+                  Esta ação <strong>não pode ser desfeita</strong>. Vamos apagar permanentemente:
                 </span>
-              ) : (
-                <span className="inline-flex items-center">
-                  <History className="w-4 h-4 mr-2" />
-                  Reimportar agora
+                <ul className="list-disc list-inside text-xs text-muted-foreground space-y-0.5 pl-1">
+                  <li>Sua sessão WhatsApp pareada</li>
+                  <li>Todas as conversas e mensagens importadas</li>
+                  <li>Todos os contatos do CRM</li>
+                  <li>Sua conta de usuário</li>
+                </ul>
+                <span className="block text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2 text-xs mt-2">
+                  Você precisará fazer um novo cadastro depois disso.
                 </span>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-2 space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground">
+                Para confirmar, digite{' '}
+                <span className="font-mono text-destructive font-bold">APAGAR</span>:
+              </label>
+              <Input
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                disabled={isResetting}
+                placeholder="APAGAR"
+                className="font-mono"
+                autoFocus
+              />
+            </div>
+
+            <DialogFooter className="gap-2 sm:justify-end mt-4">
+              <Button
+                variant="ghost"
+                onClick={() => setIsResetConfirmOpen(false)}
+                disabled={isResetting}
+                className="rounded-xl"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleFactoryReset}
+                disabled={isResetting || resetConfirmText.trim().toUpperCase() !== 'APAGAR'}
+                variant="destructive"
+                className="rounded-xl"
+              >
+                {isResetting ? (
+                  <span className="inline-flex items-center">
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Apagando...
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center">
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Apagar tudo
+                  </span>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={isReimportConfirmOpen}
+          onOpenChange={(open) => !isReimporting && setIsReimportConfirmOpen(open)}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <History className="w-5 h-5 text-amber-600" />
+                Reimportar histórico do WhatsApp
+              </DialogTitle>
+              <DialogDescription className="pt-2 space-y-2 text-sm">
+                <span className="block">
+                  Vamos <strong>desconectar</strong> sua sessão atual e gerar um novo QR Code.
+                </span>
+                <span className="block">
+                  Ao reconectar pelo celular, o WhatsApp enviará o histórico do período escolhido
+                  abaixo.
+                </span>
+                <span className="block text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2 text-xs">
+                  ⚠ Períodos maiores levam mais tempo para sincronizar. Você pode usar o app
+                  normalmente enquanto isso.
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-2 space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Período da importação
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { value: 1 as SyncPeriod, label: '24 horas' },
+                    { value: 7 as SyncPeriod, label: '7 dias' },
+                    { value: 30 as SyncPeriod, label: '30 dias' },
+                    { value: 90 as SyncPeriod, label: '90 dias' },
+                    { value: 0 as SyncPeriod, label: 'Tudo' },
+                  ] as const
+                ).map((opt) => {
+                  const active = reimportPeriod === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setReimportPeriod(opt.value)}
+                      disabled={isReimporting}
+                      className={cn(
+                        'px-3 py-2 rounded-lg border text-sm font-medium transition-all',
+                        active
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                          : 'bg-white border-border hover:border-amber-300 text-foreground/80',
+                        isReimporting && 'opacity-50 cursor-not-allowed',
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Recomendado: 7 dias (rápido e cobre conversas ativas).
+              </p>
+            </div>
+
+            <DialogFooter className="gap-2 sm:justify-end mt-4">
+              <Button
+                variant="ghost"
+                onClick={() => setIsReimportConfirmOpen(false)}
+                disabled={isReimporting}
+                className="rounded-xl"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleReimport}
+                disabled={isReimporting}
+                className="rounded-xl bg-amber-600 hover:bg-amber-700"
+              >
+                {isReimporting ? (
+                  <span className="inline-flex items-center">
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Reimportando...
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center">
+                    <History className="w-4 h-4 mr-2" />
+                    Reimportar agora
+                  </span>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
 
       <DiagnosticModal result={diagnosticResult} onClose={() => setDiagnosticResult(null)} />
     </div>

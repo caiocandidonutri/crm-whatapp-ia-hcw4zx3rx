@@ -1006,8 +1006,14 @@ export default function Agenda() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl sm:text-3xl font-serif font-bold tracking-tight text-foreground">
-              Agenda da Clínica
+              Agenda
             </h1>
+            <Badge
+              variant="outline"
+              className="bg-primary/5 text-primary border-primary/20 text-xs font-semibold"
+            >
+              Consultas e conciliação do dia
+            </Badge>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1030,7 +1036,8 @@ export default function Agenda() {
             </TooltipProvider>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Gestão de consultas do Dr. Caio com sincronização bidirecional em tempo real.
+            <strong>Agenda — consultas e conciliação do dia.</strong> Visualização diária e semanal
+            dos atendimentos do Dr. Caio com sincronização oficial e disparo de lembretes.
           </p>
         </div>
 

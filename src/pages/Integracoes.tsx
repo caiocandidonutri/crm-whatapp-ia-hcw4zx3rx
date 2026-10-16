@@ -203,29 +203,18 @@ export default function Integracoes() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="font-serif text-3xl font-bold tracking-tight text-foreground">
-              Integrações
+              Réguas & Integrações
             </h1>
             <Badge
               variant="outline"
-              className={
-                isConnected
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                  : 'border-amber-300 bg-amber-50 text-amber-700'
-              }
+              className="bg-primary/5 text-primary border-primary/20 text-xs font-semibold"
             >
-              {isConnected ? (
-                <span className="flex items-center gap-1.5 font-medium">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Conectado
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 font-medium">
-                  <XCircle className="w-3.5 h-3.5 text-amber-600" /> Não configurado
-                </span>
-              )}
+              Automações e réguas pós-consulta
             </Badge>
           </div>
           <p className="text-muted-foreground mt-1 text-sm sm:text-base">
-            Gerencie credenciais e conectores externos para Web Push Notifications e automações.
+            <strong>Réguas & Integrações — automações e réguas pós-consulta.</strong> Gestão das
+            respostas automáticas, sincronização da agenda, pesquisas de satisfação e Web Push.
           </p>
         </div>
 

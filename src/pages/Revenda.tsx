@@ -350,21 +350,21 @@ export default function Revenda() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-serif font-bold text-primary tracking-tight flex items-center gap-2">
+            <h1 className="text-2xl sm:text-3xl font-serif font-bold text-primary tracking-tight flex items-center gap-2">
               <TrendingUp className="w-6 h-6 text-primary" />
-              Painel de Revenda — Fase 4
+              Revenda
             </h1>
             <Badge
               variant="outline"
               className="bg-primary/5 text-primary border-primary/20 text-xs font-semibold"
             >
-              Score de Interesse 0–100
+              Priorize quem está mais perto de fechar
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-            Inteligência de priorização de oportunidades clínicas: Recência (30 pts), Frequência (25
-            pts), Engajamento (20 pts), Posição/Valor (15 pts) e Gatilhos (10 pts). Sem envios
-            automáticos — suporte humanizado para Fabiana e Dr. Caio.
+            <strong>Revenda — priorize quem está mais perto de fechar.</strong> Oportunidades
+            ranqueadas por score (0 a 100) com base em recência, engajamento e histórico, sem
+            disparos automáticos invasivos.
           </p>
         </div>
 

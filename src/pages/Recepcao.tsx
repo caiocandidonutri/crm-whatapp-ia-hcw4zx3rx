@@ -206,16 +206,18 @@ export default function Recepcao() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <h1 className="font-serif text-3xl font-bold text-primary">Recepção Clínica</h1>
-            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
-              <Sparkles className="w-3 h-3 mr-1" />
-              Plano Fabiana
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="font-serif text-3xl font-bold text-primary">Recepção</h1>
+            <Badge
+              variant="outline"
+              className="bg-primary/5 text-primary border-primary/20 text-xs font-semibold"
+            >
+              Checklist e rotinas operacionais
             </Badge>
           </div>
           <p className="text-muted-foreground font-sans text-sm md:text-base max-w-2xl">
-            Checklist operacional oficial para a transição de atendimento da secretária Fabiana e
-            habilitação assistida da IA da clínica Dr. Caio.
+            <strong>Recepção — checklist e rotinas operacionais.</strong> Abertura do dia, rotina da
+            secretária Fabiana e acompanhamento assistido da clínica Dr. Caio.
           </p>
         </div>
 

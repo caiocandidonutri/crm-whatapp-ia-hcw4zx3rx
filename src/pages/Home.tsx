@@ -691,9 +691,17 @@ export default function Home() {
               </AvatarFallback>
             </Avatar>
             <div className="flex flex-col gap-0.5 md:gap-1 min-w-0">
-              <span className="text-muted-foreground font-sans font-semibold text-[10px] md:text-xs uppercase tracking-widest">
-                {getGreeting()} · PAINEL DE GESTÃO DA CLÍNICA
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-muted-foreground font-sans font-semibold text-[10px] md:text-xs uppercase tracking-widest">
+                  {getGreeting()} · PAINEL DE COMANDO
+                </span>
+                <Badge
+                  variant="outline"
+                  className="bg-primary/5 text-primary border-primary/20 text-[10px] font-semibold h-4 px-1.5"
+                >
+                  Resumo do dia em uma tela
+                </Badge>
+              </div>
               <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold text-primary tracking-tight font-sans leading-tight md:leading-none truncate">
                 Olá,{' '}
                 {typeof user?.name === 'string' && user.name.trim().length > 0
@@ -701,7 +709,7 @@ export default function Home() {
                   : 'Doutor(a)'}
               </h1>
               <p className="text-muted-foreground font-sans text-xs md:text-sm mt-0.5">
-                {formattedDate}
+                {formattedDate} — Resumo operacional, atendimentos e demandas da clínica.
               </p>
               {headerTaskText && (
                 <div
@@ -1035,10 +1043,10 @@ export default function Home() {
         </CardContent>
       </Card>
 
-      {/* ═══ CONTROLE DE MENSAGENS AUTOMÁTICAS (KILL SWITCH GLOBAL) ═══ */}
-      <AutomationsControlCard />
+      {/* ═══ CONTROLE DE MENSAGENS AUTOMÁTICAS (STATUS DISCRETO NO PAINEL) ═══ */}
+      <AutomationsControlCard compact />
 
-      {/* ═══ SECTION 2: CARDS DE MÉTRICAS NO TOPO (4 CARDS OBRIGATÓRIOS) ═══ */}
+      {/* ═══ SECTION 2: CARDS DE MÉTRICAS EM CAMADAS ABAIXO ═══ */}
       {/* Responsivo: coluna única no mobile (grid-cols-1), 2 colunas em telas médias, 4 em desktop */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 md:gap-5">
         {/* Card 1: Follow-ups recuperados na semana */}

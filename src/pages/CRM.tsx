@@ -412,10 +412,19 @@ export default function CRM() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div className="flex flex-col gap-1 md:gap-2">
-          <h1 className="font-serif text-3xl font-bold text-primary">CRM</h1>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="font-serif text-3xl font-bold text-primary">CRM</h1>
+            <Badge
+              variant="outline"
+              className="bg-primary/5 text-primary border-primary/20 text-xs font-semibold"
+            >
+              O histórico completo de cada paciente
+            </Badge>
+          </div>
           <p className="text-muted-foreground font-sans text-sm md:text-base max-w-2xl">
-            Gerencie seus leads e acompanhe o funil de vendas. Total de {contacts.length} contatos
-            registrados.
+            <strong>CRM — o histórico completo de cada paciente.</strong> Funil de atendimento,
+            histórico de conversas, orçamentos e tarefas em um só lugar ({contacts.length}{' '}
+            contatos).
           </p>
         </div>
 
