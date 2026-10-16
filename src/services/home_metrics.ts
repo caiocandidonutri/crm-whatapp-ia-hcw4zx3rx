@@ -138,23 +138,85 @@ export const DEFAULT_HOME_METRICS: HomeMetricsData = {
   },
 }
 
+export function isAnyAbortError(err: unknown): boolean {
+  if (!err) return false
+  if (typeof err === 'object') {
+    const e = err as any
+    if (
+      e.name === 'AbortError' ||
+      e.name === 'CanceledError' ||
+      e.name === 'TimeoutError' ||
+      e.code === 20 ||
+      e.code === 'ERR_CANCELED' ||
+      e.code === 'ABORT_ERR'
+    ) {
+      return true
+    }
+    if (e.isAbort === true) return true
+    if (e.status === 0 || e.statusCode === 0) return true
+    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
+    if (
+      msg.includes('aborted') ||
+      msg.includes('abort') ||
+      msg.includes('signal is aborted') ||
+      msg.includes('autocancelled') ||
+      msg.includes('canceled') ||
+      msg.includes('cancelled') ||
+      msg.includes('user aborted') ||
+      msg.includes('timeout') ||
+      msg.includes('http n/a')
+    ) {
+      return true
+    }
+    if (e.originalError && isAnyAbortError(e.originalError)) return true
+    if (e.cause && isAnyAbortError(e.cause)) return true
+  }
+  return false
+}
+
 export const fetchHomeMetrics = async (
   signal?: AbortSignal,
   fallback?: HomeMetricsData,
 ): Promise<HomeMetricsData> => {
   const safeFallback: HomeMetricsData = fallback || DEFAULT_HOME_METRICS
 
-  // Timeout de 8s se não houver signal externo fornecido
-  let timeoutId: ReturnType<typeof setTimeout> | null = null
-  let effectiveSignal = signal
+  // Se o sinal já estiver abortado antes do fetch, nem chame o backend
+  if (signal?.aborted) {
+    return safeFallback
+  }
 
-  if (!effectiveSignal) {
-    const controller = new AbortController()
-    timeoutId = setTimeout(() => controller.abort(), 8000)
-    effectiveSignal = controller.signal
+  // Prepara controller com timeout próprio curto de 8s (padrão do projeto)
+  // integrado com o signal externo (se fornecido)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => {
+    try {
+      controller.abort()
+    } catch {
+      /* ignore */
+    }
+  }, 8000)
+
+  const onExternalAbort = () => {
+    try {
+      controller.abort()
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timeoutId)
+      return safeFallback
+    }
+    signal.addEventListener('abort', onExternalAbort, { once: true })
   }
 
   try {
+    if (signal?.aborted || controller.signal.aborted) {
+      return safeFallback
+    }
+
     const token = pb.authStore.token
     const headers: Record<string, string> = {}
     if (token) {
@@ -164,9 +226,13 @@ export const fetchHomeMetrics = async (
     const data = await pb.send<HomeMetricsData>('/backend/v1/home/metrics', {
       method: 'GET',
       headers,
-      signal: effectiveSignal,
+      signal: controller.signal,
       requestKey: null,
     })
+
+    if (signal?.aborted || controller.signal.aborted) {
+      return safeFallback
+    }
 
     if (!data || typeof data !== 'object') {
       return safeFallback
@@ -214,22 +280,11 @@ export const fetchHomeMetrics = async (
   } catch (err: any) {
     // Se o erro foi cancelamento/abort de requisição (ex.: desmontagem do componente ou autocancel),
     // ignora silenciosamente sem disparar log no console nem toast
-    const isAbort =
-      err?.isAbort ||
-      err?.name === 'AbortError' ||
-      err?.name === 'CanceledError' ||
-      err?.code === 20 ||
-      err?.status === 0 ||
-      effectiveSignal?.aborted ||
-      (typeof err?.message === 'string' &&
-        (err.message.toLowerCase().includes('abort') ||
-          err.message.includes('signal is aborted') ||
-          err.message.includes('autocancelled')))
-    if (isAbort) {
+    if (signal?.aborted || controller.signal.aborted || isAnyAbortError(err)) {
       return safeFallback
     }
 
-    // Em qualquer falha (502 Bad Gateway, timeout, rede, 500, etc.),
+    // Em QUALQUER falha (502 Bad Gateway, timeout, rede, 400, 404, 500, etc.),
     // NUNCA lança exceção para não derrubar a /home no ErrorBoundary.
     // Retorna valores padrão seguros ou o fallback pré-existente.
     console.warn(
@@ -238,8 +293,9 @@ export const fetchHomeMetrics = async (
     )
     return safeFallback
   } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId)
+    clearTimeout(timeoutId)
+    if (signal) {
+      signal.removeEventListener('abort', onExternalAbort)
     }
   }
 }

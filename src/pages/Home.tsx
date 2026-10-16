@@ -52,7 +52,11 @@ import { cn } from '@/lib/utils'
 import { TaskViewDialog } from '@/components/TaskViewDialog'
 import { consultarStatusInstancia } from '@/services/whatsapp_service'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
-import { fetchHomeMetrics, HomeMetricsData } from '@/services/home_metrics'
+import {
+  fetchHomeMetrics,
+  HomeMetricsData,
+  isAnyAbortError as isHomeAbortError,
+} from '@/services/home_metrics'
 import {
   formatLongDateSaoPaulo,
   formatRecentActivityDate,
@@ -163,12 +167,32 @@ export default function Home() {
       }
       setError(null)
       try {
+        if (signal?.aborted) return
+
         const results = await Promise.allSettled([
-          fetchHomeMetrics(signal, metrics || undefined).catch(() => null),
-          (accountId
-            ? getSatisfactionSummary(accountId, signal, surveyStats || undefined)
-            : Promise.resolve(null)
-          ).catch(() => null),
+          (async () => {
+            try {
+              if (signal?.aborted) return null
+              return await fetchHomeMetrics(signal, metrics || undefined)
+            } catch (metricsCatchErr) {
+              if (signal?.aborted || isHomeAbortError(metricsCatchErr)) return null
+              console.warn('[Home] Erro seguro capturado ao obter métricas:', metricsCatchErr)
+              return metrics || null
+            }
+          })(),
+          (async () => {
+            try {
+              if (!accountId || signal?.aborted) return null
+              return await getSatisfactionSummary(accountId, signal, surveyStats || undefined)
+            } catch (surveyCatchErr) {
+              if (signal?.aborted || isHomeAbortError(surveyCatchErr)) return null
+              console.warn(
+                '[Home] Erro seguro capturado ao obter pesquisa de satisfação:',
+                surveyCatchErr,
+              )
+              return surveyStats || null
+            }
+          })(),
         ])
         if (signal?.aborted) return
 
@@ -188,19 +212,7 @@ export default function Home() {
         }
         setSessionExpired(false)
       } catch (err: any) {
-        const isAbort =
-          err?.isAbort ||
-          err?.name === 'AbortError' ||
-          err?.name === 'CanceledError' ||
-          err?.code === 20 ||
-          err?.status === 0 ||
-          signal?.aborted ||
-          (typeof err?.message === 'string' &&
-            (err.message.includes('aborted') ||
-              err.message.includes('signal is aborted') ||
-              err.message.includes('autocancelled')))
-
-        if (isAbort) {
+        if (signal?.aborted || isHomeAbortError(err)) {
           // Ignora cancelamentos por desmontagem silenciosamente
           return
         }
