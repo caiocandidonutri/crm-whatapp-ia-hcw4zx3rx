@@ -35,6 +35,7 @@ export async function saveCareAlertSettings(
     budget_followup_days?: number
     renewal_alert_days_before?: number
     return_30d_rule_enabled?: boolean
+    plantao_fim_de_semana?: boolean
   },
 ): Promise<CareAlertSettings> {
   const existing = await getCareAlertSettings(accountId)
@@ -124,4 +125,11 @@ export async function getAutomationsAudit(limit = 35): Promise<AutomationAuditRe
     method: 'GET',
     params: { limit },
   })
+}
+
+export async function setPlantaoFimDeSemana(
+  accountId: string,
+  enabled: boolean,
+): Promise<CareAlertSettings> {
+  return await saveCareAlertSettings(accountId, { plantao_fim_de_semana: enabled })
 }

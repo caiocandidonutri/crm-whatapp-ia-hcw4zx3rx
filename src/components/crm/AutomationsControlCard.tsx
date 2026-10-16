@@ -12,7 +12,10 @@ import {
   History,
   CheckCircle2,
   AlertTriangle,
+  Calendar,
 } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
@@ -20,7 +23,14 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { getAutomationsAudit, type AutomationAuditItem } from '@/services/care_alerts_service'
+import {
+  getAutomationsAudit,
+  getCareAlertSettings,
+  setPlantaoFimDeSemana,
+  type AutomationAuditItem,
+} from '@/services/care_alerts_service'
+import { useCurrentAccount } from '@/hooks/use-current-account'
+import { toast } from 'sonner'
 
 interface AutomationsControlCardProps {
   className?: string
@@ -33,10 +43,53 @@ export function AutomationsControlCard({
   showAuditButton = true,
   compact = false,
 }: AutomationsControlCardProps) {
+  const { accountId } = useCurrentAccount()
   const { paused, pausedAt, pausedBy, loading, toggling, toggle } = useAutomationsStatus()
   const [auditOpen, setAuditOpen] = useState(false)
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditItems, setAuditItems] = useState<AutomationAuditItem[]>([])
+
+  // Estado do Modo Plantão (fim de semana)
+  const [plantaoFimDeSemana, setPlantaoFimDeSemanaState] = useState<boolean>(false)
+  const [salvandoPlantao, setSalvandoPlantao] = useState<boolean>(false)
+
+  React.useEffect(() => {
+    let cancel = false
+    async function carregarPlantao() {
+      if (!accountId) return
+      try {
+        const settings = await getCareAlertSettings(accountId)
+        if (!cancel && settings) {
+          setPlantaoFimDeSemanaState(Boolean(settings.plantao_fim_de_semana))
+        }
+      } catch (err) {
+        console.warn('[AutomationsControlCard] Erro ao carregar plantao_fim_de_semana:', err)
+      }
+    }
+    carregarPlantao()
+    return () => {
+      cancel = true
+    }
+  }, [accountId])
+
+  const handleTogglePlantao = async (novoValor: boolean) => {
+    if (!accountId || salvandoPlantao) return
+    setSalvandoPlantao(true)
+    try {
+      await setPlantaoFimDeSemana(accountId, novoValor)
+      setPlantaoFimDeSemanaState(novoValor)
+      toast.success(
+        novoValor
+          ? 'Modo Plantão ativado: IA ativa sáb/dom para dúvidas básicas'
+          : 'Modo Plantão desativado',
+      )
+    } catch (err: any) {
+      console.error('[AutomationsControlCard] Erro ao atualizar Modo Plantão:', err)
+      toast.error('Erro ao atualizar Modo Plantão')
+    } finally {
+      setSalvandoPlantao(false)
+    }
+  }
 
   const openAudit = async () => {
     setAuditOpen(true)
@@ -97,7 +150,25 @@ export function AutomationsControlCard({
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+            <div className="flex items-center gap-3 self-end sm:self-auto shrink-0 flex-wrap">
+              {/* Interruptor Modo Plantão (fim de semana) */}
+              <div className="flex items-center space-x-1.5 border-r border-border/50 pr-3 mr-1">
+                <Switch
+                  id="plantao-switch-home-compact"
+                  checked={plantaoFimDeSemana}
+                  disabled={salvandoPlantao}
+                  onCheckedChange={handleTogglePlantao}
+                  className="scale-75"
+                />
+                <Label
+                  htmlFor="plantao-switch-home-compact"
+                  className="text-[11px] font-medium cursor-pointer select-none text-foreground/80"
+                >
+                  Modo Plantão:{' '}
+                  {plantaoFimDeSemana ? 'IA ativa sáb/dom para dúvidas básicas' : 'Desligado'}
+                </Label>
+              </div>
+
               {showAuditButton && (
                 <Button
                   variant="ghost"
@@ -235,17 +306,42 @@ export function AutomationsControlCard({
                   )}
                 </div>
 
-                {showAuditButton && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={openAudit}
-                    className="h-7 text-xs px-2 text-muted-foreground hover:text-primary self-start sm:self-auto gap-1"
-                  >
-                    <History className="w-3.5 h-3.5" />
-                    Ver auditoria de envios
-                  </Button>
-                )}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center space-x-1.5">
+                    <Switch
+                      id="plantao-switch-home-full"
+                      checked={plantaoFimDeSemana}
+                      disabled={salvandoPlantao}
+                      onCheckedChange={handleTogglePlantao}
+                      className="scale-90"
+                    />
+                    <Label
+                      htmlFor="plantao-switch-home-full"
+                      className="text-xs font-semibold cursor-pointer select-none text-foreground"
+                    >
+                      Modo Plantão (fim de semana):{' '}
+                      <span
+                        className={
+                          plantaoFimDeSemana ? 'text-emerald-700' : 'text-muted-foreground'
+                        }
+                      >
+                        {plantaoFimDeSemana ? 'IA ativa sáb/dom para dúvidas básicas' : 'Desligado'}
+                      </span>
+                    </Label>
+                  </div>
+
+                  {showAuditButton && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={openAudit}
+                      className="h-7 text-xs px-2 text-muted-foreground hover:text-primary self-start sm:self-auto gap-1"
+                    >
+                      <History className="w-3.5 h-3.5" />
+                      Ver auditoria de envios
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardContent>
           </>

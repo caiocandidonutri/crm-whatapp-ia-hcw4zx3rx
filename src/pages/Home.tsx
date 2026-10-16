@@ -999,6 +999,17 @@ export default function Home() {
               <ShieldAlert className="w-3.5 h-3.5" />
               Saúde das automações
             </span>
+            <span className="flex items-center gap-1.5 text-indigo-700 font-medium">
+              <Calendar className="w-3.5 h-3.5" />
+              <button
+                type="button"
+                onClick={() => navigate('/fila')}
+                className="hover:underline flex items-center gap-1"
+                title="Abrir fila do fim de semana"
+              >
+                Fim de Semana (Plantão)
+              </button>
+            </span>
             <span className="flex items-center gap-1.5">
               {commandCenter.automations.globalPaused ? (
                 <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />

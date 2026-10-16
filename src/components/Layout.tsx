@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Bot,
   Users,
+  Brain,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/use-auth'
@@ -108,6 +109,12 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     group: 'Sistema',
     items: [
+      {
+        name: 'Memória da Clínica',
+        path: '/memoria',
+        subtitle: 'Base de conhecimento e fichas da Fabiana',
+        icon: Brain,
+      },
       {
         name: 'Repertório Fabiana',
         path: '/repertorio',

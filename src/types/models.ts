@@ -250,6 +250,34 @@ export interface CareAlertSettings extends RecordModel {
   global_automations_paused?: boolean
   global_automations_paused_at?: string
   global_automations_paused_by?: string
+  plantao_fim_de_semana?: boolean
+}
+
+export type KnowledgeBaseCategory =
+  | 'precos'
+  | 'unidades_horarios'
+  | 'suplementos'
+  | 'orientacoes'
+  | 'protocolos'
+  | 'geral'
+
+export type KnowledgeBaseStatus = 'proposta' | 'aprovada' | 'arquivada'
+export type KnowledgeBaseOrigem = 'ia' | 'humano'
+
+export interface KnowledgeBaseEntry extends RecordModel {
+  account_id: string
+  categoria: KnowledgeBaseCategory
+  titulo: string
+  pergunta?: string
+  resposta: string
+  fonte?: string
+  status: KnowledgeBaseStatus
+  origem: KnowledgeBaseOrigem
+  approved_by?: string
+  approved_at?: string
+  expand?: {
+    approved_by?: User
+  }
 }
 
 export interface CareAlert extends RecordModel {

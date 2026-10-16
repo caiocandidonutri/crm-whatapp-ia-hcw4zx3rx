@@ -36,6 +36,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useCurrentAccount } from '@/hooks/use-current-account'
 import { useRealtime } from '@/hooks/use-realtime'
 import { formatPhoneBR } from '@/lib/phone'
+import { getCareAlertSettings, setPlantaoFimDeSemana } from '@/services/care_alerts_service'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import type { CrmContact, Conversation, Task } from '@/types/models'
 import {
@@ -163,6 +166,50 @@ export default function FilaDoDia() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [doneTodayIds, setDoneTodayIds] = useState<Set<string>>(() => loadDoneSet(accountId))
+
+  // Configuração do Modo Plantão (fim de semana)
+  const [plantaoFimDeSemana, setPlantaoFimDeSemanaState] = useState<boolean>(false)
+  const [salvandoPlantao, setSalvandoPlantao] = useState<boolean>(false)
+  const [abaFimDeSemanaAtiva, setAbaFimDeSemanaAtiva] = useState<boolean>(false)
+
+  // Carrega configuração de plantao_fim_de_semana
+  useEffect(() => {
+    let cancel = false
+    async function carregarPlantao() {
+      if (!accountId) return
+      try {
+        const settings = await getCareAlertSettings(accountId)
+        if (!cancel && settings) {
+          setPlantaoFimDeSemanaState(Boolean(settings.plantao_fim_de_semana))
+        }
+      } catch (err) {
+        console.warn('[FilaDoDia] Erro ao carregar plantao_fim_de_semana:', err)
+      }
+    }
+    carregarPlantao()
+    return () => {
+      cancel = true
+    }
+  }, [accountId])
+
+  const handleTogglePlantao = async (novoValor: boolean) => {
+    if (!accountId || salvandoPlantao) return
+    setSalvandoPlantao(true)
+    try {
+      await setPlantaoFimDeSemana(accountId, novoValor)
+      setPlantaoFimDeSemanaState(novoValor)
+      toast.success(
+        novoValor
+          ? 'Modo Plantão ativado: IA responderá dúvidas básicas sáb/dom'
+          : 'Modo Plantão desativado',
+      )
+    } catch (err: any) {
+      console.error('[FilaDoDia] Erro ao alternar Modo Plantão:', err)
+      toast.error('Erro ao atualizar Modo Plantão')
+    } finally {
+      setSalvandoPlantao(false)
+    }
+  }
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('')
@@ -582,7 +629,23 @@ export default function FilaDoDia() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Seletor Rápido: Fila Normal vs Plantão Fim de Semana */}
+          <Button
+            variant={abaFimDeSemanaAtiva ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setAbaFimDeSemanaAtiva(!abaFimDeSemanaAtiva)}
+            className={cn(
+              'h-9 gap-1.5 text-xs font-medium',
+              abaFimDeSemanaAtiva
+                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                : 'border-indigo-200 text-indigo-700 hover:bg-indigo-50',
+            )}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            {abaFimDeSemanaAtiva ? 'Ver Fila Completa' : 'Fim de Semana (Plantão)'}
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -614,6 +677,117 @@ export default function FilaDoDia() {
           </Button>
         </div>
       </div>
+
+      {/* Banner / Card do Modo Plantão (fim de semana) */}
+      <Card className="border-indigo-200/70 bg-gradient-to-r from-indigo-50/70 via-white to-purple-50/40 shadow-xs">
+        <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <Calendar className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm text-foreground">
+                  Modo Plantão (Fim de Semana)
+                </span>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-[10px] font-semibold',
+                    plantaoFimDeSemana
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : 'bg-slate-100 text-slate-700 border-slate-300',
+                  )}
+                >
+                  {plantaoFimDeSemana ? 'IA ativa sáb/dom para dúvidas básicas' : 'Desligado'}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {plantaoFimDeSemana
+                  ? 'Nos fins de semana, a IA acolhe mensagens com a Memória da Clínica e gera pendências para a Fabiana revisar na segunda-feira.'
+                  : 'Atendimento do fim de semana desativado. Mensagens aguardam o expediente padrão de segunda-feira.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 self-end sm:self-auto shrink-0">
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="plantao-switch-fila"
+                checked={plantaoFimDeSemana}
+                disabled={salvandoPlantao}
+                onCheckedChange={handleTogglePlantao}
+              />
+              <Label
+                htmlFor="plantao-switch-fila"
+                className="text-xs font-semibold cursor-pointer select-none"
+              >
+                {plantaoFimDeSemana ? 'Plantão Ligado' : 'Plantão Desligado'}
+              </Label>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Seção Fim de Semana (quando aba ativada): Pendências e Tarefas geradas no plantão */}
+      {abaFimDeSemanaAtiva && (
+        <Card className="border-indigo-300/80 bg-indigo-50/20">
+          <CardHeader className="p-4 pb-2">
+            <CardTitle className="text-sm font-semibold text-indigo-950 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-indigo-600" />
+              Pendências do Fim de Semana para Revisão na Segunda
+            </CardTitle>
+            <CardDescription className="text-xs text-indigo-900/80">
+              Contatos e tarefas abertos durante o plantão que necessitam de acolhimento ou retorno
+              humano no início da semana.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 pt-1 space-y-2">
+            {tasks.filter(
+              (t) =>
+                t.category === 'plantao' ||
+                t.title?.toLowerCase().includes('plantão') ||
+                t.description?.toLowerCase().includes('plantão') ||
+                t.description?.toLowerCase().includes('fim de semana'),
+            ).length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2 italic">
+                Nenhuma tarefa pendente marcada especificamente pelo Plantão no momento. Os
+                atendimentos normais da fila abaixo já cobrem todos os pacientes com mensagens
+                recentes.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {tasks
+                  .filter(
+                    (t) =>
+                      t.category === 'plantao' ||
+                      t.title?.toLowerCase().includes('plantão') ||
+                      t.description?.toLowerCase().includes('plantão') ||
+                      t.description?.toLowerCase().includes('fim de semana'),
+                  )
+                  .map((t) => (
+                    <div
+                      key={t.id}
+                      className="p-3 rounded-xl bg-white border border-indigo-200/80 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div>
+                        <span className="font-semibold text-foreground">{t.title}</span>
+                        {t.description && (
+                          <p className="text-muted-foreground text-[11px] mt-0.5">
+                            {t.description}
+                          </p>
+                        )}
+                      </div>
+                      <Badge variant="outline" className="text-[10px] bg-indigo-50 text-indigo-700">
+                        {t.status}
+                      </Badge>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPI Cards — Panorama do Dia */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

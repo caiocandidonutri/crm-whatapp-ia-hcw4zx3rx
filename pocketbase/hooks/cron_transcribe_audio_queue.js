@@ -213,9 +213,20 @@ cronAdd('transcribe_audio_queue', '8,38 * * * *', () => {
         const accountId = msg.getString('account_id') || ''
         const msgTimestamp = msg.getInt('timestamp') || 0
 
+        const isFromMe = msg.getBool('from_me')
+        const isInternalChannel =
+          remoteJid.indexOf('553598030301') >= 0 ||
+          remoteJid.indexOf('553599288027') >= 0 ||
+          remoteJid.indexOf('553599334379') >= 0 ||
+          remoteJid.indexOf('553599716747') >= 0
+
+        // Áudios do canal interno / mensagens from_me (Fabiana / Dr. Caio) NÃO devem
+        // ser descartados com SKIP_NO_TRANSCRIBE, pois alimentam a Memória da Clínica.
+        const isInternalStaffAudio = isFromMe || isInternalChannel
+
         // ─── REGRA DE ELEGIBILIDADE 1: Idade da mensagem (> 7 dias) ───
-        // Se a mensagem for mais antiga que 7 dias, não transcrever retroativamente
-        if (msgTimestamp > 0 && msgTimestamp < sevenDaysAgoSec) {
+        // Se a mensagem for mais antiga que 7 dias (exceto canal interno da clínica), não transcrever retroativamente
+        if (!isInternalStaffAudio && msgTimestamp > 0 && msgTimestamp < sevenDaysAgoSec) {
           msg.set('transcription', 'SKIP_NO_TRANSCRIBE')
           try {
             $app.save(msg)
@@ -224,7 +235,7 @@ cronAdd('transcribe_audio_queue', '8,38 * * * *', () => {
         }
 
         // ─── REGRA DE ELEGIBILIDADE 2: Contato no estágio "cliente" ───
-        // Áudio antigo de cliente não muda conduta
+        // Áudio antigo de cliente não muda conduta (não se aplica ao canal interno)
         let contact = null
         if (remoteJid && instanceName) {
           try {
@@ -236,7 +247,7 @@ cronAdd('transcribe_audio_queue', '8,38 * * * *', () => {
           } catch (_) {}
         }
 
-        if (contact && contact.getString('stage') === 'cliente') {
+        if (!isInternalStaffAudio && contact && contact.getString('stage') === 'cliente') {
           msg.set('transcription', 'SKIP_NO_TRANSCRIBE')
           try {
             $app.save(msg)
@@ -256,7 +267,7 @@ cronAdd('transcribe_audio_queue', '8,38 * * * *', () => {
           } catch (_) {}
         }
 
-        if (conv) {
+        if (conv && !isInternalStaffAudio) {
           if (conv.getBool('archived')) {
             msg.set('transcription', 'SKIP_NO_TRANSCRIBE')
             try {

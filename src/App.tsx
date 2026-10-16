@@ -24,6 +24,7 @@ import FilaDoDia from './pages/FilaDoDia'
 import Revenda from './pages/Revenda'
 import Recepcao from './pages/Recepcao'
 import Repertorio from './pages/Repertorio'
+import Memoria from './pages/Memoria'
 import NotFound from './pages/NotFound'
 
 const ProtectedRoute = () => {
@@ -111,6 +112,14 @@ function AppRoutes() {
               element={
                 <ErrorBoundary>
                   <Recepcao />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/memoria"
+              element={
+                <ErrorBoundary>
+                  <Memoria />
                 </ErrorBoundary>
               }
             />
