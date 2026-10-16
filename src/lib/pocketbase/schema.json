@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-16T20:40:15.503Z",
+  "generatedAt": "2026-10-16T21:03:01.448Z",
   "collections": [
     {
       "name": "users",
@@ -1647,6 +1647,12 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "plantao_fim_de_semana",
+          "type": "bool",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -2760,6 +2766,96 @@
         }
       ],
       "indexes": ["CREATE INDEX idx_onboarding_user ON onboarding_progress (user_id)"]
+    },
+    {
+      "name": "knowledge_base",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "categoria",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "precos",
+            "unidades_horarios",
+            "suplementos",
+            "orientacoes",
+            "protocolos",
+            "geral"
+          ]
+        },
+        {
+          "name": "titulo",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "pergunta",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "resposta",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "fonte",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["proposta", "aprovada", "arquivada"]
+        },
+        {
+          "name": "origem",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ia", "humano"]
+        },
+        {
+          "name": "approved_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "approved_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_kb_account ON knowledge_base (account_id)",
+        "CREATE INDEX idx_kb_categoria ON knowledge_base (categoria)",
+        "CREATE INDEX idx_kb_status ON knowledge_base (status)"
+      ]
     }
   ]
 }

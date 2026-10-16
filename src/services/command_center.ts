@@ -173,24 +173,27 @@ async function getLastSyncState(
         if (signal?.aborted || isAnyAbortError(err)) {
           return { lastSyncAt: null, lastSyncStatus: null }
         }
-        // Fallback: procura qualquer chave de agenda (nome de chave pode variar)
-        const res = await pb.collection('sync_state').getList(1, 10, {
-          filter: `key ~ "agenda"`,
-          sort: '-updated',
-          requestKey: null,
-          signal,
-        })
-        const first = Array.isArray((res as any)?.items) ? (res as any).items[0] : null
-        return {
-          lastSyncAt: first?.last_sync || null,
-          lastSyncStatus: first?.last_status || null,
+        try {
+          // Fallback: procura qualquer chave de agenda (nome de chave pode variar)
+          const res = await pb.collection('sync_state').getList(1, 10, {
+            filter: `key ~ "agenda"`,
+            sort: '-updated',
+            requestKey: null,
+            signal,
+          })
+          const first = Array.isArray((res as any)?.items) ? (res as any).items[0] : null
+          return {
+            lastSyncAt: first?.last_sync || null,
+            lastSyncStatus: first?.last_status || null,
+          }
+        } catch {
+          return { lastSyncAt: null, lastSyncStatus: null }
         }
       }
     },
     { lastSyncAt: null, lastSyncStatus: null },
   )
 }
-
 /**
  * Saúde das automações: kill-switch global (care_alert_settings),
  * Night Shield derivado da hora local e última execução via sync_state.

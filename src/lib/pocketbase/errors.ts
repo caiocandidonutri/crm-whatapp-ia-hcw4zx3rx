@@ -28,28 +28,20 @@ export function getErrorMessage(error: unknown): string {
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
 }
 
-/**
- * Identifica erros transitórios de rede ou requisições abortadas.
- * Exportação CRÍTICA e BLINDADA — requerida por errors.test.ts e telas como /conversas, /home e Index.
- */
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
-  if (typeof error === 'object' && (error as { isAbort?: boolean }).isAbort === true) {
-    return true
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0 || error.isAbort) return true
   }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    const name = error.name.toLowerCase()
-    if (
-      name.includes('abort') ||
-      msg.includes('abort') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('load failed') ||
-      msg.includes('connection refused')
-    ) {
-      return true
-    }
-  }
-  return false
+  const msg = error instanceof Error ? error.message : String(error)
+  const lower = msg.toLowerCase()
+  return (
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network request failed') ||
+    lower.includes('abort') ||
+    lower.includes('aborterror') ||
+    lower.includes('connection refused') ||
+    lower.includes('timeout')
+  )
 }

@@ -57,27 +57,26 @@ export default function Integracoes() {
   const loadStatus = async (silent = false) => {
     if (!silent) setLoading(true)
     try {
-      const data = await getVapidStatus()
-      setStatusData(data)
-      if (data.public_key) {
-        setPublicKeyInput(data.public_key)
-      }
-      if (data.contact_email) {
-        setContactEmailInput(data.contact_email)
+      const data = await getVapidStatus().catch(() => null)
+      if (data) {
+        setStatusData(data)
+        if (data.public_key) {
+          setPublicKeyInput(data.public_key)
+        }
+        if (data.contact_email) {
+          setContactEmailInput(data.contact_email)
+        }
       }
     } catch (err: any) {
       if (err?.isAbort || err?.name === 'AbortError') return
-      console.error('Erro ao carregar status de integrações:', err)
-      if (!silent) {
-        toast.error('Não foi possível carregar as configurações de integrações.')
-      }
+      console.warn('[Integracoes] Erro silencioso ao carregar status VAPID:', err)
     } finally {
       if (!silent) setLoading(false)
     }
   }
 
   useEffect(() => {
-    loadStatus()
+    loadStatus().catch(() => {})
     getAgendaSyncStatus()
       .then(setAgendaSync)
       .catch(() => {})
