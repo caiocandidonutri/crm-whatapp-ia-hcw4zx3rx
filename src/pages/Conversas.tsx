@@ -298,7 +298,11 @@ export default function Conversas() {
   }, [instance, loadingInstance, qrCodeBase64, isGenerating, pollErrors, generateQrCode])
 
   const activeConversation = React.useMemo(() => {
-    return conversations.find((c) => c.id === activeChatId || c.remote_jid === activeChatId) || null
+    if (!Array.isArray(conversations)) return null
+    return (
+      conversations.find((c) => c && (c.id === activeChatId || c.remote_jid === activeChatId)) ||
+      null
+    )
   }, [conversations, activeChatId])
 
   useHistorySync(activeConversation)
@@ -311,7 +315,7 @@ export default function Conversas() {
     loadOlderMessages: loadOlderMessagesFn,
     reload: reloadMensagens,
   } = useMensagens(
-    instance?.status === 'connected' ? instance.instance_name : undefined,
+    instance?.status === 'connected' ? instance?.instance_name : undefined,
     activeConversation?.remote_jid,
     isImportingHistory,
   )
@@ -371,35 +375,43 @@ export default function Conversas() {
     return () => clearInterval(interval)
   }, [instance, reloadChats, reloadMensagens, activeConversation?.remote_jid])
 
+  const safeConversations = Array.isArray(conversations) ? conversations : []
+
   const adaptedChats = React.useMemo(
     () =>
-      conversationsToChats(conversations || []).map((chat) => {
+      conversationsToChats(safeConversations).map((chat) => {
         if (!chat) return chat
         const crmName = chat.remote_jid ? crmNameByJid.get(chat.remote_jid) : undefined
         return crmName ? { ...chat, name: crmName } : chat
       }),
-    [conversations, crmNameByJid],
+    [safeConversations, crmNameByJid],
   )
 
   const activeChatWithMessages = React.useMemo(() => {
     if (!activeConversation) return null
-    const baseChats = conversationsToChats([activeConversation])
-    if (!baseChats || baseChats.length === 0 || !baseChats[0]) return null
-    const baseChat = baseChats[0]
-    const crmName = baseChat.remote_jid ? crmNameByJid.get(baseChat.remote_jid) : undefined
-    return {
-      ...baseChat,
-      ...(crmName ? { name: crmName } : {}),
-      messages: whatsappMessagesToMessages(rawMessages || []),
+    try {
+      const baseChats = conversationsToChats([activeConversation])
+      if (!baseChats || baseChats.length === 0 || !baseChats[0]) return null
+      const baseChat = baseChats[0]
+      const crmName = baseChat.remote_jid ? crmNameByJid.get(baseChat.remote_jid) : undefined
+      const safeRaw = Array.isArray(rawMessages) ? rawMessages : []
+      return {
+        ...baseChat,
+        ...(crmName ? { name: crmName } : {}),
+        messages: whatsappMessagesToMessages(safeRaw),
+      }
+    } catch (err) {
+      console.warn('[Conversas] falha ao montar activeChatWithMessages:', err)
+      return null
     }
   }, [activeConversation, rawMessages, crmNameByJid])
 
   useEffect(() => {
-    if (!isMobile && !activeChatId && conversations.length > 0) {
-      setActiveChatId(conversations[0].id)
-      markChatAsRead(conversations[0].id)
+    if (!isMobile && !activeChatId && safeConversations.length > 0 && safeConversations[0]?.id) {
+      setActiveChatId(safeConversations[0].id)
+      markChatAsRead(safeConversations[0].id)
     }
-  }, [isMobile, activeChatId, conversations, markChatAsRead])
+  }, [isMobile, activeChatId, safeConversations, markChatAsRead])
 
   // Efeito adicional para zerar unread_count se o activeChatId mudar ou se novas mensagens chegarem na conversa ativa
   useEffect(() => {

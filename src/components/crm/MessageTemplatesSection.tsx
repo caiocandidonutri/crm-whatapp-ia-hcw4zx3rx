@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { Plus, Trash2, Pencil, Check, X, Sparkles } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -128,12 +129,27 @@ export function MessageTemplatesSection({ accountId }: Props) {
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-primary uppercase tracking-wider">
-        Modelos de Mensagem
-      </h3>
-      <p className="text-xs text-muted-foreground">
-        Crie modelos por gatilho com variáveis dinâmicas.
-      </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-primary uppercase tracking-wider">
+            Modelos de Mensagem
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Crie modelos por gatilho com variáveis dinâmicas.
+          </p>
+        </div>
+        <Button
+          asChild
+          size="sm"
+          variant="outline"
+          className="gap-1.5 text-xs rounded-xl border-purple-200 text-purple-700 hover:bg-purple-50"
+        >
+          <Link to="/repertorio">
+            <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+            Analisar Voz da Fabiana
+          </Link>
+        </Button>
+      </div>
       {loading ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (

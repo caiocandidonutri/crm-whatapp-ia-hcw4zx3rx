@@ -2,34 +2,6 @@ import { ClientResponseError } from 'pocketbase'
 
 export type FieldErrors = Record<string, string>
 
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (typeof error === 'object') {
-    const err = error as any
-    if (err.name === 'AbortError' || err.name === 'CanceledError' || err.name === 'TimeoutError') {
-      return true
-    }
-    if (err.isAbort === true) return true
-    if (err.status === 0 || err.statusCode === 0) return true
-    const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
-    if (
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('network error') ||
-      msg.includes('aborterror') ||
-      msg.includes('abort') ||
-      msg.includes('signal is aborted') ||
-      msg.includes('autocancelled') ||
-      msg.includes('load failed')
-    ) {
-      return true
-    }
-    if (err.originalError && isNetworkError(err.originalError)) return true
-    if (err.cause && isNetworkError(err.cause)) return true
-  }
-  return false
-}
-
 export function extractFieldErrors(error: unknown): FieldErrors {
   if (!(error instanceof ClientResponseError)) return {}
   const data = error.response?.data
@@ -54,4 +26,30 @@ export function getErrorMessage(error: unknown): string {
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
+}
+
+/**
+ * Identifica erros transitórios de rede ou requisições abortadas.
+ * Exportação CRÍTICA e BLINDADA — requerida por errors.test.ts e telas como /conversas, /home e Index.
+ */
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (typeof error === 'object' && (error as { isAbort?: boolean }).isAbort === true) {
+    return true
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    const name = error.name.toLowerCase()
+    if (
+      name.includes('abort') ||
+      msg.includes('abort') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('load failed') ||
+      msg.includes('connection refused')
+    ) {
+      return true
+    }
+  }
+  return false
 }

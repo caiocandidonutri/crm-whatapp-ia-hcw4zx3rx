@@ -109,6 +109,12 @@ export const NAV_GROUPS: NavGroup[] = [
     group: 'Sistema',
     items: [
       {
+        name: 'Repertório Fabiana',
+        path: '/repertorio',
+        subtitle: 'Análise de voz e modelos aprovados',
+        icon: Bot,
+      },
+      {
         name: 'Recepção',
         path: '/recepcao',
         subtitle: 'Checklist e rotinas operacionais',
