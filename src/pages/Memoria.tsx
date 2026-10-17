@@ -53,7 +53,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { toast } from '@/hooks/use-toast'
+import { useToast } from '@/hooks/use-toast'
 
 export const CATEGORIAS_KNOWLEDGE_BASE: Record<
   KnowledgeBaseCategory,
@@ -93,6 +93,7 @@ export const CATEGORIAS_KNOWLEDGE_BASE: Record<
 
 export function Memoria() {
   const { user } = useAuth()
+  const { toast } = useToast()
   const accountId = user?.account_id
 
   const [itens, setItens] = useState<KnowledgeBaseEntry[]>([])
@@ -121,7 +122,11 @@ export function Memoria() {
       setItens(lista)
     } catch (err: any) {
       console.error('[Memoria] Erro ao carregar fichas:', err)
-      toast.error('Erro ao carregar a Memória da Clínica')
+      toast({
+        title: 'Erro',
+        description: 'Erro ao carregar a Memória da Clínica',
+        variant: 'destructive',
+      })
     } finally {
       setLoading(false)
     }
@@ -179,7 +184,11 @@ export function Memoria() {
   const handleSalvarModal = async () => {
     if (!accountId) return
     if (!formTitulo.trim() || !formResposta.trim()) {
-      toast.error('Título e resposta são obrigatórios')
+      toast({
+        title: 'Atenção',
+        description: 'Título e resposta são obrigatórios',
+        variant: 'destructive',
+      })
       return
     }
 
@@ -193,7 +202,7 @@ export function Memoria() {
           fonte: formFonte.trim(),
         })
         setItens((prev) => prev.map((i) => (i.id === atualizado.id ? atualizado : i)))
-        toast.success(`Ficha "${atualizado.titulo}" atualizada`)
+        toast({ title: `Ficha "${atualizado.titulo}" atualizada` })
       } else {
         const novo = await createKnowledgeBaseEntry(
           accountId,
@@ -209,12 +218,16 @@ export function Memoria() {
           user?.id,
         )
         setItens((prev) => [novo, ...prev])
-        toast.success(`Nova ficha manual criada e aprovada`)
+        toast({ title: 'Nova ficha manual criada e aprovada' })
       }
       setModalAberto(false)
     } catch (err: any) {
       console.error('[Memoria] Erro ao salvar ficha:', err)
-      toast.error('Falha ao salvar ficha: ' + (err?.message || 'Erro desconhecido'))
+      toast({
+        title: 'Erro',
+        description: 'Falha ao salvar ficha: ' + (err?.message || 'Erro desconhecido'),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -224,10 +237,14 @@ export function Memoria() {
     try {
       const atualizado = await approveKnowledgeBaseEntry(item.id, user.id)
       setItens((prev) => prev.map((i) => (i.id === atualizado.id ? { ...i, ...atualizado } : i)))
-      toast.success(`Ficha "${item.titulo}" aprovada para a IA`)
+      toast({ title: `Ficha "${item.titulo}" aprovada para a IA` })
     } catch (err: any) {
       console.error('[Memoria] Erro ao aprovar:', err)
-      toast.error('Erro ao aprovar ficha')
+      toast({
+        title: 'Erro',
+        description: 'Erro ao aprovar ficha',
+        variant: 'destructive',
+      })
     } finally {
       setProcessandoId(null)
     }
@@ -240,10 +257,14 @@ export function Memoria() {
       setItens((prev) =>
         prev.map((i) => (i.id === atualizado.id ? { ...i, status: 'arquivada' } : i)),
       )
-      toast.info(`Ficha "${item.titulo}" arquivada`)
+      toast({ title: `Ficha "${item.titulo}" arquivada` })
     } catch (err: any) {
       console.error('[Memoria] Erro ao arquivar:', err)
-      toast.error('Erro ao arquivar ficha')
+      toast({
+        title: 'Erro',
+        description: 'Erro ao arquivar ficha',
+        variant: 'destructive',
+      })
     } finally {
       setProcessandoId(null)
     }
@@ -255,10 +276,14 @@ export function Memoria() {
     try {
       await deleteKnowledgeBaseEntry(item.id)
       setItens((prev) => prev.filter((i) => i.id !== item.id))
-      toast.success(`Ficha removida`)
+      toast({ title: 'Ficha removida' })
     } catch (err: any) {
       console.error('[Memoria] Erro ao excluir:', err)
-      toast.error('Erro ao remover ficha')
+      toast({
+        title: 'Erro',
+        description: 'Erro ao remover ficha',
+        variant: 'destructive',
+      })
     } finally {
       setProcessandoId(null)
     }
