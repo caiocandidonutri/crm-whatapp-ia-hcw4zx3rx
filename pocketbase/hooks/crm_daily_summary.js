@@ -86,6 +86,28 @@ routerAdd(
         }
       }
 
+      // Conhecimento clínico e contexto do projeto aprovados na Memória
+      var kbContext = ''
+      try {
+        var kbFilter = 'status = "aprovada"'
+        if (accountId) kbFilter += ' && account_id = "' + accountId + '"'
+        var approvedKb = $app.findRecordsByFilter('knowledge_base', kbFilter, '-updated', 10, 0)
+        if (approvedKb && approvedKb.length > 0) {
+          var kbList = []
+          for (var ki = 0; ki < approvedKb.length; ki++) {
+            var kTit = approvedKb[ki].getString('titulo')
+            var kResp = approvedKb[ki].getString('resposta')
+            if (kTit && kResp) kbList.push('• ' + kTit + ': ' + kResp)
+          }
+          if (kbList.length > 0) {
+            lines.push('\nContexto operacional e regras da clínica:')
+            for (var kj = 0; kj < kbList.length; kj++) {
+              lines.push(kbList[kj])
+            }
+          }
+        }
+      } catch (_) {}
+
       var summaryText = lines.join('\n')
 
       var aiSummary = ''

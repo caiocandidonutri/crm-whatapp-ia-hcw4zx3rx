@@ -29,12 +29,49 @@ routerAdd(
         }
       }
 
+      // ════ CONHECIMENTO CLÍNICO DA CLÍNICA (apenas fichas aprovadas da knowledge_base) ════
+      // Inclui todas as categorias: protocolos, precos, unidades_horarios, duvidas_gerais e "O projeto" (geral)
+      var kbKnowledgeBlock = ''
+      try {
+        var approvedKb = $app.findRecordsByFilter(
+          'knowledge_base',
+          'status = "aprovada"',
+          '-updated',
+          30,
+          0,
+        )
+        if (approvedKb && approvedKb.length > 0) {
+          var kbItems = []
+          for (var k = 0; k < approvedKb.length; k++) {
+            var item = approvedKb[k]
+            var tit = item.getString('titulo')
+            var resp = item.getString('resposta')
+            var cat = item.getString('categoria') || 'geral'
+            if (tit && resp) {
+              kbItems.push('• [' + cat.toUpperCase() + '] ' + tit + ': ' + resp)
+            }
+          }
+          if (kbItems.length > 0) {
+            kbKnowledgeBlock =
+              '\n\n[MEMÓRIA E CONHECIMENTO CLÍNICO APROVADO — PROTOCOLOS, PREÇOS, LOGÍSTICA E O PROJETO CRM]\n' +
+              kbItems.join('\n') +
+              '\n[FIM DO CONHECIMENTO APROVADO]\n'
+          }
+        }
+      } catch (errKb) {
+        $app.logger().warn('crm-care-chat: failed to load knowledge_base', 'error', String(errKb))
+      }
+
       var finalMessage = String(body.message)
-      if (toneExamples) {
+      if (toneExamples || kbKnowledgeBlock) {
         finalMessage =
-          '[EXEMPLOS DO TOM DA SECRETÁRIA — replique este estilo nas suas respostas]\n' +
-          toneExamples +
-          '\n\n[MENSAGEM DO USUÁRIO]\n' +
+          (kbKnowledgeBlock ? kbKnowledgeBlock + '\n' : '') +
+          (toneExamples
+            ? '[EXEMPLOS DO TOM DA SECRETÁRIA — replique este estilo nas suas respostas]\n' +
+              toneExamples +
+              '\n\n'
+            : '') +
+          '[MENSAGEM DO USUÁRIO]\n' +
           finalMessage
       }
 

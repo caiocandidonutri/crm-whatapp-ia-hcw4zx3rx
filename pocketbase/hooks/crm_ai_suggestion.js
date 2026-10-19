@@ -132,12 +132,36 @@ routerAdd(
         }
       }
 
+      // Memória Clínica Oficial Aprovada (incluindo O Projeto CRM e Logística)
+      let kbPrompt = ''
+      try {
+        const approvedKb = $app.findRecordsByFilter(
+          'knowledge_base',
+          'status = "aprovada"',
+          '-updated',
+          20,
+          0,
+        )
+        if (approvedKb && approvedKb.length > 0) {
+          const kbLines = []
+          for (let ki = 0; ki < approvedKb.length; ki++) {
+            const kt = approvedKb[ki].getString('titulo')
+            const kr = approvedKb[ki].getString('resposta')
+            if (kt && kr) kbLines.push('• ' + kt + ': ' + kr)
+          }
+          if (kbLines.length > 0) {
+            kbPrompt = '\nConhecimento clínico e projeto do CRM:\n' + kbLines.join('\n') + '\n'
+          }
+        }
+      } catch (_) {}
+
       const systemPrompt =
         'Você é o assistente de inteligência e CRM da clínica de nutrição do Dr. Caio Cândido.\n' +
         'Papéis fixos: "Dr. Caio" é o nutricionista responsável; "Fabiana" é a assistente/secretária. NUNCA interpretá-los como pacientes.\n' +
         'Regras de Follow-up da clínica: ' +
         rulesText +
         '.\n' +
+        kbPrompt +
         'Vocabulário nutricional: SOP, plano alimentar, retorno, bioimpedância, tireoide, resistência insulínica.\n' +
         'Responda em JSON com: { "suggested_action": string (próxima ação recomendada, max 200 chars), "priority": number (1-5, onde 5 é urgente) }. Responda apenas o JSON.'
 

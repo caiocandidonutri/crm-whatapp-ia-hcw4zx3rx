@@ -157,6 +157,44 @@ routerAdd(
           .warn('suggest_reply: failed to load fabiana voice templates', 'error', String(voiceErr))
       }
 
+      // ════ CONHECIMENTO CLÍNICO DA CLÍNICA (apenas fichas aprovadas da knowledge_base) ════
+      // Inclui todas as categorias: protocolos, precos, unidades_horarios, duvidas_gerais e "O projeto" (geral)
+      var kbKnowledgeBlock = ''
+      try {
+        var kbFilter = 'status = "aprovada"'
+        if (accountId) {
+          kbFilter += ' && account_id = "' + accountId + '"'
+        }
+        var approvedKb = $app.findRecordsByFilter('knowledge_base', kbFilter, '-updated', 30)
+        if (approvedKb && approvedKb.length > 0) {
+          var kbItems = []
+          for (var kbi = 0; kbi < approvedKb.length; kbi++) {
+            var kbItem = approvedKb[kbi]
+            var kTit = kbItem.getString('titulo')
+            var kResp = kbItem.getString('resposta')
+            var kCat = kbItem.getString('categoria') || 'geral'
+            if (kTit && kResp) {
+              kbItems.push('• [' + kCat.toUpperCase() + '] ' + kTit + ': ' + kResp)
+            }
+          }
+          if (kbItems.length > 0) {
+            kbKnowledgeBlock =
+              '\n\n[MEMÓRIA E CONHECIMENTO CLÍNICO OFICIAL DA CLÍNICA (APENAS FICHAS APROVADAS)]\n' +
+              'Respeite rigorosamente estas informações oficiais da clínica (protocolos, preços, formas de pagamento, logística, expediente e funcionamento do projeto):\n' +
+              kbItems.join('\n') +
+              '\n[FIM DA MEMÓRIA CLÍNICA OFICIAL]'
+          }
+        }
+      } catch (errKbReply) {
+        $app
+          .logger()
+          .warn(
+            'suggest_reply: failed to load approved knowledge_base',
+            'error',
+            String(errKbReply),
+          )
+      }
+
       // Contexto CRM do contato
       var crmContact = null
       try {
@@ -404,6 +442,7 @@ routerAdd(
       var finalMessage =
         '<system_instruction>\nSiga estritamente esta Persona/Instrucao:\n' +
         userAgentPrompt +
+        kbKnowledgeBlock +
         '\n\nDIRETRIZES DA VOZ DA FABIANA:\n' +
         '- Saudações acolhedoras, calorosas e educadas, transmitindo segurança e cuidado clínico.\n' +
         '- Clareza clínica com empatia: orientar sobre consultas, retornos e valores com total transparência.\n' +

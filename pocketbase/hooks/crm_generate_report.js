@@ -118,12 +118,35 @@ routerAdd(
         })
       }
 
+      // Conhecimento clínico e contexto do projeto aprovados na Memória
+      var kbContext = ''
+      try {
+        var kbFilter = 'status = "aprovada"'
+        if (accountId) kbFilter += ' && account_id = "' + accountId + '"'
+        var approvedKb = $app.findRecordsByFilter('knowledge_base', kbFilter, '-updated', 15, 0)
+        if (approvedKb && approvedKb.length > 0) {
+          var kbList = []
+          for (var ki = 0; ki < approvedKb.length; ki++) {
+            var kTit = approvedKb[ki].getString('titulo')
+            var kResp = approvedKb[ki].getString('resposta')
+            if (kTit && kResp) kbList.push('• ' + kTit + ': ' + kResp)
+          }
+          if (kbList.length > 0) {
+            kbContext =
+              '\nConhecimento clínico e governança do projeto (Fila do Dia, Ciclo de consultas, Pacotes):\n' +
+              kbList.join('\n') +
+              '\n'
+          }
+        }
+      } catch (_) {}
+
       var statsText = 'Total de contatos: ' + contacts.length + '\n'
       statsText += 'Distribuicao por estagio: ' + JSON.stringify(stageDist) + '\n'
       statsText += 'Distribuicao por prioridade: ' + JSON.stringify(priorityDist) + '\n'
       statsText += 'Pacientes: ' + patientCount + ', Nao pacientes: ' + nonPatientCount + '\n'
       statsText += 'Categorias: ' + JSON.stringify(categoryGroups) + '\n'
       statsText += 'Top acoes recomendadas: ' + JSON.stringify(nextActions.slice(0, 5)) + '\n'
+      if (kbContext) statsText += kbContext
 
       var aiInsights = ''
       try {

@@ -32,6 +32,8 @@ export type RepertorioCategoria =
   | 'reengajamento'
   | 'encaminhamento_medico'
   | 'despedida'
+  | 'ligacao_audio_longo'
+  | 'cuidado_familiar'
 
 export interface CategoriaMeta {
   key: RepertorioCategoria
@@ -90,6 +92,20 @@ export const REPERTORIO_CATEGORIAS_META: Record<RepertorioCategoria, CategoriaMe
     descricao: 'Finalizações empáticas, bênçãos e votos de bom dia',
     triggerType: 'pos_consulta',
     corBadge: 'bg-rose-100 text-rose-800 border-rose-200',
+  },
+  ligacao_audio_longo: {
+    key: 'ligacao_audio_longo',
+    label: 'Ligação / Áudio Longo',
+    descricao: 'Hábito da Fabiana de explicar casos complexos ou follow-up caloroso por voz',
+    triggerType: 'pos_consulta',
+    corBadge: 'bg-amber-100 text-amber-900 border-amber-300',
+  },
+  cuidado_familiar: {
+    key: 'cuidado_familiar',
+    label: 'Cuidado Familiar & Empatia',
+    descricao: 'Lembrança afetuosa da família do paciente ("Melhoras para seu pai / sua mãe")',
+    triggerType: 'pos_consulta',
+    corBadge: 'bg-pink-100 text-pink-900 border-pink-300',
   },
 }
 
