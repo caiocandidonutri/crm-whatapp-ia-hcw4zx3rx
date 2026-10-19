@@ -2,6 +2,65 @@ import { ClientResponseError } from 'pocketbase'
 
 export type FieldErrors = Record<string, string>
 
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (typeof error === 'string') {
+    const s = error.toLowerCase()
+    return s.includes('failed to fetch') || s.includes('network') || s.includes('abort')
+  }
+  if (typeof error === 'object') {
+    const err = error as { message?: unknown; name?: unknown; status?: unknown; isAbort?: unknown }
+    if (err.isAbort === true) return true
+    if (err.name === 'AbortError') return true
+    if (typeof err.message === 'string') {
+      const m = err.message.toLowerCase()
+      if (
+        m.includes('failed to fetch') ||
+        m.includes('networkerror') ||
+        m.includes('network error') ||
+        m.includes('aborterror') ||
+        m.includes('signal is aborted') ||
+        m.includes('connection refused') ||
+        m.includes('timeout')
+      ) {
+        return true
+      }
+    }
+    // ClientResponseError status 0 usually means request was cancelled or network unreachable
+    if (err.status === 0) return true
+  }
+  return false
+}
+
+export function isRateLimitError(error: unknown): boolean {
+  if (!error) return false
+  if (typeof error === 'object') {
+    const err = error as { status?: unknown; message?: unknown; response?: { status?: unknown } }
+    if (err.status === 429 || err.response?.status === 429) return true
+    if (
+      typeof err.message === 'string' &&
+      (err.message.includes('429') || err.message.toLowerCase().includes('too many requests'))
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+export function parseRetryAfterMs(error: unknown, fallbackMs = 2000): number {
+  if (!error || typeof error !== 'object') return fallbackMs
+  const err = error as { response?: { headers?: Record<string, string | undefined> } }
+  const retryHeader =
+    err.response?.headers?.['retry-after'] || err.response?.headers?.['Retry-After']
+  if (retryHeader) {
+    const seconds = parseFloat(retryHeader)
+    if (!Number.isNaN(seconds) && seconds > 0) {
+      return Math.round(seconds * 1000)
+    }
+  }
+  return fallbackMs
+}
+
 export function extractFieldErrors(error: unknown): FieldErrors {
   if (!(error instanceof ClientResponseError)) return {}
   const data = error.response?.data
@@ -26,58 +85,4 @@ export function getErrorMessage(error: unknown): string {
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
-}
-
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    const name = error.name.toLowerCase()
-    return (
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('aborterror') ||
-      msg.includes('signal is aborted') ||
-      msg.includes('network request failed') ||
-      name.includes('abort') ||
-      (error as any).isAbort === true
-    )
-  }
-  if (typeof error === 'object' && error !== null) {
-    const msg = String((error as any).message || '').toLowerCase()
-    return (
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('aborterror') ||
-      msg.includes('signal is aborted') ||
-      Boolean((error as any).isAbort)
-    )
-  }
-  return false
-}
-
-export function isRateLimitError(error: unknown): boolean {
-  if (!error) return false
-  if (typeof error === 'object' && error !== null) {
-    if ((error as any).status === 429) return true
-    const msg = String((error as any).message || '').toLowerCase()
-    if (msg.includes('429') || msg.includes('too many requests')) return true
-  }
-  return false
-}
-
-export function parseRetryAfterMs(error: unknown, defaultMs = 1000): number {
-  if (!error || typeof error !== 'object') return defaultMs
-  const headers = (error as any).response?.headers
-  if (!headers) return defaultMs
-  const retryHeader =
-    headers['retry-after'] ||
-    headers['Retry-After'] ||
-    (typeof headers.get === 'function' ? headers.get('retry-after') : null)
-  if (!retryHeader) return defaultMs
-  const seconds = Number(retryHeader)
-  if (!isNaN(seconds) && seconds > 0) {
-    return Math.round(seconds * 1000)
-  }
-  return defaultMs
 }

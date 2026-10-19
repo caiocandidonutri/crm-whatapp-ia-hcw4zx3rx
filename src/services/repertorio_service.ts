@@ -289,11 +289,148 @@ function classificarMensagem(texto: string): RepertorioCategoria | null {
 }
 
 /**
+ * Regex para identificação e anonimização de dados pessoais sensíveis (LGPD)
+ */
+// CPF: 000.000.000-00 ou 11 dígitos com pontuação
+const REGEX_CPF = /\b\d{3}\.?\d{3}\.?\d{3}[-/.]?\d{2}\b/g
+
+// E-mail: usuario@dominio.com
+const REGEX_EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
+
+// Telefones brasileiros (fixos, celulares com 8 ou 9 dígitos, com ou sem DDD, com ou sem +55)
+// Ex: (35) 98886-4696, (35) 8886-4696, 35 9920.6098, 8886.4696, 91001.5265, Tel: (35)...
+const REGEX_TELEFONE =
+  /(?:tel[:.]?\s*|cel[:.]?\s*|whatsapp[:.]?\s*)?(?:\+?55\s*)?(?:\(?\d{2}\)?[\s.-]*)?(?:9\s*)?\d{4,5}[\s.-]\d{4}\b/gi
+
+// CEP: 00000-000 ou 00.000-000
+const REGEX_CEP = /\b\d{2}\.?\d{3}[-\s]\d{3}\b/g
+
+// Endereços conhecidos da clínica e padrões de logradouro (rua, avenida, praça, bairro)
+const REGEX_ENDERECO =
+  /(?:(?:rua|avenida|av\.?|praça|praca|alameda|travessa|rodovia)\s+[^,\n]+(?:,\s*\d+)?(?:\s*-\s*[^,\n]+)?(?:\s+centro)?)/gi
+
+/**
+ * Detecta se a mensagem é do tipo "agenda do dia", "agenda matinal" ou lista com múltiplos pacientes/horários
+ * que deve ser SUMARIAMENTE EXCLUÍDA da seleção de exemplos (requisito inegociável LGPD).
+ */
+export function isAgendaDoDiaOuListaPacientes(texto: string): boolean {
+  if (!texto) return false
+  const t = texto.toLowerCase()
+
+  // 1. Títulos típicos de rotina da secretária com a agenda da clínica
+  if (
+    t.includes('agenda dia') ||
+    t.includes('agenda do dia') ||
+    t.includes('agenda de hoje') ||
+    t.includes('agenda da manhã') ||
+    t.includes('agenda da tarde') ||
+    t.includes('agenda carmo') ||
+    t.includes('agenda alfenas') ||
+    t.includes('agenda monte belo')
+  ) {
+    return true
+  }
+
+  // 2. Múltiplos horários em sequência (ex.: "12:10 - ... 13:00 - ... 14:00 - ...")
+  const matchesHorarios = texto.match(/(?:\b\d{1,2}[:.h]\d{2}\b|\b\d{1,2}hrs?\b)/gi) || []
+  if (matchesHorarios.length >= 3) {
+    return true
+  }
+
+  // 3. Múltiplos telefones citados na mesma mensagem (típico de lista de pacientes)
+  const matchesTel = texto.match(/\b(?:\d{4,5}[.-]\d{4})\b/g) || []
+  if (matchesTel.length >= 2) {
+    return true
+  }
+
+  // 4. Múltiplas linhas com horários e nomes no formato de agenda
+  const linhas = texto
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  let linhasComHorario = 0
+  for (const l of linhas) {
+    if (/^\*?\s*\d{1,2}(?:[:.h]\d{2})?\s*[-–]/.test(l) || /^\d{1,2}\s+[A-Z][a-z]+/.test(l)) {
+      linhasComHorario++
+    }
+  }
+  if (linhasComHorario >= 2) {
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Anonimiza qualquer texto removendo telefones, CPF, e-mail, endereços físicos
+ * e substituindo nomes completos ou referências pelo primeiro nome ou {nome}.
+ */
+export function anonimizarTextoLGPD(texto: string, pacientePrimeiroNome?: string): string {
+  if (!texto) return ''
+
+  let s = texto
+
+  // 1. Remove CPFs
+  s = s.replace(REGEX_CPF, '[CPF]')
+
+  // 2. Remove E-mails
+  s = s.replace(REGEX_EMAIL, '[E-MAIL]')
+
+  // 3. Remove Telefones
+  s = s.replace(REGEX_TELEFONE, '')
+
+  // 4. Remove CEP
+  s = s.replace(REGEX_CEP, '')
+
+  // 5. Remove endereços físicos explícitos (ex: Praça Emílio da Silveira, 252 Centro)
+  s = s.replace(REGEX_ENDERECO, '')
+
+  // 6. Limpa menções a endereços residuais conhecidos das unidades
+  s = s.replace(/praça\s+em[íi]lio\s+da\s+silveira\s*,?\s*\d*\s*centro\.?/gi, '')
+
+  // 7. Se foi fornecido o primeiro nome do paciente ou se o texto começa com saudações a pessoas:
+  // Substitui sobrenomes ou nomes completos identificáveis
+  if (pacientePrimeiroNome && pacientePrimeiroNome.toLowerCase() !== 'paciente') {
+    // Ex: "Valdene do Carmo Ribeiro de Paula" -> "Valdene"
+    // Cria regex para o primeiro nome seguido de até 4 palavras capitalizadas (sobrenomes)
+    const escapedNome = pacientePrimeiroNome.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regexNomeCompleto = new RegExp(
+      `\\b${escapedNome}(?:\\s+(?:da|de|do|das|dos|e|[A-ZÀ-Ú][a-zà-ú]+)){1,5}\\b`,
+      'gi',
+    )
+    s = s.replace(regexNomeCompleto, pacientePrimeiroNome)
+  }
+
+  // 8. Se ainda sobrarem saudações com sobrenome (ex: "Bom dia Ana Carolina Reis"),
+  // reduz para apenas o primeiro nome
+  s = s.replace(
+    /(bom dia|boa tarde|boa noite|olá|ola|oi)\s+([A-ZÀ-Ú][a-zà-ú]+)(?:\s+(?:da|de|do|das|dos|e|[A-ZÀ-Ú][a-zà-ú]+)){1,4}/gi,
+    (_match, saudacao, primeiroNome) => `${saudacao} ${primeiroNome}`,
+  )
+
+  // 9. Remove telefones isolados que tenham sobrado (ex: "8886.4696", "9920.6098")
+  s = s.replace(/\b\d{4,5}[.-]\d{4}\b/g, '')
+
+  // 10. Limpa pontuações e espaços duplicados resultantes da remoção
+  s = s
+    .replace(/[ \t]+/g, ' ')
+    .replace(/(\r?\n){3,}/g, '\n\n')
+    .replace(/\s+([,.;!?])/g, '$1')
+    .replace(/,\s*,/g, ',')
+    .replace(/\.\s*\./g, '.')
+    .trim()
+
+  return s
+}
+
+/**
  * Extrai primeiro nome de forma segura para LGPD (anonimização completa)
  */
-function extrairPrimeiroNome(nomeCompleto?: string | null): string {
+export function extrairPrimeiroNome(nomeCompleto?: string | null): string {
   if (!nomeCompleto) return 'Paciente'
-  const partes = nomeCompleto.trim().split(/\s+/)
+  const limpo = nomeCompleto.trim()
+  if (!limpo) return 'Paciente'
+  const partes = limpo.split(/\s+/)
   const primeiro = partes[0] || 'Paciente'
   // Remove caracteres especiais
   return primeiro.replace(/[0-9!@#$%^&*()_+=~`[\]{}|\\:;"'<,>.?/]/g, '').trim() || 'Paciente'
@@ -572,24 +709,38 @@ export async function analisarRepertorioFabiana(
       ''
 
     if (!texto || texto.length < 3) continue
+
+    // LGPD CRÍTICO: Excluir da seleção de exemplos mensagens do tipo "agenda do dia"
+    // ou listas matinais com múltiplos horários/pacientes citados
+    if (isAgendaDoDiaOuListaPacientes(texto)) {
+      continue
+    }
+
     totalMsgsValidas++
 
     const cat = classificarMensagem(texto)
     if (cat) {
       contadoresPorCategoria[cat]++
       const cInfo = m.remote_jid ? contactMap.get(m.remote_jid) : undefined
-      const primeiroNome = cInfo?.nome || 'Paciente'
+      const primeiroNome = cInfo?.nome || extrairPrimeiroNome(m.push_name)
       if (cInfo?.stage) {
         estagiosPorCategoria[cat].add(cInfo.stage)
       }
 
       if (exemplosPorCategoria[cat].length < 4) {
-        exemplosPorCategoria[cat].push({
-          textoOriginal: texto,
-          pacientePrimeiroNome: primeiroNome,
-          tipo: m.message_type?.includes('audio') || !m.content ? 'audio_transcrito' : 'texto',
-          dataHora: m.created,
-        })
+        // LGPD: Anonimiza o texto original do exemplo em tempo de exibição,
+        // garantindo que não contenha telefone, sobrenome, endereço ou múltiplos pacientes
+        const textoAnonimizado = anonimizarTextoLGPD(texto, primeiroNome)
+
+        // Se após a anonimização o texto ainda for válido e não for lista
+        if (textoAnonimizado.length >= 5) {
+          exemplosPorCategoria[cat].push({
+            textoOriginal: textoAnonimizado,
+            pacientePrimeiroNome: primeiroNome,
+            tipo: m.message_type?.includes('audio') || !m.content ? 'audio_transcrito' : 'texto',
+            dataHora: m.created,
+          })
+        }
       }
     }
   }
@@ -605,8 +756,10 @@ export async function analisarRepertorioFabiana(
     if (exemplosFinais.length < 2) {
       for (const exBase of padrao.exemplosBase) {
         if (exemplosFinais.length >= 3) break
+        // Garante que mesmo os exemplos base passem por sanitização
+        const exBaseAnon = anonimizarTextoLGPD(exBase, 'Paciente')
         exemplosFinais.push({
-          textoOriginal: exBase,
+          textoOriginal: exBaseAnon,
           pacientePrimeiroNome: 'Paciente',
           tipo: 'texto',
         })
