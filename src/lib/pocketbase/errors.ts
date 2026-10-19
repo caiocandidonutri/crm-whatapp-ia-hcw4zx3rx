@@ -28,67 +28,90 @@ export function getErrorMessage(error: unknown): string {
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
 }
 
+/**
+ * Identifica erros de rede, timeout, abort, 502/503/504 Bad Gateway / Gateway Timeout
+ * ou indisponibilidade de conexão.
+ */
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
-  if (error instanceof ClientResponseError) {
-    if (error.status === 0) return true
-    const original = error.originalError as { name?: string; message?: string } | undefined
-    if (original?.name === 'AbortError' || original?.message?.includes('aborted')) return true
+  if (typeof error !== 'object') return false
+
+  const err = error as any
+  const status = err.status ?? err.statusCode ?? err.response?.status
+  if (status === 0 || status === 502 || status === 503 || status === 504) {
+    return true
   }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    const name = error.name.toLowerCase()
-    if (
-      name.includes('abort') ||
-      name.includes('network') ||
-      msg.includes('network') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('aborted') ||
-      msg.includes('econnrefused') ||
-      msg.includes('networkerror')
-    ) {
-      return true
-    }
+
+  const name = String(err.name || '')
+  if (name === 'AbortError' || name === 'TimeoutError' || name === 'CanceledError') {
+    return true
   }
-  if (typeof error === 'object' && error !== null) {
-    const obj = error as { status?: number; name?: string; message?: string; code?: string }
-    if (obj.status === 0) return true
-    if (obj.code === 'ERR_NETWORK' || obj.code === 'ECONNREFUSED') return true
-    if (typeof obj.message === 'string') {
-      const m = obj.message.toLowerCase()
-      if (m.includes('failed to fetch') || m.includes('networkerror') || m.includes('abort')) {
-        return true
-      }
-    }
+
+  const msg = String(err.message || '').toLowerCase()
+  if (
+    msg.includes('networkerror') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('network error') ||
+    msg.includes('aborterror') ||
+    msg.includes('signal is aborted') ||
+    msg.includes('timeout') ||
+    msg.includes('econnrefused') ||
+    msg.includes('bad gateway') ||
+    msg.includes('502') ||
+    msg.includes('gateway timeout') ||
+    msg.includes('504') ||
+    msg.includes('service unavailable') ||
+    msg.includes('503')
+  ) {
+    return true
   }
+
+  if (err.originalError && isNetworkError(err.originalError)) return true
+  if (err.cause && isNetworkError(err.cause)) return true
+
   return false
 }
 
+/**
+ * Identifica erros 429 de Rate Limit.
+ */
 export function isRateLimitError(error: unknown): boolean {
   if (!error) return false
-  if (typeof error === 'object' && error !== null) {
-    const obj = error as { status?: number; message?: string; response?: { status?: number } }
-    if (obj.status === 429 || obj.response?.status === 429) return true
-    if (
-      typeof obj.message === 'string' &&
-      (obj.message.includes('429') || obj.message.toLowerCase().includes('too many requests'))
-    ) {
-      return true
-    }
-  }
-  return false
+  if (typeof error !== 'object') return false
+
+  const err = error as any
+  const status = err.status ?? err.statusCode ?? err.response?.status
+  if (status === 429) return true
+
+  const msg = String(err.message || '').toLowerCase()
+  return msg.includes('429') || msg.includes('too many requests')
 }
 
-export function parseRetryAfterMs(error: unknown, fallbackMs: number = 1000): number {
+/**
+ * Extrai o tempo de espera em ms a partir do cabeçalho retry-after.
+ */
+export function parseRetryAfterMs(error: unknown, fallbackMs = 1500): number {
   if (!error || typeof error !== 'object') return fallbackMs
-  const obj = error as { response?: { headers?: Record<string, string | undefined> } }
-  const headers = obj.response?.headers
-  if (!headers) return fallbackMs
-  const retryHeader = headers['retry-after'] || headers['Retry-After']
-  if (!retryHeader) return fallbackMs
-  const seconds = parseFloat(retryHeader)
-  if (!isNaN(seconds) && seconds > 0) {
-    return Math.round(seconds * 1000)
+  const err = error as any
+  const headers = err.response?.headers || err.headers
+  let headerVal: string | null = null
+
+  if (headers) {
+    if (typeof headers.get === 'function') {
+      headerVal = headers.get('retry-after')
+    } else if (headers['retry-after']) {
+      headerVal = headers['retry-after']
+    } else if (headers['Retry-After']) {
+      headerVal = headers['Retry-After']
+    }
   }
+
+  if (headerVal) {
+    const sec = parseInt(headerVal, 10)
+    if (!isNaN(sec) && sec > 0) {
+      return sec * 1000
+    }
+  }
+
   return fallbackMs
 }
