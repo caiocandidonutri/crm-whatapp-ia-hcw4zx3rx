@@ -36,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useCurrentAccount } from '@/hooks/use-current-account'
 import { useRealtime } from '@/hooks/use-realtime'
 import { formatPhoneBR } from '@/lib/phone'
+import { isNetworkError } from '@/lib/pocketbase/errors'
 import { getCareAlertSettings, setPlantaoFimDeSemana } from '@/services/care_alerts_service'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -227,46 +228,88 @@ export default function FilaDoDia() {
     }
   }, [accountId])
 
+  const [loadError, setLoadError] = useState<string | null>(null)
+
   const loadData = useCallback(async () => {
     if (!accountId) {
       setLoading(false)
       return
     }
     setLoading(true)
+    setLoadError(null)
+
+    // Helper resiliente com timeout de 8s e fallback seguro
+    const fetchWithTimeout = async <T,>(p: Promise<T[]>, timeoutMs = 8000): Promise<T[]> => {
+      let timer: any
+      const timeoutPromise = new Promise<T[]>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), timeoutMs)
+      })
+      try {
+        const res = await Promise.race([p, timeoutPromise])
+        clearTimeout(timer)
+        return Array.isArray(res) ? res : []
+      } catch (err) {
+        clearTimeout(timer)
+        if (!isNetworkError(err)) {
+          console.warn('[FilaDoDia] Falha parcial em consulta:', err)
+        }
+        return []
+      }
+    }
+
     try {
       const [contactsRes, convsRes, tasksRes] = await Promise.all([
-        pb
-          .collection('crm_contacts')
-          .getFullList<CrmContact>({
-            filter: `account_id = "${accountId}" && archived != true`,
-            sort: '-updated',
-            requestKey: null,
-          })
-          .catch(() => [] as CrmContact[]),
-        pb
-          .collection('conversations')
-          .getFullList<Conversation>({
-            filter: `account_id = "${accountId}" && archived != true`,
-            sort: '-last_message_timestamp',
-            requestKey: null,
-          })
-          .catch(() => [] as Conversation[]),
-        pb
-          .collection('tasks')
-          .getFullList<Task>({
-            filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
-            sort: '-created',
-            requestKey: null,
-          })
-          .catch(() => [] as Task[]),
+        fetchWithTimeout<CrmContact>(
+          pb
+            .collection('crm_contacts')
+            .getFullList<CrmContact>({
+              filter: `account_id = "${accountId}" && archived != true`,
+              sort: '-updated',
+              requestKey: null,
+            })
+            .catch((err) => {
+              if (!isNetworkError(err)) console.warn('[FilaDoDia] crm_contacts error:', err)
+              return []
+            }),
+        ),
+        fetchWithTimeout<Conversation>(
+          pb
+            .collection('conversations')
+            .getFullList<Conversation>({
+              filter: `account_id = "${accountId}" && archived != true`,
+              sort: '-last_message_timestamp',
+              requestKey: null,
+            })
+            .catch((err) => {
+              if (!isNetworkError(err)) console.warn('[FilaDoDia] conversations error:', err)
+              return []
+            }),
+        ),
+        fetchWithTimeout<Task>(
+          pb
+            .collection('tasks')
+            .getFullList<Task>({
+              filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
+              sort: '-created',
+              requestKey: null,
+            })
+            .catch((err) => {
+              if (!isNetworkError(err)) console.warn('[FilaDoDia] tasks error:', err)
+              return []
+            }),
+        ),
       ])
 
       setContacts(contactsRes || [])
       setConversations(convsRes || [])
       setTasks(tasksRes || [])
     } catch (err) {
-      console.warn('[FilaDoDia] Erro ao carregar dados:', err)
-      toast.error('Erro ao carregar a Fila do Dia')
+      if (isNetworkError(err)) {
+        setLoadError('Instabilidade de conexão momentânea. Exibindo dados em cache.')
+      } else {
+        console.warn('[FilaDoDia] Erro ao carregar dados:', err)
+        setLoadError('Não foi possível carregar alguns contatos agora.')
+      }
     } finally {
       setLoading(false)
     }

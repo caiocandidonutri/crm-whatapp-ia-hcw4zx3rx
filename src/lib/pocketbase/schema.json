@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-17T15:38:43.698Z",
+  "generatedAt": "2026-10-19T15:42:58.174Z",
   "collections": [
     {
       "name": "users",
@@ -2855,6 +2855,98 @@
         "CREATE INDEX idx_kb_account ON knowledge_base (account_id)",
         "CREATE INDEX idx_kb_categoria ON knowledge_base (categoria)",
         "CREATE INDEX idx_kb_status ON knowledge_base (status)"
+      ]
+    },
+    {
+      "name": "payments",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "appointment_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "appointments"
+        },
+        {
+          "name": "crm_contact_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "crm_contacts"
+        },
+        {
+          "name": "valor",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "forma_pagamento",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pix", "cartao", "dinheiro", "transferencia"]
+        },
+        {
+          "name": "data_pagamento",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "unidade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_payments_account ON payments (account_id)",
+        "CREATE INDEX idx_payments_appointment ON payments (appointment_id)",
+        "CREATE INDEX idx_payments_data ON payments (data_pagamento)",
+        "CREATE INDEX idx_payments_forma ON payments (forma_pagamento)"
       ]
     }
   ]

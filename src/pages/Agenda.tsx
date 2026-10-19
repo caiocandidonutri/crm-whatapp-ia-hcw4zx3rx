@@ -6,6 +6,9 @@ import { WaitlistSection } from '@/components/crm/WaitlistSection'
 import { AgendaReconciliationQueue } from '@/components/agenda/AgendaReconciliationQueue'
 import { buildPatientAppointmentsMap, getAppointmentHistoryInfo } from '@/lib/appointment-history'
 import { PatientBirthDateBadge } from '@/components/PatientBirthDateBadge'
+import { AppointmentClosingDialog } from '@/components/agenda/AppointmentClosingDialog'
+import { YesterdayClosureBanner } from '@/components/agenda/YesterdayClosureBanner'
+import { Sparkles } from 'lucide-react'
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -203,6 +206,8 @@ export default function Agenda() {
   // Dialogs
   const [newDialogOpen, setNewDialogOpen] = useState(false)
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false)
+  const [closingDialogOpen, setClosingDialogOpen] = useState(false)
+  const [appointmentToClose, setAppointmentToClose] = useState<Appointment | null>(null)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [selectedContactBirthDate, setSelectedContactBirthDate] = useState<string | null>(null)
   const [loadingContactBirthDate, setLoadingContactBirthDate] = useState(false)
@@ -845,6 +850,27 @@ export default function Agenda() {
     return buildPatientAppointmentsMap(Array.isArray(allAppointments) ? allAppointments : [])
   }, [allAppointments])
 
+  // Identificar consultas de ontem que ainda não foram fechadas (para sugestão inteligente)
+  const yesterdayUnclosedAppointments = useMemo(() => {
+    const list = Array.isArray(allAppointments) ? allAppointments : []
+    const yesterdayDate = new Date()
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+    const yesterdayYmd = yesterdayDate.toISOString().slice(0, 10)
+
+    return list.filter((app) => {
+      if (!app || !app.starts_at) return false
+      const appYmd = app.starts_at.slice(0, 10)
+      if (appYmd !== yesterdayYmd) return false
+      // Se ainda estiver agendado/aguardando/confirmado, necessita fechamento
+      return app.status === 'agendado' || app.status === 'aguardando' || app.status === 'confirmado'
+    })
+  }, [allAppointments])
+
+  const handleOpenClosingDialog = (appointment: Appointment) => {
+    setAppointmentToClose(appointment)
+    setClosingDialogOpen(true)
+  }
+
   // Carregar data de aniversário do contato quando abrir modal de detalhes
   useEffect(() => {
     if (!detailsDialogOpen || !selectedAppointment) {
@@ -1001,6 +1027,25 @@ export default function Agenda() {
 
   return (
     <div className="space-y-6">
+      {/* Banner de sugestão IA: Fechamento das consultas de ontem */}
+      <YesterdayClosureBanner
+        unclosedAppointments={yesterdayUnclosedAppointments}
+        onOpenClosingDialog={(app) => handleOpenClosingDialog(app)}
+      />
+
+      {/* Modal de Fechamento com dados financeiros */}
+      <AppointmentClosingDialog
+        appointment={appointmentToClose}
+        open={closingDialogOpen}
+        onOpenChange={setClosingDialogOpen}
+        onSuccess={() => {
+          loadAppointments(true)
+          if (selectedAppointment && appointmentToClose?.id === selectedAppointment.id) {
+            setDetailsDialogOpen(false)
+          }
+        }}
+      />
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -2200,9 +2245,23 @@ export default function Agenda() {
               </div>
 
               <div className="space-y-2 pt-2 border-t">
-                <span className="text-xs text-muted-foreground font-medium block">
-                  Alterar Status Rápido:
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground font-medium">
+                    Ação Rápida de Fechamento:
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setAppointmentToClose(selectedAppointment)
+                      setClosingDialogOpen(true)
+                    }}
+                    className="text-xs h-7 px-2.5 gap-1.5 bg-primary/5 text-primary border-primary/20 hover:bg-primary/10"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Fechamento Financeiro
+                  </Button>
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {(
                     [
@@ -2217,7 +2276,14 @@ export default function Agenda() {
                       key={st}
                       size="sm"
                       variant={selectedAppointment.status === st ? 'default' : 'outline'}
-                      onClick={() => handleUpdateStatus(st)}
+                      onClick={() => {
+                        if (st === 'realizado' || st === 'faltou') {
+                          setAppointmentToClose(selectedAppointment)
+                          setClosingDialogOpen(true)
+                        } else {
+                          handleUpdateStatus(st)
+                        }
+                      }}
                       className="text-xs h-7 px-2.5"
                     >
                       {getStatusConfig(st).label}

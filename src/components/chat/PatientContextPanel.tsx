@@ -29,6 +29,7 @@ import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { extractBrlBudgetFromText } from '@/services/crm_service'
 import { listAppointments } from '@/services/appointments'
+import { AppointmentClosingDialog } from '@/components/agenda/AppointmentClosingDialog'
 import { ptBR } from 'date-fns/locale'
 import {
   formatBrazilianDate,
@@ -77,6 +78,8 @@ export function PatientContextPanel({
     null,
   )
   const [isSavingBudget, setIsSavingBudget] = useState(false)
+  const [closingDialogOpen, setClosingDialogOpen] = useState(false)
+  const [appointmentToClose, setAppointmentToClose] = useState<Appointment | null>(null)
 
   useEffect(() => {
     if (!open || !remoteJid) return
@@ -296,6 +299,24 @@ export function PatientContextPanel({
 
   return (
     <aside className="fixed inset-0 md:static md:inset-auto md:w-80 w-full bg-white flex flex-col h-full z-50 md:z-20 border-l border-border shadow-lg md:shadow-sm shrink-0 animate-in slide-in-from-right duration-200">
+      <AppointmentClosingDialog
+        appointment={appointmentToClose}
+        open={closingDialogOpen}
+        onOpenChange={setClosingDialogOpen}
+        onSuccess={() => {
+          if (contact?.phone) {
+            const cleanPhone = contact.phone.replace(/\D/g, '')
+            listAppointments({
+              patient_phone: contact.phone || cleanPhone,
+              patient_id: contact.id,
+            })
+              .then((appts) => {
+                setPatientAppointments(appts)
+              })
+              .catch(() => {})
+          }
+        }}
+      />
       {/* Cabeçalho do Painel */}
       <div className="p-4 border-b border-border flex items-center justify-between bg-white shrink-0 min-h-[56px]">
         <div className="flex items-center gap-2">
@@ -499,7 +520,7 @@ export function PatientContextPanel({
 
             {/* Banner de Próximo Agendamento Geral / Status de Cuidado */}
             {upcomingAppointment ? (
-              <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs space-y-1.5">
+              <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs space-y-2">
                 <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300 font-semibold">
                   <span className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -516,9 +537,23 @@ export function PatientContextPanel({
                   {formatBrazilianDate(upcomingAppointment.starts_at)} às{' '}
                   {formatTimeSaoPaulo(upcomingAppointment.starts_at)}
                 </p>
-                <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                  {upcomingAppointment.location || upcomingAppointment.city} • Dr. Caio
-                </p>
+                <div className="flex items-center justify-between pt-1 border-t border-emerald-200/60">
+                  <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                    {upcomingAppointment.location || upcomingAppointment.city} • Dr. Caio
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setAppointmentToClose(upcomingAppointment)
+                      setClosingDialogOpen(true)
+                    }}
+                    className="h-6 text-[10px] px-2 bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100 gap-1"
+                  >
+                    <Sparkles className="w-3 h-3 text-emerald-600" />
+                    Fechar Consulta
+                  </Button>
+                </div>
               </div>
             ) : pastAppointments2Months.length > 0 ? (
               <div className="p-3 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800 text-xs space-y-1">

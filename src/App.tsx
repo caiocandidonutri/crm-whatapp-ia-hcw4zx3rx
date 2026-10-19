@@ -25,6 +25,8 @@ import Revenda from './pages/Revenda'
 import Recepcao from './pages/Recepcao'
 import Repertorio from './pages/Repertorio'
 import Memoria from './pages/Memoria'
+import { Financeiro } from './pages/Financeiro'
+import { PainelExecutivo } from './pages/PainelExecutivo'
 import NotFound from './pages/NotFound'
 
 const ProtectedRoute = () => {
@@ -80,6 +82,22 @@ function AppRoutes() {
               element={
                 <ErrorBoundary>
                   <Agenda />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/painel"
+              element={
+                <ErrorBoundary>
+                  <PainelExecutivo />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/financeiro"
+              element={
+                <ErrorBoundary>
+                  <Financeiro />
                 </ErrorBoundary>
               }
             />

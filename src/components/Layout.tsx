@@ -18,6 +18,8 @@ import {
   Bot,
   Users,
   Brain,
+  DollarSign,
+  LayoutDashboard,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/use-auth'
@@ -86,6 +88,23 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/tarefas',
         subtitle: 'Demandas e follow-ups da equipe',
         icon: CheckSquare,
+      },
+    ],
+  },
+  {
+    group: 'Gestão',
+    items: [
+      {
+        name: 'Painel Executivo',
+        path: '/painel',
+        subtitle: 'No-show %, conversão e KPIs clínicos',
+        icon: LayoutDashboard,
+      },
+      {
+        name: 'Financeiro',
+        path: '/financeiro',
+        subtitle: 'Receita, ticket médio e fluxo por atendimento',
+        icon: DollarSign,
       },
     ],
   },

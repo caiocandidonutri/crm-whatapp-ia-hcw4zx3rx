@@ -20,40 +20,35 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0 || error.isAbort) return true
+  }
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : typeof error === 'string'
+        ? error.toLowerCase()
+        : ''
+  if (!message) return false
+  return (
+    message.includes('failed to fetch') ||
+    message.includes('networkerror') ||
+    message.includes('network error') ||
+    message.includes('aborterror') ||
+    message.includes('abort') ||
+    message.includes('connection refused') ||
+    message.includes('timeout') ||
+    message.includes('err_connection_refused') ||
+    message.includes('load failed')
+  )
+}
+
 export function getErrorMessage(error: unknown): string {
   if (!(error instanceof ClientResponseError)) {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
-}
-
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (typeof error === 'object') {
-    const err = error as any
-    if (err.status === 0 || err.statusCode === 0) return true
-    if (err.isAbort === true) return true
-    if (err.name === 'AbortError' || err.name === 'TimeoutError') {
-      return true
-    }
-    const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
-    if (
-      message.includes('failed to fetch') ||
-      message.includes('networkerror') ||
-      message.includes('network error') ||
-      message.includes('load failed') ||
-      message.includes('aborterror') ||
-      message.includes('abort') ||
-      message.includes('timeout') ||
-      message.includes('connection') ||
-      message.includes('econnrefused') ||
-      message.includes('enetunreach')
-    ) {
-      return true
-    }
-    if (err.originalError && isNetworkError(err.originalError)) return true
-    if (err.cause && isNetworkError(err.cause)) return true
-  }
-  return false
 }

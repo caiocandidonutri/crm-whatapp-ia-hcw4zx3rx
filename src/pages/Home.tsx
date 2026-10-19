@@ -28,6 +28,8 @@ import {
   CalendarClock,
   Timer,
   ShieldAlert,
+  DollarSign,
+  LayoutDashboard,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
 import { useCurrentAccount } from '@/hooks/use-current-account'
@@ -886,6 +888,25 @@ export default function Home() {
                 </CardDescription>
               </div>
             </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate('/painel')}
+                className="h-7 text-xs px-2.5 gap-1.5 border-primary/20 text-primary hover:bg-primary/5 hidden sm:inline-flex"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Área Gestão</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate('/financeiro')}
+                className="h-7 text-xs px-2.5 gap-1.5 border-emerald-300 text-emerald-800 hover:bg-emerald-50 hidden md:inline-flex"
+              >
+                <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Financeiro</span>
+              </Button>
             <Badge
               variant="outline"
               className={cn(

@@ -432,3 +432,22 @@ export interface SyncState extends RecordModel {
   last_error?: string
   details?: Record<string, unknown>
 }
+
+export type PaymentMethod = 'pix' | 'cartao' | 'dinheiro' | 'transferencia'
+
+export interface Payment extends RecordModel {
+  account_id: string
+  appointment_id?: string
+  crm_contact_id?: string
+  valor: number
+  forma_pagamento: PaymentMethod
+  data_pagamento: string
+  unidade?: string
+  observacoes?: string
+  created_by?: string
+  expand?: {
+    appointment_id?: Appointment
+    crm_contact_id?: CrmContact
+    created_by?: User
+  }
+}
