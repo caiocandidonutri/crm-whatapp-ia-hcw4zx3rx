@@ -410,14 +410,23 @@ cronAdd('daily_reclassify', '17 11 * * *', () => {
         if (isStaff) {
           contact.set('is_patient', false)
           contact.set('role', 'nao_paciente')
-        } else if (agendaInfo.hasConfirmedOrRealizado) {
-          contact.set('stage', 'cliente')
-          contact.set('is_patient', true)
-          if (!contact.getString('converted_at') && agendaInfo.latestConsultationDate) {
-            contact.set(
-              'converted_at',
-              agendaInfo.latestConsultationDate.split('T')[0].split(' ')[0],
-            )
+        } else if (agendaInfo.hasConfirmedOrRealizado || contact.getBool('is_patient')) {
+          // Se já tem consulta confirmada/realizada OU já é paciente confirmado (is_patient=true),
+          // NUNCA pode ficar parado no estágio inicial "lead". Move para o estágio correto do funil vivo.
+          if (contact.getString('stage') === 'lead' || !contact.getString('stage')) {
+            contact.set('stage', 'cliente')
+          }
+          if (!contact.getBool('is_patient')) {
+            contact.set('is_patient', true)
+          }
+          if (contact.getString('role') !== 'paciente') {
+            contact.set('role', 'paciente')
+          }
+          if (!contact.getString('converted_at')) {
+            var cDate = agendaInfo.latestConsultationDate
+              ? agendaInfo.latestConsultationDate.split('T')[0].split(' ')[0]
+              : new Date().toISOString().split('T')[0]
+            contact.set('converted_at', cDate)
           }
         }
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-19T20:29:07.471Z",
+  "generatedAt": "2026-10-19T20:44:41.409Z",
   "collections": [
     {
       "name": "users",
@@ -2947,6 +2947,125 @@
         "CREATE INDEX idx_payments_appointment ON payments (appointment_id)",
         "CREATE INDEX idx_payments_data ON payments (data_pagamento)",
         "CREATE INDEX idx_payments_forma ON payments (forma_pagamento)"
+      ]
+    },
+    {
+      "name": "whatsapp_send_queue",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "accounts"
+        },
+        {
+          "name": "instance_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "whatsapp_instances"
+        },
+        {
+          "name": "instance_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "remote_jid",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "message_type",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "message_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pending", "processing", "sent", "failed", "cancelled"]
+        },
+        {
+          "name": "retry_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "max_retries",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "next_retry_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_error",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "payload",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_queue_status_retry ON whatsapp_send_queue (status, next_retry_at)",
+        "CREATE INDEX idx_queue_message_id ON whatsapp_send_queue (message_id)",
+        "CREATE INDEX idx_queue_account ON whatsapp_send_queue (account_id)"
       ]
     }
   ]

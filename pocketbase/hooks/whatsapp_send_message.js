@@ -69,18 +69,54 @@ routerAdd(
       } catch (_) {}
     }
 
-    const res = $http.send({
-      url: `${url}/message/sendText/${instanceName}`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: apiKey,
-      },
-      body: JSON.stringify(payload),
-      timeout: 15,
-    })
+    let res = null
+    let sendFailed = false
+    try {
+      res = $http.send({
+        url: `${url}/message/sendText/${instanceName}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: apiKey,
+        },
+        body: JSON.stringify(payload),
+        timeout: 15,
+      })
+      if (res.statusCode !== 200 && res.statusCode !== 201) {
+        sendFailed = true
+      }
+    } catch (httpErr) {
+      sendFailed = true
+    }
 
-    if (res.statusCode !== 200 && res.statusCode !== 201) {
+    if (sendFailed) {
+      // FILA DE RETRY PERSISTENTE: Se o envio imediato falhar, enfileira para retry automático
+      let accountIdForQueue = ''
+      try {
+        const member = $app.findFirstRecordByFilter('account_members', 'user_id = {:userId}', {
+          userId,
+        })
+        accountIdForQueue = member.getString('account_id')
+      } catch (_) {}
+
+      try {
+        const queueCol = $app.findCollectionByNameOrId('whatsapp_send_queue')
+        const qItem = new Record(queueCol)
+        if (accountIdForQueue) qItem.set('account_id', accountIdForQueue)
+        qItem.set('instance_name', instanceName)
+        qItem.set('remote_jid', remoteJid)
+        qItem.set('content', text)
+        qItem.set('message_type', 'conversation')
+        qItem.set('status', 'pending')
+        qItem.set('retry_count', 0)
+        qItem.set('max_retries', 5)
+        // Primeiro retry em 1 minuto
+        qItem.set('next_retry_at', new Date(Date.now() + 60 * 1000).toISOString())
+        qItem.set('last_error', res ? `HTTP ${res.statusCode}` : 'Falha na conexão HTTP')
+        $app.save(qItem)
+      } catch (qSaveErr) {
+        $app.logger().warn('Falha ao enfileirar mensagem para retry', 'error', String(qSaveErr))
+      }
       let errBody = ''
       try {
         errBody = res.body ? new TextDecoder().decode(res.body) : ''

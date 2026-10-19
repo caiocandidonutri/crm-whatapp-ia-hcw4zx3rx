@@ -207,6 +207,9 @@ export default function Agenda() {
   const [newDialogOpen, setNewDialogOpen] = useState(false)
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false)
   const [closingDialogOpen, setClosingDialogOpen] = useState(false)
+  const [closingInitialOutcome, setClosingInitialOutcome] = useState<'realizado' | 'faltou'>(
+    'realizado',
+  )
   const [appointmentToClose, setAppointmentToClose] = useState<Appointment | null>(null)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [selectedContactBirthDate, setSelectedContactBirthDate] = useState<string | null>(null)
@@ -866,8 +869,11 @@ export default function Agenda() {
     })
   }, [allAppointments])
 
-  const handleOpenClosingDialog = (appointment: Appointment) => {
+  const handleOpenClosingDialog = (appointment: Appointment, outcome?: 'realizado' | 'faltou') => {
     setAppointmentToClose(appointment)
+    if (outcome) {
+      setClosingInitialOutcome(outcome)
+    }
     setClosingDialogOpen(true)
   }
 
@@ -1030,7 +1036,7 @@ export default function Agenda() {
       {/* Banner de sugestão IA: Fechamento das consultas de ontem */}
       <YesterdayClosureBanner
         unclosedAppointments={yesterdayUnclosedAppointments}
-        onOpenClosingDialog={(app) => handleOpenClosingDialog(app)}
+        onOpenClosingDialog={(app) => handleOpenClosingDialog(app, 'realizado')}
       />
 
       {/* Modal de Fechamento com dados financeiros */}
@@ -1038,6 +1044,7 @@ export default function Agenda() {
         appointment={appointmentToClose}
         open={closingDialogOpen}
         onOpenChange={setClosingDialogOpen}
+        initialOutcome={closingInitialOutcome}
         onSuccess={() => {
           loadAppointments(true)
           if (selectedAppointment && appointmentToClose?.id === selectedAppointment.id) {

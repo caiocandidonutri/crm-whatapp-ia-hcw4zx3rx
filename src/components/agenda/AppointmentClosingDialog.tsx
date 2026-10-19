@@ -24,6 +24,7 @@ interface AppointmentClosingDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
+  initialOutcome?: 'realizado' | 'faltou'
 }
 
 export function AppointmentClosingDialog({
@@ -31,8 +32,15 @@ export function AppointmentClosingDialog({
   open,
   onOpenChange,
   onSuccess,
+  initialOutcome,
 }: AppointmentClosingDialogProps) {
-  const [outcome, setOutcome] = useState<'realizado' | 'faltou'>('realizado')
+  const [outcome, setOutcome] = useState<'realizado' | 'faltou'>(initialOutcome || 'realizado')
+
+  React.useEffect(() => {
+    if (initialOutcome) {
+      setOutcome(initialOutcome)
+    }
+  }, [initialOutcome, open])
   const [valor, setValor] = useState<string>('500')
   const [formaPagamento, setFormaPagamento] = useState<PaymentMethod>('pix')
   const [dataPagamento, setDataPagamento] = useState<string>(() => {
