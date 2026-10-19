@@ -66,18 +66,18 @@ export function isRateLimitError(error: unknown): boolean {
   return false
 }
 
-export function parseRetryAfterMs(error: unknown): number {
-  if (!error || typeof error !== 'object') return 1000
+export function parseRetryAfterMs(error: unknown, defaultMs = 1000): number {
+  if (!error || typeof error !== 'object') return defaultMs
   const headers = (error as any).response?.headers
-  if (!headers) return 1000
+  if (!headers) return defaultMs
   const retryHeader =
     headers['retry-after'] ||
     headers['Retry-After'] ||
     (typeof headers.get === 'function' ? headers.get('retry-after') : null)
-  if (!retryHeader) return 1000
+  if (!retryHeader) return defaultMs
   const seconds = Number(retryHeader)
   if (!isNaN(seconds) && seconds > 0) {
     return Math.round(seconds * 1000)
   }
-  return 1000
+  return defaultMs
 }
