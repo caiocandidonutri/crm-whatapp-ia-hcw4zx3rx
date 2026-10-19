@@ -23,6 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { CrmContact, Task, Appointment, Notification } from '@/types/models'
 import pb from '@/lib/pocketbase/client'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
 import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { getCareCategoryMeta, getPriorityMeta, getStatusMeta } from '@/lib/task-meta'
 import { format } from 'date-fns'
@@ -90,12 +91,14 @@ export function PatientContextPanel({
       try {
         const cleanPhone = remoteJid.split('@')[0]
 
-        // Buscar contato no CRM (consulta única e indexada)
-        const contacts = await pb.collection('crm_contacts').getFullList<CrmContact>({
+        // Buscar contato no CRM de forma resiliente
+        const contacts = await safePbFullList<CrmContact>({
+          collection: 'crm_contacts',
           filter: `jid = "${remoteJid}" || phone ~ "${cleanPhone}"`,
           expand: 'stage_id,company_id',
           sort: '-created',
-          requestKey: null,
+          perPage: 200,
+          label: 'PatientContextPanel:contacts',
         })
 
         if (cancelled) return
@@ -112,43 +115,41 @@ export function PatientContextPanel({
           notifFilterParts.push(`crm_contact_id = "${foundContact.id}"`)
         }
 
-        // Executar chamadas em lote paralelo com requestKey=null (sem cascata de re-queries)
-        const fetchTasksPromise = foundContact?.id
-          ? pb.collection('tasks').getFullList<Task>({
+        // Executar chamadas resilientes sem rajada excessiva
+        const taskList = foundContact?.id
+          ? await safePbFullList<Task>({
+              collection: 'tasks',
               filter: `crm_contact_id = "${foundContact.id}"`,
               sort: '-created',
-              requestKey: null,
-            })
-          : Promise.resolve([] as Task[])
+              perPage: 200,
+              label: 'PatientContextPanel:tasks',
+            }).catch(() => [] as Task[])
+          : []
 
-        const fetchApptsPromise = listAppointments({
+        if (cancelled) return
+
+        const appts = await listAppointments({
           patient_phone: foundContact?.phone || cleanPhone,
           patient_id: foundContact?.id,
-        })
+        }).catch(() => [] as Appointment[])
 
-        const fetchNotifsPromise =
+        if (cancelled) return
+
+        const notifs =
           notifFilterParts.length > 0
-            ? pb.collection('notifications').getFullList<Notification>({
+            ? await safePbFullList<Notification>({
+                collection: 'notifications',
                 filter: notifFilterParts.join(' || '),
                 sort: '-created',
-                requestKey: null,
-              })
-            : Promise.resolve([] as Notification[])
+                perPage: 200,
+                label: 'PatientContextPanel:notifs',
+              }).catch(() => [] as Notification[])
+            : []
 
-        try {
-          const [taskList, appts, notifs] = await Promise.all([
-            fetchTasksPromise,
-            fetchApptsPromise,
-            fetchNotifsPromise,
-          ])
-
-          if (!cancelled) {
-            setTasks(taskList)
-            setPatientAppointments(appts)
-            setConversationNotifications(notifs)
-          }
-        } catch {
-          /* intentionally ignored */
+        if (!cancelled) {
+          setTasks(taskList)
+          setPatientAppointments(appts)
+          setConversationNotifications(notifs)
         }
 
         // Buscar mensagens recentes para detectar menções de orçamento BRL (se contato não tiver budget já salvo)

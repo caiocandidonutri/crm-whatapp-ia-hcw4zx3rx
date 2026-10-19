@@ -194,6 +194,7 @@ export async function listAppointments(options?: {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const res = await pb.collection('appointments').getFullList<Appointment>({
+        batch: 200,
         filter: filterStr || undefined,
         sort: 'starts_at',
         requestKey: null,
@@ -223,6 +224,7 @@ export async function listAppointments(options?: {
         console.warn('[listAppointments] Fallback após erro 400:', err)
         try {
           const fallbackRes = await pb.collection('appointments').getFullList<Appointment>({
+            batch: 200,
             sort: 'starts_at',
             requestKey: null,
           })
@@ -232,7 +234,8 @@ export async function listAppointments(options?: {
         }
       }
 
-      throw err
+      console.warn('[listAppointments] Falha ao carregar appointments (fallback silencioso):', err)
+      return []
     }
   }
 

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import pb from '@/lib/pocketbase/client'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -90,10 +91,12 @@ export function AgendaReconciliationQueue() {
       const since = new Date(Date.now() - 60 * 86400_000).toISOString()
       const nowIso = new Date().toISOString()
 
-      const res = await pb.collection('appointments').getFullList<Appointment>({
+      const res = await safePbFullList<Appointment>({
+        collection: 'appointments',
         filter: `account_id = "${accountId}" && starts_at < "${nowIso}" && starts_at > "${since}" && status = "confirmado"`,
         sort: '-starts_at',
-        requestKey: null,
+        perPage: 200,
+        label: 'reconciliation:appointments',
       })
 
       const items = Array.isArray(res) ? res : []

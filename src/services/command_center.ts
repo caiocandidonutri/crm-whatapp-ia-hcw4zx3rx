@@ -233,11 +233,16 @@ export async function fetchCommandCenterMetrics(
   accountId: string | null | undefined,
   signal?: AbortSignal,
 ): Promise<CommandCenterMetrics> {
-  const [unreadConversations, todayAppointments, automations] = await Promise.all([
-    countUnreadConversations(accountId, signal),
-    countTodayAppointments(accountId, signal),
-    getAutomationsHealth(accountId, signal),
-  ])
+  // Carregamento escalonado (staggered) para evitar rajada simultânea de requisições
+  const unreadConversations = await countUnreadConversations(accountId, signal)
+  if (signal?.aborted) return DEFAULT_COMMAND_CENTER_METRICS
+
+  await new Promise((r) => setTimeout(r, 60))
+  const todayAppointments = await countTodayAppointments(accountId, signal)
+  if (signal?.aborted) return DEFAULT_COMMAND_CENTER_METRICS
+
+  await new Promise((r) => setTimeout(r, 60))
+  const automations = await getAutomationsHealth(accountId, signal)
 
   return { unreadConversations, todayAppointments, automations }
 }

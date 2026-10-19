@@ -1,5 +1,6 @@
-import pb from '@/lib/pocketbase/client'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
 import { isNetworkError } from '@/lib/pocketbase/errors'
+import pb from '@/lib/pocketbase/client'
 
 export interface ExecutiveMetrics {
   noShowPercent: number | null
@@ -73,10 +74,12 @@ async function calculateNoShow(accountId: string): Promise<{
       const filters = ['(status = "realizado" || status = "faltou")']
       if (accountId) filters.push(`account_id = "${accountId}"`)
 
-      const list = await pb.collection('appointments').getFullList({
+      const list = await safePbFullList<{ id: string; status?: string }>({
+        collection: 'appointments',
         filter: filters.join(' && '),
         fields: 'id,status',
-        requestKey: null,
+        perPage: 200,
+        label: 'executive:noShow',
       })
 
       if (!list || list.length === 0) {
@@ -109,10 +112,17 @@ async function calculateLeadConversion(accountId: string): Promise<{
       const filters = ['archived != true']
       if (accountId) filters.push(`account_id = "${accountId}"`)
 
-      const list = await pb.collection('crm_contacts').getFullList({
+      const list = await safePbFullList<{
+        id: string
+        stage?: string
+        converted_at?: string
+        origin?: string
+      }>({
+        collection: 'crm_contacts',
         filter: filters.join(' && '),
         fields: 'id,stage,converted_at,origin',
-        requestKey: null,
+        perPage: 200,
+        label: 'executive:leadConversion',
       })
 
       if (!list || list.length === 0) {
@@ -154,10 +164,16 @@ async function calculateRetornos30a45(accountId: string): Promise<number | null>
       const filters = [`starts_at >= "${d45}"`, `starts_at <= "${d30}"`, `status = "realizado"`]
       if (accountId) filters.push(`account_id = "${accountId}"`)
 
-      const list = await pb.collection('appointments').getFullList({
+      const list = await safePbFullList<{
+        id: string
+        patient_id?: string
+        patient_phone?: string
+      }>({
+        collection: 'appointments',
         filter: filters.join(' && '),
         fields: 'id,patient_id,patient_phone',
-        requestKey: null,
+        perPage: 200,
+        label: 'executive:retornos30a45',
       })
 
       return Array.isArray(list) ? list.length : null
@@ -195,12 +211,14 @@ async function calculateClubeAtivo(accountId: string): Promise<number | null> {
 export async function fetchExecutiveMetrics(accountId: string): Promise<ExecutiveMetrics> {
   if (!accountId) return DEFAULT_EXECUTIVE_METRICS
 
-  const [noShow, leadConv, retornos, clube] = await Promise.all([
-    calculateNoShow(accountId),
-    calculateLeadConversion(accountId),
-    calculateRetornos30a45(accountId),
-    calculateClubeAtivo(accountId),
-  ])
+  // Carregamento escalonado para evitar disparo em rajada
+  const noShow = await calculateNoShow(accountId)
+  await new Promise((r) => setTimeout(r, 60))
+  const leadConv = await calculateLeadConversion(accountId)
+  await new Promise((r) => setTimeout(r, 60))
+  const retornos = await calculateRetornos30a45(accountId)
+  await new Promise((r) => setTimeout(r, 60))
+  const clube = await calculateClubeAtivo(accountId)
 
   return {
     noShowPercent: noShow.noShowPercent,

@@ -27,13 +27,18 @@ export const markNotificationAsRead = async (id: string) => {
 }
 
 export const markAllNotificationsAsRead = async () => {
-  const unread = await pb.collection('notifications').getFullList({
-    filter: 'read = false',
-    requestKey: null,
-  })
-  await Promise.all(
-    unread.map((n) =>
-      pb.collection('notifications').update(n.id, { read: true }, { requestKey: null }),
-    ),
-  )
+  try {
+    const unread = await pb.collection('notifications').getFullList({
+      batch: 200,
+      filter: 'read = false',
+      requestKey: null,
+    })
+    await Promise.all(
+      unread.map((n) =>
+        pb.collection('notifications').update(n.id, { read: true }, { requestKey: null }),
+      ),
+    )
+  } catch (err) {
+    console.warn('[markAllNotificationsAsRead] Erro silencioso:', err)
+  }
 }

@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import pb from '@/lib/pocketbase/client'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -105,48 +106,35 @@ export default function Revenda() {
     }
     setLoading(true)
     try {
-      const [contactsRes, convsRes, tasksRes] = await Promise.all([
-        pb
-          .collection('crm_contacts')
-          .getFullList<CrmContact>({
-            filter: `account_id = "${accountId}" && archived != true`,
-            sort: '-updated',
-            requestKey: null,
-          })
-          .catch((err) => {
-            console.warn(
-              '[Revenda] Falha ao carregar crm_contacts (usando vazio):',
-              err?.message || err,
-            )
-            return [] as CrmContact[]
-          }),
-        pb
-          .collection('conversations')
-          .getFullList<Conversation>({
-            filter: `account_id = "${accountId}" && archived != true`,
-            sort: '-last_message_timestamp',
-            requestKey: null,
-          })
-          .catch((err) => {
-            console.warn(
-              '[Revenda] Falha ao carregar conversas (usando vazio):',
-              err?.message || err,
-            )
-            return [] as Conversation[]
-          }),
-        pb
-          .collection('tasks')
-          .getList<Task>(1, 500, {
-            filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
-            sort: '-created',
-            requestKey: null,
-          })
-          .then((res) => (Array.isArray(res?.items) ? res.items : []))
-          .catch((err) => {
-            console.warn('[Revenda] Falha ao carregar tarefas (usando vazio):', err?.message || err)
-            return [] as Task[]
-          }),
-      ])
+      // Consultas com safePbFullList (perPage=200, retry 429 respeitando retry-after e timeout)
+      // Carregamento escalonado para não disparar rajada no backend
+      const contactsRes = await safePbFullList<CrmContact>({
+        collection: 'crm_contacts',
+        filter: `account_id = "${accountId}" && archived != true`,
+        sort: '-updated',
+        perPage: 200,
+        label: 'Revenda:contacts',
+      }).catch(() => [] as CrmContact[])
+
+      await new Promise((r) => setTimeout(r, 60))
+
+      const convsRes = await safePbFullList<Conversation>({
+        collection: 'conversations',
+        filter: `account_id = "${accountId}" && archived != true`,
+        sort: '-last_message_timestamp',
+        perPage: 200,
+        label: 'Revenda:conversations',
+      }).catch(() => [] as Conversation[])
+
+      await new Promise((r) => setTimeout(r, 60))
+
+      const tasksRes = await safePbFullList<Task>({
+        collection: 'tasks',
+        filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
+        sort: '-created',
+        perPage: 200,
+        label: 'Revenda:tasks',
+      }).catch(() => [] as Task[])
 
       setContacts(Array.isArray(contactsRes) ? contactsRes : [])
       setConversations(Array.isArray(convsRes) ? convsRes : [])

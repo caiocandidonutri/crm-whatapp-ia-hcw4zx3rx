@@ -139,15 +139,17 @@ export function useInstanciaAtiva() {
     abortRef.current = ctrl
     try {
       const records = await pb.collection('whatsapp_instances').getFullList<WhatsappInstance>({
+        batch: 200,
         filter: `account_id = "${accountId}"`,
         sort: '-created',
         signal: ctrl.signal,
+        requestKey: null,
       })
       const connected = records.find((r) => r.status === 'connected')
       setInstance(connected || records[0] || null)
     } catch (e) {
       if (isAbort(e)) return
-      console.error(e)
+      console.warn('[useInstanciaAtiva] Falha ao carregar instâncias (fallback silencioso):', e)
       setInstance(null)
     } finally {
       if (!ctrl.signal.aborted) setLoading(false)

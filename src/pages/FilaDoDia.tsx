@@ -36,8 +36,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useCurrentAccount } from '@/hooks/use-current-account'
 import { useRealtime } from '@/hooks/use-realtime'
 import { formatPhoneBR } from '@/lib/phone'
-import { ClientResponseError } from 'pocketbase'
-import { isNetworkError } from '@/lib/pocketbase/errors'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
+import { isNetworkError, isRateLimitError } from '@/lib/pocketbase/errors'
 import { getCareAlertSettings, setPlantaoFimDeSemana } from '@/services/care_alerts_service'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -240,146 +240,40 @@ export default function FilaDoDia() {
     setLoading(true)
     setLoadError(null)
 
-    const isRateLimitError = (err: unknown): boolean => {
-      if (!err) return false
-      if (err instanceof ClientResponseError) {
-        return err.status === 429
-      }
-      if (typeof err === 'object') {
-        const anyErr = err as Record<string, unknown>
-        if (anyErr.status === 429 || anyErr.statusCode === 429) return true
-        const resp = anyErr.response
-        if (resp && typeof resp === 'object' && (resp as Record<string, unknown>).status === 429) {
-          return true
-        }
-      }
-      const str = String(err).toLowerCase()
-      return str.includes('429') || str.includes('too many requests') || str.includes('rate limit')
-    }
-
-    const parseRetryAfterMs = (err: unknown, defaultMs = 1000): number => {
-      try {
-        if (err instanceof ClientResponseError && err.response?.headers) {
-          const headers = err.response.headers as Record<string, string>
-          const raw = headers['retry-after'] || headers['Retry-After']
-          if (raw) {
-            const parsed = parseInt(raw, 10)
-            if (!isNaN(parsed) && parsed > 0) return Math.min(parsed * 1000, 5000)
-          }
-        }
-      } catch {
-        // fallback
-      }
-      return defaultMs
-    }
-
-    // Helper resiliente com timeout de 8s, 1 retry com backoff para 429 e fallback seguro
-    const fetchWithRetryAndTimeout = async <T,>(
-      queryFn: () => Promise<T[]>,
-      label: string,
-      timeoutMs = 8000,
-    ): Promise<{ data: T[]; failed: boolean }> => {
-      let is429Encountered = false
-
-      const runWithTimeout = async (): Promise<T[]> => {
-        let timer: any
-        const timeoutPromise = new Promise<T[]>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('timeout')), timeoutMs)
-        })
-        try {
-          const res = await Promise.race([queryFn(), timeoutPromise])
-          clearTimeout(timer)
-          return Array.isArray(res) ? res : []
-        } catch (err) {
-          clearTimeout(timer)
-          throw err
-        }
-      }
-
-      // Tentativa 1
-      try {
-        const res = await runWithTimeout()
-        return { data: res, failed: false }
-      } catch (err) {
-        if (isRateLimitError(err)) {
-          is429Encountered = true
-          const waitMs = parseRetryAfterMs(err, 1000)
-          console.warn(
-            `[FilaDoDia] ${label}: HTTP 429 recebido. Aguardando retry de ${waitMs}ms...`,
-          )
-          await new Promise((resolve) => setTimeout(resolve, waitMs))
-
-          // Tentativa 2 (retry único para 429)
-          try {
-            const retryRes = await runWithTimeout()
-            return { data: retryRes, failed: false }
-          } catch (retryErr) {
-            if (!isNetworkError(retryErr) && !isRateLimitError(retryErr)) {
-              console.warn(`[FilaDoDia] ${label} falha no retry:`, retryErr)
-            }
-            return { data: [], failed: true }
-          }
-        }
-
-        if (!isNetworkError(err)) {
-          console.warn(`[FilaDoDia] ${label} falha:`, err)
-        }
-        return { data: [], failed: true }
-      }
-    }
-
     try {
-      const [contactsOutcome, convsOutcome, tasksOutcome] = await Promise.all([
-        fetchWithRetryAndTimeout<CrmContact>(
-          () =>
-            pb.collection('crm_contacts').getFullList<CrmContact>({
-              filter: `account_id = "${accountId}" && archived != true`,
-              sort: '-updated',
-              requestKey: null,
-            }),
-          'crm_contacts',
-        ).catch((err) => {
-          if (!isNetworkError(err) && !isRateLimitError(err)) {
-            console.warn('[FilaDoDia] crm_contacts unexpected error:', err)
-          }
-          return { data: [] as CrmContact[], failed: true }
-        }),
+      // Consultas escalonadas com perPage=200 em vez de 1000 para não estourar o rate limit
+      const contactsRes = await safePbFullList<CrmContact>({
+        collection: 'crm_contacts',
+        filter: `account_id = "${accountId}" && archived != true`,
+        sort: '-updated',
+        perPage: 200,
+        label: 'FilaDoDia:contacts',
+      }).catch(() => [] as CrmContact[])
 
-        fetchWithRetryAndTimeout<Conversation>(
-          () =>
-            pb.collection('conversations').getFullList<Conversation>({
-              filter: `account_id = "${accountId}" && archived != true`,
-              sort: '-last_message_timestamp',
-              requestKey: null,
-            }),
-          'conversations',
-        ).catch((err) => {
-          if (!isNetworkError(err) && !isRateLimitError(err)) {
-            console.warn('[FilaDoDia] conversations unexpected error:', err)
-          }
-          return { data: [] as Conversation[], failed: true }
-        }),
+      await new Promise((r) => setTimeout(r, 80))
 
-        fetchWithRetryAndTimeout<Task>(
-          () =>
-            pb.collection('tasks').getFullList<Task>({
-              filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
-              sort: '-created',
-              requestKey: null,
-            }),
-          'tasks',
-        ).catch((err) => {
-          if (!isNetworkError(err) && !isRateLimitError(err)) {
-            console.warn('[FilaDoDia] tasks unexpected error:', err)
-          }
-          return { data: [] as Task[], failed: true }
-        }),
-      ])
+      const convsRes = await safePbFullList<Conversation>({
+        collection: 'conversations',
+        filter: `account_id = "${accountId}" && archived != true`,
+        sort: '-last_message_timestamp',
+        perPage: 200,
+        label: 'FilaDoDia:conversations',
+      }).catch(() => [] as Conversation[])
 
-      setContacts(contactsOutcome.data || [])
-      setConversations(convsOutcome.data || [])
-      setTasks(tasksOutcome.data || [])
-      setTasksDegraded(Boolean(tasksOutcome.failed))
+      await new Promise((r) => setTimeout(r, 80))
+
+      const tasksRes = await safePbFullList<Task>({
+        collection: 'tasks',
+        filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
+        sort: '-created',
+        perPage: 200,
+        label: 'FilaDoDia:tasks',
+      }).catch(() => [] as Task[])
+
+      setContacts(Array.isArray(contactsRes) ? contactsRes : [])
+      setConversations(Array.isArray(convsRes) ? convsRes : [])
+      setTasks(Array.isArray(tasksRes) ? tasksRes : [])
+      setTasksDegraded(false)
     } catch (err) {
       if (isNetworkError(err) || isRateLimitError(err)) {
         setLoadError('Instabilidade de conexão momentânea. Exibindo dados em cache.')

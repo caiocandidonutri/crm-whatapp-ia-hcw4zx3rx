@@ -38,12 +38,18 @@ export const getCrmContactByJid = async (instance_name: string, jid: string) => 
 }
 
 export const getCrmContacts = async (instance_name: string) => {
-  return pb.collection('crm_contacts').getFullList<CrmContact>({
-    filter: `instance_name = '${instance_name}'`,
-    sort: '-created',
-    expand: 'assigned_to,company_id',
-    requestKey: null,
-  })
+  try {
+    return await pb.collection('crm_contacts').getFullList<CrmContact>({
+      batch: 200,
+      filter: `instance_name = '${instance_name}'`,
+      sort: '-created',
+      expand: 'assigned_to,company_id',
+      requestKey: null,
+    })
+  } catch (err) {
+    console.warn('[getCrmContacts] Falha ao listar contatos (usando fallback vazio):', err)
+    return [] as CrmContact[]
+  }
 }
 
 export const getCrmContactsPage = async (

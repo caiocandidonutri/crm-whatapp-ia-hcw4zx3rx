@@ -49,11 +49,17 @@ export function slugifyStageKey(label: string): string {
 }
 
 export async function listCrmStages(accountId: string): Promise<CrmStage[]> {
-  return pb.collection('crm_stages').getFullList<CrmStage>({
-    filter: `account_id = "${accountId}"`,
-    sort: 'position',
-    requestKey: null,
-  })
+  try {
+    return await pb.collection('crm_stages').getFullList<CrmStage>({
+      batch: 100,
+      filter: `account_id = "${accountId}"`,
+      sort: 'position',
+      requestKey: null,
+    })
+  } catch (err) {
+    console.warn('[listCrmStages] Falha silenciosa ao carregar etapas:', err)
+    return []
+  }
 }
 
 export async function createCrmStage(data: Partial<CrmStage>): Promise<CrmStage> {

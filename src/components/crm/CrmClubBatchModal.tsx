@@ -65,8 +65,9 @@ export function CrmClubBatchModal({ open, onClose, onSuccess }: CrmClubBatchModa
     const notFoundList: string[] = []
 
     try {
-      // Buscar todos os contatos do CRM uma única vez para mapear de forma eficiente
+      // Buscar contatos com batch moderado (200) para evitar rate limit
       const allContacts = await pb.collection('crm_contacts').getFullList({
+        batch: 200,
         fields: 'id,phone,jid,contact_name,push_name',
         requestKey: null,
       })
