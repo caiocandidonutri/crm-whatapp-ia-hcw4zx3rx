@@ -345,6 +345,7 @@ export type AppointmentStatus =
   | 'faltou'
   | 'remarcado'
   | 'cancelado'
+  | 'a_confirmar'
 
 export type AppointmentSource = 'agenda_externa' | 'crm'
 
@@ -363,6 +364,7 @@ export interface Appointment extends RecordModel {
   appointment_type?: string
   source: AppointmentSource
   external_id?: string
+  rescheduled_to_id?: string
   notes?: string
   sync_hash?: string
   last_synced_at?: string

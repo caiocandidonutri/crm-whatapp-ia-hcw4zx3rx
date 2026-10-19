@@ -23,9 +23,9 @@
  */
 
 // RECALL DIÁRIO DE PACIENTES INATIVOS
-// Executa 1x ao dia às 13:37 UTC (10:37 Brasília)
-// Restaurado da emergência com kill-switch na primeira linha, night shield (21h-07h) e timeout curto (5s)
-cronAdd('daily_patient_recall', '37 13 * * *', () => {
+// Executa 1x ao dia (03:15 UTC / 00:15 BRT protegido pelo Night Shield ou horário configurado)
+// Atende à diretriz: inativos há 14 dias, máx 15/dia, inativo só se SEM mensagem humana (enviada ou recebida)
+cronAdd('daily_patient_recall', '15 3 * * *', () => {
   $app.logger().info('daily_patient_recall: cron started')
 
   var nowMs = Date.now()
@@ -379,23 +379,37 @@ cronAdd('daily_patient_recall', '37 13 * * *', () => {
 
       var effectiveCutoffIso = isClub ? cutoffClubInactiveIso : cutoffInactiveIso
 
-      // Verificar se houve alguma mensagem recente (últimos X dias da régua correspondente)
-      var hasRecentMessage = false
+      // Verificar se houve alguma mensagem HUMANA recente nos últimos X dias
+      // Inativo = quem NÃO teve mensagem humana enviada (atendente/Fabiana) nem recebida (paciente) no período.
+      // Desconsidera disparos automáticos do sistema (message_type 'template_auto', etc.)
+      var hasRecentHumanMessage = false
       try {
         var recentMsgs = $app.findRecordsByFilter(
           'whatsapp_messages',
           'remote_jid ~ {:suf} && created >= {:cutoff}',
           '-created',
-          1,
+          10,
           0,
           { suf: phoneSuffix, cutoff: effectiveCutoffIso },
         )
         if (recentMsgs && recentMsgs.length > 0) {
-          hasRecentMessage = true
+          for (var rm = 0; rm < recentMsgs.length; rm++) {
+            var msgRec = recentMsgs[rm]
+            var mType = msgRec.getString('message_type') || ''
+            // Se for conversa normal, chat, texto de paciente ou atendente -> mensagem humana
+            if (
+              mType !== 'template_auto' &&
+              mType !== 'system_notification' &&
+              mType !== 'auto_reminder'
+            ) {
+              hasRecentHumanMessage = true
+              break
+            }
+          }
         }
       } catch (_) {}
 
-      if (hasRecentMessage) continue
+      if (hasRecentHumanMessage) continue
 
       var fullName =
         contact.getString('contact_name') || contact.getString('push_name') || 'Paciente'

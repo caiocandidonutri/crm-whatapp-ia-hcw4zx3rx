@@ -169,12 +169,13 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
       }
     }
 
-    // 3. Soft-cancel e alinhamento de status: APENAS dentro da janela real retornada pela agenda externa
+    // 3. Alinhamento de status, detecção de remarcados/a_confirmar e Fila de Reconciliação
+    // APENAS dentro da janela real retornada pela agenda externa
     var minDateMs = Infinity
     var maxDateMs = -Infinity
 
-    for (var k = 0; k < appts.length; k++) {
-      var itm = appts[k]
+    for (var k = 0; k < externalItems.length; k++) {
+      var itm = externalItems[k]
       if (!itm || typeof itm !== 'object') continue
       var rawDate = itm.starts_at || itm.data_inicio || itm.data_consulta || itm.data || ''
       if (!rawDate) continue
@@ -183,6 +184,21 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
         if (dMs < minDateMs) minDateMs = dMs
         if (dMs > maxDateMs) maxDateMs = dMs
       }
+    }
+
+    function cleanDigits(s) {
+      if (!s) return ''
+      return String(s).replace(/\D/g, '')
+    }
+
+    function normalizeName(s) {
+      if (!s) return ''
+      return String(s)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '')
+        .trim()
     }
 
     var localExtAppts = []
@@ -202,7 +218,7 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
       } catch (_) {}
     }
 
-    var softCancelledCount = 0
+    var reclassifiedCount = 0
     var alignedCount = 0
     var ambiguousTasksCount = 0
 
@@ -251,30 +267,133 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
       var localStatus = local.getString('status')
       var pName = local.getString('patient_name') || 'Paciente'
       var pContactId = local.getString('patient_id')
+      var pPhone = cleanDigits(local.getString('patient_phone'))
+      var startsAt = local.getString('starts_at')
 
       var remote = extMap[extIdLocal]
 
-      // Cenário A: Item não consta mais na resposta oficial
+      // Cenário A: Item não consta mais na resposta oficial (sumiu da origem dentro da janela)
+      // NUNCA marcar cancelado cego. Regra oficial do CRM Dr. Caio:
+      // Se tiver novo agendamento posterior -> 'remarcado' + rescheduled_to_id
+      // Se sumiu sem novo agendamento -> 'a_confirmar' + task na Fila de Reconciliação
       if (!remote) {
-        if (localStatus !== 'cancelado') {
-          local.set('status', 'cancelado')
-          var notes = local.getString('notes')
-          var cancelNote = 'Cancelado/removido na agenda oficial'
-          local.set('notes', notes ? notes + ' (' + cancelNote + ')' : cancelNote)
-          local.set('last_synced_at', new Date().toISOString())
-          try {
-            $app.saveNoValidate(local)
-            softCancelledCount++
-            $app
-              .logger()
-              .info(
-                '[cron_reconciliacao_ia] Soft-cancel aplicado: agendamento ausente na agenda oficial',
-                'id',
-                local.id,
-                'paciente',
-                pName,
+        if (
+          localStatus !== 'remarcado' &&
+          localStatus !== 'a_confirmar' &&
+          localStatus !== 'cancelado'
+        ) {
+          var subsequent = null
+          if (pContactId) {
+            try {
+              subsequent = $app.findFirstRecordByFilter(
+                'appointments',
+                'id != {:thisId} && patient_id = {:pid} && starts_at > {:st} && status != "cancelado"',
+                { thisId: local.id, pid: pContactId, st: startsAt },
               )
-          } catch (_) {}
+            } catch (_) {}
+          }
+          if (!subsequent && pPhone.length >= 8) {
+            var suf = pPhone.slice(-8)
+            try {
+              var cands = $app.findRecordsByFilter(
+                'appointments',
+                'id != {:thisId} && patient_phone ~ {:suf} && starts_at > {:st} && status != "cancelado"',
+                'starts_at',
+                5,
+                0,
+                { thisId: local.id, suf: suf, st: startsAt },
+              )
+              if (cands && cands.length > 0) {
+                subsequent = cands[0]
+              }
+            } catch (_) {}
+          }
+          if (!subsequent && pName.length >= 4) {
+            try {
+              var pNorm = normalizeName(pName)
+              var nameCands = $app.findRecordsByFilter(
+                'appointments',
+                'id != {:thisId} && patient_name ~ {:nm} && starts_at > {:st} && status != "cancelado"',
+                'starts_at',
+                10,
+                0,
+                { thisId: local.id, nm: pName.split(' ')[0], st: startsAt },
+              )
+              for (var nc = 0; nc < nameCands.length; nc++) {
+                var candNorm = normalizeName(nameCands[nc].getString('patient_name'))
+                if (
+                  candNorm &&
+                  (candNorm === pNorm ||
+                    candNorm.indexOf(pNorm) !== -1 ||
+                    pNorm.indexOf(candNorm) !== -1)
+                ) {
+                  subsequent = nameCands[nc]
+                  break
+                }
+              }
+            } catch (_) {}
+          }
+
+          if (subsequent) {
+            local.set('status', 'remarcado')
+            local.set('rescheduled_to_id', subsequent.id)
+            var currentNotesR = local.getString('notes') || ''
+            var remNote =
+              'Remarcado na agenda oficial (novo agendamento em ' +
+              subsequent.getString('starts_at') +
+              ')'
+            if (currentNotesR.indexOf('Remarcado na agenda oficial') === -1) {
+              local.set('notes', currentNotesR ? currentNotesR + ' - ' + remNote : remNote)
+            }
+            local.set('last_synced_at', new Date().toISOString())
+            try {
+              $app.saveNoValidate(local)
+              reclassifiedCount++
+              $app
+                .logger()
+                .info(
+                  '[cron_reconciliacao_ia] Reclassificado para remarcado (novo agendamento encontrado)',
+                  'id',
+                  local.id,
+                  'paciente',
+                  pName,
+                  'novo_starts_at',
+                  subsequent.getString('starts_at'),
+                )
+            } catch (_) {}
+          } else {
+            // Ausente sem novo agendamento -> a_confirmar + Fila de Reconciliação
+            local.set('status', 'a_confirmar')
+            var currentNotesA = local.getString('notes') || ''
+            var confNote = 'Ausente da agenda oficial sem remarcação — pendente confirmação'
+            if (currentNotesA.indexOf('Ausente da agenda oficial') === -1) {
+              local.set('notes', currentNotesA ? currentNotesA + ' - ' + confNote : confNote)
+            }
+            local.set('last_synced_at', new Date().toISOString())
+            try {
+              $app.saveNoValidate(local)
+              reclassifiedCount++
+              $app
+                .logger()
+                .info(
+                  '[cron_reconciliacao_ia] Reclassificado para a_confirmar (Fila de Reconciliação)',
+                  'id',
+                  local.id,
+                  'paciente',
+                  pName,
+                )
+            } catch (_) {}
+
+            createTask(
+              'Reconciliar agendamento ausente: ' + pName,
+              'O agendamento de ' +
+                pName +
+                ' em ' +
+                startsAt +
+                ' sumiu da agenda oficial sem novo agendamento registrado. Marcado como "a_confirmar" para validação pela Fabiana.',
+              pContactId,
+            )
+          }
         }
         continue
       }
@@ -282,6 +401,7 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
       // Cenário B: Item consta na oficial, comparar status
       var remoteStatus = remote.status || 'agendado'
 
+      // Cancelado APENAS se for explícito na oficial
       if (remoteStatus === 'cancelado' && localStatus !== 'cancelado') {
         local.set('status', 'cancelado')
         var notesR = local.getString('notes')
@@ -290,11 +410,11 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
         local.set('last_synced_at', new Date().toISOString())
         try {
           $app.saveNoValidate(local)
-          softCancelledCount++
+          reclassifiedCount++
           $app
             .logger()
             .info(
-              '[cron_reconciliacao_ia] Soft-cancel aplicado: status cancelado na oficial',
+              '[cron_reconciliacao_ia] Cancelamento explícito confirmado na oficial',
               'id',
               local.id,
               'paciente',
@@ -322,7 +442,9 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
       } else if (
         localStatus !== remoteStatus &&
         localStatus !== 'confirmado' &&
-        localStatus !== 'cancelado'
+        localStatus !== 'cancelado' &&
+        localStatus !== 'remarcado' &&
+        localStatus !== 'a_confirmar'
       ) {
         createTask(
           'Divergência na agenda: ' + pName,
@@ -534,8 +656,8 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
       .logger()
       .info(
         '[cron_reconciliacao_ia] Ciclo finalizado com sucesso',
-        'soft_cancelled',
-        softCancelledCount,
+        'reclassified',
+        reclassifiedCount,
         'aligned',
         alignedCount,
         'resolved_orphans',
