@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-19T22:33:03.198Z",
+  "generatedAt": "2026-10-19T23:10:03.298Z",
   "collections": [
     {
       "name": "users",
@@ -2297,7 +2297,8 @@
             "realizado",
             "faltou",
             "remarcado",
-            "cancelado"
+            "cancelado",
+            "a_confirmar"
           ]
         },
         {
@@ -2398,6 +2399,13 @@
           "type": "date",
           "required": false,
           "system": false
+        },
+        {
+          "name": "rescheduled_to_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "appointments"
         }
       ],
       "indexes": [

@@ -468,27 +468,104 @@ cronAdd('agenda_external_sync', '12,42 * * * *', () => {
             if (!localExtId) continue
 
             var remoteItem = returnedExternalIds[localExtId]
-            var shouldSoftCancel = false
-            var reason = ''
+            var pId = localRec.getString('patient_id')
+            var pPhone = cleanDigits(localRec.getString('patient_phone'))
+            var pName = normalizeName(localRec.getString('patient_name'))
+            var startsAt = localRec.getString('starts_at')
 
-            if (!remoteItem) {
-              shouldSoftCancel = true
-              reason = 'Cancelado/removido na agenda oficial'
-            } else if (remoteItem.status === 'cancelado') {
-              shouldSoftCancel = true
-              reason = 'Cancelado na agenda oficial'
+            // Caso explícito da origem: remoteItem existe com status 'cancelado'
+            if (remoteItem && remoteItem.status === 'cancelado') {
+              localRec.set('status', 'cancelado')
+              var notesExp = localRec.getString('notes') || ''
+              var expReason = 'Cancelado na agenda oficial'
+              if (notesExp.indexOf(expReason) === -1) {
+                localRec.set('notes', notesExp ? notesExp + ' (' + expReason + ')' : expReason)
+              }
+              localRec.set('last_synced_at', new Date().toISOString())
+              try {
+                $app.saveNoValidate(localRec)
+                softCancelledCount++
+              } catch (_) {}
+              continue
             }
 
-            if (shouldSoftCancel) {
-              localRec.set('status', 'cancelado')
-              var currentNotes = localRec.getString('notes')
-              if (currentNotes) {
-                if (currentNotes.indexOf(reason) === -1) {
-                  localRec.set('notes', currentNotes + ' (' + reason + ')')
+            // Caso ausente da origem (sumiu da resposta oficial dentro da janela retornada)
+            if (!remoteItem) {
+              // Checar se existe novo agendamento posterior do mesmo paciente
+              var subsequent = null
+              if (pId) {
+                try {
+                  subsequent = $app.findFirstRecordByFilter(
+                    'appointments',
+                    'id != {:thisId} && patient_id = {:pid} && starts_at > {:st} && status != "cancelado"',
+                    { thisId: localRec.id, pid: pId, st: startsAt },
+                  )
+                } catch (_) {}
+              }
+              if (!subsequent && pPhone.length >= 8) {
+                var suf = pPhone.slice(-8)
+                try {
+                  var cands = $app.findRecordsByFilter(
+                    'appointments',
+                    'id != {:thisId} && patient_phone ~ {:suf} && starts_at > {:st} && status != "cancelado"',
+                    'starts_at',
+                    5,
+                    0,
+                    { thisId: localRec.id, suf: suf, st: startsAt },
+                  )
+                  if (cands && cands.length > 0) {
+                    subsequent = cands[0]
+                  }
+                } catch (_) {}
+              }
+              if (!subsequent && pName.length >= 4) {
+                try {
+                  var rawName = localRec.getString('patient_name').trim()
+                  var nameCands = $app.findRecordsByFilter(
+                    'appointments',
+                    'id != {:thisId} && patient_name ~ {:nm} && starts_at > {:st} && status != "cancelado"',
+                    'starts_at',
+                    10,
+                    0,
+                    { thisId: localRec.id, nm: rawName.split(' ')[0], st: startsAt },
+                  )
+                  for (var nc = 0; nc < nameCands.length; nc++) {
+                    var candNorm = normalizeName(nameCands[nc].getString('patient_name'))
+                    if (
+                      candNorm &&
+                      (candNorm === pName ||
+                        candNorm.indexOf(pName) !== -1 ||
+                        pName.indexOf(candNorm) !== -1)
+                    ) {
+                      subsequent = nameCands[nc]
+                      break
+                    }
+                  }
+                } catch (_) {}
+              }
+
+              if (subsequent) {
+                // (a) Existe novo agendamento posterior -> remarcado
+                localRec.set('status', 'remarcado')
+                localRec.set('rescheduled_to_id', subsequent.id)
+                var currentNotesR = localRec.getString('notes') || ''
+                var remNote =
+                  'Remarcado na agenda oficial (novo agendamento em ' +
+                  subsequent.getString('starts_at') +
+                  ')'
+                if (currentNotesR.indexOf('Remarcado na agenda oficial') === -1) {
+                  localRec.set('notes', currentNotesR ? currentNotesR + ' - ' + remNote : remNote)
                 }
               } else {
-                localRec.set('notes', reason)
+                // (b) Some sem novo agendamento -> a_confirmar (Fila de Reconciliação — NUNCA cancelar automaticamente)
+                localRec.set('status', 'a_confirmar')
+                var currentNotesA = localRec.getString('notes') || ''
+                var confNote = 'Ausente da agenda oficial sem remarcação — pendente confirmação'
+                if (currentNotesA.indexOf('Ausente da agenda oficial') === -1) {
+                  localRec.set('notes', currentNotesA ? currentNotesA + ' - ' + confNote : confNote)
+                }
               }
+
               localRec.set('last_synced_at', new Date().toISOString())
               try {
                 $app.saveNoValidate(localRec)
@@ -1032,27 +1109,104 @@ routerAdd('POST', '/backend/v1/agenda/sync', (e) => {
             if (!localExtId) continue
 
             var remoteItem = returnedExternalIds[localExtId]
-            var shouldSoftCancel = false
-            var reason = ''
+            var pId = localRec.getString('patient_id')
+            var pPhone = cleanDigits(localRec.getString('patient_phone'))
+            var pName = normalizeName(localRec.getString('patient_name'))
+            var startsAt = localRec.getString('starts_at')
 
-            if (!remoteItem) {
-              shouldSoftCancel = true
-              reason = 'Cancelado/removido na agenda oficial'
-            } else if (remoteItem.status === 'cancelado') {
-              shouldSoftCancel = true
-              reason = 'Cancelado na agenda oficial'
+            // Caso explícito da origem: remoteItem existe com status 'cancelado'
+            if (remoteItem && remoteItem.status === 'cancelado') {
+              localRec.set('status', 'cancelado')
+              var notesExp = localRec.getString('notes') || ''
+              var expReason = 'Cancelado na agenda oficial'
+              if (notesExp.indexOf(expReason) === -1) {
+                localRec.set('notes', notesExp ? notesExp + ' (' + expReason + ')' : expReason)
+              }
+              localRec.set('last_synced_at', new Date().toISOString())
+              try {
+                $app.saveNoValidate(localRec)
+                softCancelledCount++
+              } catch (_) {}
+              continue
             }
 
-            if (shouldSoftCancel) {
-              localRec.set('status', 'cancelado')
-              var currentNotes = localRec.getString('notes')
-              if (currentNotes) {
-                if (currentNotes.indexOf(reason) === -1) {
-                  localRec.set('notes', currentNotes + ' (' + reason + ')')
+            // Caso ausente da origem (sumiu da resposta oficial dentro da janela retornada)
+            if (!remoteItem) {
+              // Checar se existe novo agendamento posterior do mesmo paciente
+              var subsequent = null
+              if (pId) {
+                try {
+                  subsequent = $app.findFirstRecordByFilter(
+                    'appointments',
+                    'id != {:thisId} && patient_id = {:pid} && starts_at > {:st} && status != "cancelado"',
+                    { thisId: localRec.id, pid: pId, st: startsAt },
+                  )
+                } catch (_) {}
+              }
+              if (!subsequent && pPhone.length >= 8) {
+                var suf = pPhone.slice(-8)
+                try {
+                  var cands = $app.findRecordsByFilter(
+                    'appointments',
+                    'id != {:thisId} && patient_phone ~ {:suf} && starts_at > {:st} && status != "cancelado"',
+                    'starts_at',
+                    5,
+                    0,
+                    { thisId: localRec.id, suf: suf, st: startsAt },
+                  )
+                  if (cands && cands.length > 0) {
+                    subsequent = cands[0]
+                  }
+                } catch (_) {}
+              }
+              if (!subsequent && pName.length >= 4) {
+                try {
+                  var rawName = localRec.getString('patient_name').trim()
+                  var nameCands = $app.findRecordsByFilter(
+                    'appointments',
+                    'id != {:thisId} && patient_name ~ {:nm} && starts_at > {:st} && status != "cancelado"',
+                    'starts_at',
+                    10,
+                    0,
+                    { thisId: localRec.id, nm: rawName.split(' ')[0], st: startsAt },
+                  )
+                  for (var nc = 0; nc < nameCands.length; nc++) {
+                    var candNorm = normalizeName(nameCands[nc].getString('patient_name'))
+                    if (
+                      candNorm &&
+                      (candNorm === pName ||
+                        candNorm.indexOf(pName) !== -1 ||
+                        pName.indexOf(candNorm) !== -1)
+                    ) {
+                      subsequent = nameCands[nc]
+                      break
+                    }
+                  }
+                } catch (_) {}
+              }
+
+              if (subsequent) {
+                // (a) Existe novo agendamento posterior -> remarcado
+                localRec.set('status', 'remarcado')
+                localRec.set('rescheduled_to_id', subsequent.id)
+                var currentNotesR = localRec.getString('notes') || ''
+                var remNote =
+                  'Remarcado na agenda oficial (novo agendamento em ' +
+                  subsequent.getString('starts_at') +
+                  ')'
+                if (currentNotesR.indexOf('Remarcado na agenda oficial') === -1) {
+                  localRec.set('notes', currentNotesR ? currentNotesR + ' - ' + remNote : remNote)
                 }
               } else {
-                localRec.set('notes', reason)
+                // (b) Some sem novo agendamento -> a_confirmar (Fila de Reconciliação — NUNCA cancelar automaticamente)
+                localRec.set('status', 'a_confirmar')
+                var currentNotesA = localRec.getString('notes') || ''
+                var confNote = 'Ausente da agenda oficial sem remarcação — pendente confirmação'
+                if (currentNotesA.indexOf('Ausente da agenda oficial') === -1) {
+                  localRec.set('notes', currentNotesA ? currentNotesA + ' - ' + confNote : confNote)
+                }
               }
+
               localRec.set('last_synced_at', new Date().toISOString())
               try {
                 $app.saveNoValidate(localRec)
