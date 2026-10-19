@@ -164,7 +164,13 @@ export function PatientContextPanel({
                 }),
               {
                 label: 'PatientContextPanel:recentMsgs',
-                fallback: { items: [], totalItems: 0 },
+                fallback: {
+                  page: 1,
+                  perPage: 15,
+                  totalItems: 0,
+                  totalPages: 0,
+                  items: [],
+                },
                 timeoutMs: 4000,
                 maxRetries: 1,
               },

@@ -134,7 +134,13 @@ export function AgendaReconciliationQueue() {
                 }),
               {
                 label: `evidence:${app.id}`,
-                fallback: { items: [], totalItems: 0 },
+                fallback: {
+                  page: 1,
+                  perPage: 200,
+                  totalItems: 0,
+                  totalPages: 0,
+                  items: [],
+                },
                 timeoutMs: 5000,
                 maxRetries: 1,
               },

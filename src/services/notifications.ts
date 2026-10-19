@@ -11,7 +11,13 @@ export const getNotifications = async (page = 1, perPage = 30) => {
       }),
     {
       label: 'getNotifications',
-      fallback: { items: [], page: 1, perPage, totalItems: 0, totalPages: 0 } as any,
+      fallback: {
+        page,
+        perPage,
+        totalItems: 0,
+        totalPages: 0,
+        items: [],
+      },
       timeoutMs: 5000,
       maxRetries: 1,
     },
@@ -28,7 +34,13 @@ export const getUnreadNotificationCount = async () => {
         }),
       {
         label: 'getUnreadNotificationCount',
-        fallback: { items: [], totalItems: 0 } as any,
+        fallback: {
+          page: 1,
+          perPage: 1,
+          totalItems: 0,
+          totalPages: 0,
+          items: [],
+        },
         timeoutMs: 4000,
         maxRetries: 1,
       },
