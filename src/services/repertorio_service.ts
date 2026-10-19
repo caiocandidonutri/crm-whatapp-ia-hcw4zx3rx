@@ -254,6 +254,37 @@ function classificarMensagem(texto: string): RepertorioCategoria | null {
     return 'reengajamento'
   }
 
+  // 8. Cuidado familiar e empatia
+  if (
+    t.includes('melhoras para seu pai') ||
+    t.includes('melhoras para sua mãe') ||
+    t.includes('melhoras para o seu pai') ||
+    t.includes('melhoras para a sua mãe') ||
+    t.includes('como está seu pai') ||
+    t.includes('como está sua mãe') ||
+    t.includes('como está a sua família') ||
+    t.includes('como está a família') ||
+    t.includes('um abraço para a família') ||
+    t.includes('espero que sua família esteja bem')
+  ) {
+    return 'cuidado_familiar'
+  }
+
+  // 9. Ligação / Áudio longo
+  if (
+    t.includes('te liguei') ||
+    t.includes('tentei te ligar') ||
+    t.includes('vou te mandar um áudio') ||
+    t.includes('vou te gravar um áudio') ||
+    t.includes('gravei um áudio') ||
+    t.includes('ouça com calma o áudio') ||
+    t.includes('ouça o áudio') ||
+    t.includes('áudio explicando') ||
+    t.includes('audio explicando')
+  ) {
+    return 'ligacao_audio_longo'
+  }
+
   return null
 }
 
@@ -359,6 +390,30 @@ const PADROES_BASE_FABIANA: {
       'Qualquer coisa, pode me chamar',
       'E fico aqui a sua disposição',
       'Fica com Deus 🙏',
+    ],
+  },
+  {
+    categoria: 'ligacao_audio_longo',
+    titulo: 'Explicação Detalhada por Voz / Áudio Longo',
+    molde:
+      'Oi, {nome}! Gravei um áudio explicando certinho todos os detalhes para você ouvir com calma quando puder. Qualquer dúvida estou por aqui! 🎙️💚',
+    triggerType: 'pos_consulta',
+    exemplosBase: [
+      'Vou te gravar um áudio explicando com calma como funcionam os atendimentos.',
+      'Te mandei esse áudio detalhando as opções de horários com o Dr. Caio.',
+      'Ouça esse áudio com calma e me diga o que acha melhor!',
+    ],
+  },
+  {
+    categoria: 'cuidado_familiar',
+    titulo: 'Cuidado Familiar & Acolhimento Empático',
+    molde:
+      '{nome}, passando também para saber como está a sua família e desejar melhoras! Esperamos que esteja tudo se ajeitando por aí com muito carinho. Um abraço afetuoso! 🙏💚',
+    triggerType: 'pos_consulta',
+    exemplosBase: [
+      'Melhoras para seu pai! Estamos em oração por aqui.',
+      'Como está sua mãe? Espero que ela já esteja se sentindo bem melhor!',
+      'Um abraço carinhoso para você e toda a sua família.',
     ],
   },
 ]
@@ -479,6 +534,8 @@ export async function analisarRepertorioFabiana(
     reengajamento: 0,
     encaminhamento_medico: 0,
     despedida: 0,
+    ligacao_audio_longo: 0,
+    cuidado_familiar: 0,
   }
 
   const exemplosPorCategoria: Record<RepertorioCategoria, ExemploReal[]> = {
@@ -489,6 +546,8 @@ export async function analisarRepertorioFabiana(
     reengajamento: [],
     encaminhamento_medico: [],
     despedida: [],
+    ligacao_audio_longo: [],
+    cuidado_familiar: [],
   }
 
   const estagiosPorCategoria: Record<RepertorioCategoria, Set<string>> = {
@@ -499,6 +558,8 @@ export async function analisarRepertorioFabiana(
     reengajamento: new Set(),
     encaminhamento_medico: new Set(),
     despedida: new Set(),
+    ligacao_audio_longo: new Set(),
+    cuidado_familiar: new Set(),
   }
 
   let totalMsgsValidas = 0
