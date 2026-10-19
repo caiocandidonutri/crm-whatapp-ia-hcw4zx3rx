@@ -1233,11 +1233,11 @@ export default function FilaDoDia() {
                       <Clock className="w-3 h-3" />
                       <span>
                         Último contato:{' '}
-                        {item.lastContactAt ? (
+                        {item.lastContactAt && !isNaN(item.lastContactAt.getTime()) ? (
                           <>
-                            {formatBrazilianDate(item.lastContactAt.toISOString())}{' '}
+                            {formatBrazilianDate(item.lastContactAt)}{' '}
                             <span className="font-mono text-[11px]">
-                              {formatTimeSaoPaulo(item.lastContactAt.toISOString())}
+                              {formatTimeSaoPaulo(item.lastContactAt)}
                             </span>
                           </>
                         ) : (

@@ -907,27 +907,28 @@ export default function Home() {
                 <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Financeiro</span>
               </Button>
-            <Badge
-              variant="outline"
-              className={cn(
-                'text-[10px] font-bold border-0 shrink-0',
-                (commandCenter.unreadConversations ?? 0) +
+              <Badge
+                variant="outline"
+                className={cn(
+                  'text-[10px] font-bold border-0 shrink-0',
+                  (commandCenter.unreadConversations ?? 0) +
+                    pendingTasksCount +
+                    (commandCenter.todayAppointments ?? 0) +
+                    overdueTasksCount >
+                    0
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-emerald-100 text-emerald-800',
+                )}
+              >
+                {(commandCenter.unreadConversations ?? 0) +
                   pendingTasksCount +
                   (commandCenter.todayAppointments ?? 0) +
                   overdueTasksCount >
-                  0
-                  ? 'bg-amber-100 text-amber-800'
-                  : 'bg-emerald-100 text-emerald-800',
-              )}
-            >
-              {(commandCenter.unreadConversations ?? 0) +
-                pendingTasksCount +
-                (commandCenter.todayAppointments ?? 0) +
-                overdueTasksCount >
-              0
-                ? 'Ação necessária'
-                : 'Tudo em dia'}
-            </Badge>
+                0
+                  ? 'Ação necessária'
+                  : 'Tudo em dia'}
+              </Badge>
+            </div>
           </div>
         </CardHeader>
 

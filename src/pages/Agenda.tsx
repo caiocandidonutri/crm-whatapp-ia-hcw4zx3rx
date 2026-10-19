@@ -861,8 +861,8 @@ export default function Agenda() {
       if (!app || !app.starts_at) return false
       const appYmd = app.starts_at.slice(0, 10)
       if (appYmd !== yesterdayYmd) return false
-      // Se ainda estiver agendado/aguardando/confirmado, necessita fechamento
-      return app.status === 'agendado' || app.status === 'aguardando' || app.status === 'confirmado'
+      // Se ainda estiver agendado/confirmado, necessita fechamento
+      return (app.status as string) === 'agendado' || app.status === 'confirmado'
     })
   }, [allAppointments])
 

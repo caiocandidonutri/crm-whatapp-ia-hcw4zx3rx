@@ -40,11 +40,11 @@ export function useCurrentAccount() {
     fetchAccount()
   }, [fetchAccount])
 
-  // `account` é um shim de conveniência: vários consumidores leem
-  // `const { account } = useCurrentAccount()` e usam `account?.id`.
-  // Expor o objeto evita o mismatch (antes liam `account` inexistente,
-  // `account?.id` virava undefined e as categorias não carregavam).
+  // `account` e `currentAccount` são shims de conveniência: vários consumidores leem
+  // `const { account } = useCurrentAccount()` ou `const { currentAccount } = useCurrentAccount()`
+  // e usam `?.id`. Expor ambos evita mismatches.
   const account = accountId ? { id: accountId } : null
+  const currentAccount = account
 
-  return { accountId, account, role, membershipId, loading, refetch: fetchAccount }
+  return { accountId, account, currentAccount, role, membershipId, loading, refetch: fetchAccount }
 }

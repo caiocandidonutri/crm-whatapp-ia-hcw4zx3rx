@@ -20,35 +20,38 @@ export function extractFieldErrors(error: unknown): FieldErrors {
   return errors
 }
 
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof ClientResponseError) {
-    if (error.status === 0 || error.isAbort) return true
-  }
-  const message =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : typeof error === 'string'
-        ? error.toLowerCase()
-        : ''
-  if (!message) return false
-  return (
-    message.includes('failed to fetch') ||
-    message.includes('networkerror') ||
-    message.includes('network error') ||
-    message.includes('aborterror') ||
-    message.includes('abort') ||
-    message.includes('connection refused') ||
-    message.includes('timeout') ||
-    message.includes('err_connection_refused') ||
-    message.includes('load failed')
-  )
-}
-
 export function getErrorMessage(error: unknown): string {
   if (!(error instanceof ClientResponseError)) {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
+}
+
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0) return true
+    if (error.isAbort) return true
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    const name = error.name.toLowerCase()
+    if (name.includes('abort') || msg.includes('abort')) return true
+    if (
+      msg.includes('network') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('connection') ||
+      msg.includes('load failed') ||
+      msg.includes('timeout') ||
+      msg.includes('offline')
+    ) {
+      return true
+    }
+  }
+  if (typeof error === 'object' && 'name' in error) {
+    const name = String((error as { name?: unknown }).name).toLowerCase()
+    if (name.includes('abort') || name.includes('network')) return true
+  }
+  return false
 }
