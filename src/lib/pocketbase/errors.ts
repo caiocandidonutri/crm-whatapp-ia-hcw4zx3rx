@@ -31,27 +31,17 @@ export function getErrorMessage(error: unknown): string {
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
   if (error instanceof ClientResponseError) {
-    if (error.status === 0) return true
-    if (error.isAbort) return true
+    if (error.status === 0 || error.isAbort) return true
   }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    const name = error.name.toLowerCase()
-    if (name.includes('abort') || msg.includes('abort')) return true
-    if (
-      msg.includes('network') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('connection') ||
-      msg.includes('load failed') ||
-      msg.includes('timeout') ||
-      msg.includes('offline')
-    ) {
-      return true
-    }
-  }
-  if (typeof error === 'object' && 'name' in error) {
-    const name = String((error as { name?: unknown }).name).toLowerCase()
-    if (name.includes('abort') || name.includes('network')) return true
-  }
-  return false
+  const msg = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+  const lower = msg.toLowerCase()
+  return (
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network error') ||
+    lower.includes('aborterror') ||
+    lower.includes('signal is aborted') ||
+    lower.includes('connection refused') ||
+    lower.includes('load failed')
+  )
 }
