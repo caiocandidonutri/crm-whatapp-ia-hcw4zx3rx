@@ -40,11 +40,13 @@ export function CareAlertSettings({ accountId }: CareAlertSettingsProps) {
   const [togglingKill, setTogglingKill] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
 
+  const DEFAULT_DR_CAIO_PHONE = '553599288027'
+
   const load = useCallback(async () => {
     try {
       const settings = await getCareAlertSettings(accountId)
       if (settings) {
-        setPhone(settings.whatsapp_alert_phone || '')
+        setPhone(settings.whatsapp_alert_phone || DEFAULT_DR_CAIO_PHONE)
         setFollowupEnabled(settings.followup_alert_enabled ?? true)
         setNeedsCareEnabled(settings.needs_care_alert_enabled ?? true)
         setConfirmationEnabled(settings.confirmation_alert_enabled ?? true)

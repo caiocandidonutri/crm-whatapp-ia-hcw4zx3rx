@@ -31,13 +31,26 @@ cronAdd('health_check', '51 * * * *', function () {
       'CHATS_UPDATE',
     ]
 
+    // Prioriza instâncias conectadas e ignora instâncias arquivadas ou mortas.
+    // NUNCA rodar restart, logout, reconnect ou delete na Evolution API: apenas leitura (connectionState).
     var instances = $app.findRecordsByFilter(
       'whatsapp_instances',
-      "status != ''",
+      "status = 'connected' || (status != 'archived' && status != 'morto' && status != 'qrcode')",
       '+last_health_check_at',
       MAX_INSTANCES_PER_RUN,
       0,
     )
+
+    // Se nenhuma ativa encontrada com esse filtro, pega as não-arquivadas
+    if (!instances || instances.length === 0) {
+      instances = $app.findRecordsByFilter(
+        'whatsapp_instances',
+        "status != 'archived'",
+        '+last_health_check_at',
+        MAX_INSTANCES_PER_RUN,
+        0,
+      )
+    }
 
     for (var i = 0; i < instances.length; i++) {
       if (Date.now() - cycleStartMs > MAX_CYCLE_DURATION_MS) {
@@ -45,7 +58,7 @@ cronAdd('health_check', '51 * * * *', function () {
       }
 
       var instance = instances[i]
-      var instanceName = instance.getString('name')
+      var instanceName = instance.getString('instance_name') || instance.getString('name')
       var currentStatus = instance.getString('status')
       var disconnectedAt = instance.getString('disconnected_at')
 
@@ -54,6 +67,7 @@ cronAdd('health_check', '51 * * * *', function () {
       try {
         instance.set('last_health_check_at', new Date().toISOString().replace('T', ' '))
 
+        // CHECAGEM APENAS LEITURA: nunca desconectar / reconectar / reiniciar
         var resConn = $http.send({
           url: apiUrl + '/instance/connectionState/' + instanceName,
           method: 'GET',
@@ -109,22 +123,12 @@ cronAdd('health_check', '51 * * * *', function () {
             } catch (_) {}
           }
         } else if (connState === 'close' || connState === 'connecting') {
+          // Apenas atualiza status local se mudou; NÃO emite restart nem reconexão (regra estrita)
           if (currentStatus === 'connected') {
             instance.set('status', 'disconnected')
             if (!disconnectedAt) {
               instance.set('disconnected_at', new Date().toISOString().replace('T', ' '))
             }
-          }
-
-          var attempts = instance.getInt('auto_reconnect_attempts') || 0
-          if (attempts < 2) {
-            instance.set('auto_reconnect_attempts', attempts + 1)
-            $http.send({
-              url: apiUrl + '/instance/restart/' + instanceName,
-              method: 'POST',
-              headers: headers,
-              timeout: 3,
-            })
           }
         }
 

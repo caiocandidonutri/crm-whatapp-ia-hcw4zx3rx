@@ -29,70 +29,51 @@ export function getErrorMessage(error: unknown): string {
 }
 
 /**
- * Identifica erros de rede, cancelamento/abort e falhas de conexão com o backend.
- * Exportação obrigatória para prevenir regressões de runtime e build.
+ * Checks if the error is a network error, timeout, or abort.
+ * CRITICAL: Kept permanently to avoid MISSING_EXPORT build regressions.
  */
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
-  if (typeof error === 'object') {
-    const e = error as any
-    if (e.name === 'AbortError' || e.name === 'CanceledError' || e.code === 'ERR_CANCELED') {
-      return true
-    }
-    if (e.isAbort === true) return true
-    if (e.status === 0 || e.statusCode === 0) return true
-    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
-    if (
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('network request failed') ||
-      msg.includes('signal is aborted') ||
-      msg.includes('aborterror') ||
-      msg.includes('autocancelled') ||
-      msg.includes('connection refused') ||
-      msg.includes('err_connection')
-    ) {
-      return true
-    }
-    if (e.originalError && isNetworkError(e.originalError)) return true
-    if (e.cause && isNetworkError(e.cause)) return true
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0) return true
   }
-  return false
+  const msg = error instanceof Error ? error.message : String(error)
+  const lower = msg.toLowerCase()
+  return (
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network error') ||
+    lower.includes('aborterror') ||
+    lower.includes('signal is aborted') ||
+    lower.includes('econnrefused') ||
+    lower.includes('etimedout')
+  )
 }
 
 /**
- * Detecta resposta de rate-limit (HTTP 429).
+ * Checks if error is an HTTP 429 Rate Limit error.
  */
 export function isRateLimitError(error: unknown): boolean {
   if (!error) return false
-  if (typeof error === 'object') {
-    const e = error as any
-    if (e.status === 429 || e.statusCode === 429) return true
-    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
-    if (msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit')) {
-      return true
-    }
-    if (e.originalError && isRateLimitError(e.originalError)) return true
+  if (typeof error === 'object' && error !== null) {
+    if ('status' in error && (error as { status: number }).status === 429) return true
   }
-  return false
+  const msg = error instanceof Error ? error.message : String(error)
+  return msg.includes('429') || msg.toLowerCase().includes('too many requests')
 }
 
 /**
- * Extrai o tempo de espera em milissegundos do cabeçalho Retry-After ou usa fallback.
+ * Extracts Retry-After duration in milliseconds from error headers or fallback.
  */
-export function parseRetryAfterMs(error: unknown, fallbackMs = 1500): number {
-  if (!error || typeof error !== 'object') return fallbackMs
-  const e = error as any
-  const headerVal =
-    e.response?.headers?.['retry-after'] ||
-    e.response?.headers?.['Retry-After'] ||
-    e.headers?.['retry-after'] ||
-    e.headers?.['Retry-After']
-
-  if (headerVal) {
-    const parsedSec = Number(headerVal)
-    if (!Number.isNaN(parsedSec) && parsedSec > 0) {
-      return Math.min(Math.max(parsedSec * 1000, 500), 15000)
+export function parseRetryAfterMs(error: unknown, fallbackMs = 1000): number {
+  if (error && typeof error === 'object') {
+    const response = (error as { response?: { headers?: Record<string, string> } }).response
+    const retryAfter = response?.headers?.['retry-after'] || response?.headers?.['Retry-After']
+    if (retryAfter) {
+      const parsedSeconds = parseInt(retryAfter, 10)
+      if (!Number.isNaN(parsedSeconds) && parsedSeconds > 0) {
+        return parsedSeconds * 1000
+      }
     }
   }
   return fallbackMs
