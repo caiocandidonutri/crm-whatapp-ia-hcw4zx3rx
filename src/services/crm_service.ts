@@ -1,4 +1,5 @@
 import pb from '@/lib/pocketbase/client'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
 import { CrmContact } from '@/types/models'
 
 export type AddToCrmOptions = {
@@ -38,18 +39,14 @@ export const getCrmContactByJid = async (instance_name: string, jid: string) => 
 }
 
 export const getCrmContacts = async (instance_name: string) => {
-  try {
-    return await pb.collection('crm_contacts').getFullList<CrmContact>({
-      batch: 200,
-      filter: `instance_name = '${instance_name}'`,
-      sort: '-created',
-      expand: 'assigned_to,company_id',
-      requestKey: null,
-    })
-  } catch (err) {
-    console.warn('[getCrmContacts] Falha ao listar contatos (usando fallback vazio):', err)
-    return [] as CrmContact[]
-  }
+  return safePbFullList<CrmContact>({
+    collection: 'crm_contacts',
+    filter: `instance_name = '${instance_name}'`,
+    sort: '-created',
+    expand: 'assigned_to,company_id',
+    perPage: 200,
+    label: `getCrmContacts(${instance_name})`,
+  })
 }
 
 export const getCrmContactsPage = async (

@@ -1,4 +1,5 @@
 import pb from '@/lib/pocketbase/client'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
 
 import type { RecordModel } from 'pocketbase'
 
@@ -49,19 +50,14 @@ export function slugifyStageKey(label: string): string {
 }
 
 export async function listCrmStages(accountId: string): Promise<CrmStage[]> {
-  try {
-    return await pb.collection('crm_stages').getFullList<CrmStage>({
-      batch: 100,
-      filter: `account_id = "${accountId}"`,
-      sort: 'position',
-      requestKey: null,
-    })
-  } catch (err) {
-    console.warn('[listCrmStages] Falha silenciosa ao carregar etapas:', err)
-    return []
-  }
+  return safePbFullList<CrmStage>({
+    collection: 'crm_stages',
+    filter: `account_id = "${accountId}"`,
+    sort: 'position',
+    perPage: 200,
+    label: `listCrmStages(${accountId})`,
+  })
 }
-
 export async function createCrmStage(data: Partial<CrmStage>): Promise<CrmStage> {
   const account_id = data.account_id || (await resolveAccountId())
   return pb.collection('crm_stages').create<CrmStage>({ ...data, account_id })
@@ -93,9 +89,11 @@ export async function countContactsInStage(stageKey: string): Promise<number> {
 
 /** Move todos os contatos de uma etapa para outra (ao excluir uma etapa). */
 export async function reassignContactsStage(fromKey: string, toKey: string): Promise<void> {
-  const contacts = await pb.collection('crm_contacts').getFullList({
+  const contacts = await safePbFullList<{ id: string }>({
+    collection: 'crm_contacts',
     filter: `stage = "${fromKey}"`,
-    requestKey: null,
+    perPage: 200,
+    label: `reassignContactsStage(${fromKey}->${toKey})`,
   })
   for (const c of contacts) {
     await pb.collection('crm_contacts').update(c.id, { stage: toKey }, { requestKey: null })

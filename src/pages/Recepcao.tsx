@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import pb from '@/lib/pocketbase/client'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -103,11 +104,13 @@ export default function Recepcao() {
           return
         }
 
-        // Buscar registro de onboarding_progress do usuário
-        const records = await pb.collection('onboarding_progress').getFullList({
+        // Buscar registro de onboarding_progress do usuário com safePbFullList
+        const records = await safePbFullList<any>({
+          collection: 'onboarding_progress',
           filter: `user_id = "${currentUserId}"`,
           sort: '-updated',
-          requestKey: null,
+          perPage: 200,
+          label: 'Recepcao:onboarding_progress',
         })
 
         if (cancelled) return

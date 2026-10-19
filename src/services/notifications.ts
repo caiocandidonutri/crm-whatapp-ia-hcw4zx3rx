@@ -1,20 +1,39 @@
 import pb from '@/lib/pocketbase/client'
+import { safePbQuery, safePbFullList } from '@/lib/pocketbase/resilient'
 import { Notification } from '@/types/models'
 
 export const getNotifications = async (page = 1, perPage = 30) => {
-  return pb.collection('notifications').getList<Notification>(page, perPage, {
-    sort: '-created',
-    requestKey: null,
-  })
+  return safePbQuery(
+    () =>
+      pb.collection('notifications').getList<Notification>(page, perPage, {
+        sort: '-created',
+        requestKey: null,
+      }),
+    {
+      label: 'getNotifications',
+      fallback: { items: [], page: 1, perPage, totalItems: 0, totalPages: 0 } as any,
+      timeoutMs: 5000,
+      maxRetries: 1,
+    },
+  )
 }
 
 export const getUnreadNotificationCount = async () => {
   try {
-    const result = await pb.collection('notifications').getList(1, 1, {
-      filter: 'read = false',
-      requestKey: null,
-    })
-    return result.totalItems
+    const result = await safePbQuery(
+      () =>
+        pb.collection('notifications').getList(1, 1, {
+          filter: 'read = false',
+          requestKey: null,
+        }),
+      {
+        label: 'getUnreadNotificationCount',
+        fallback: { items: [], totalItems: 0 } as any,
+        timeoutMs: 4000,
+        maxRetries: 1,
+      },
+    )
+    return result?.totalItems ?? 0
   } catch {
     return 0
   }
@@ -28,10 +47,11 @@ export const markNotificationAsRead = async (id: string) => {
 
 export const markAllNotificationsAsRead = async () => {
   try {
-    const unread = await pb.collection('notifications').getFullList({
-      batch: 200,
+    const unread = await safePbFullList<{ id: string }>({
+      collection: 'notifications',
+      perPage: 200,
       filter: 'read = false',
-      requestKey: null,
+      label: 'markAllNotificationsAsRead',
     })
     await Promise.all(
       unread.map((n) =>

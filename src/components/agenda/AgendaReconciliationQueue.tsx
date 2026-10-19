@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import pb from '@/lib/pocketbase/client'
-import { safePbFullList } from '@/lib/pocketbase/resilient'
+import { safePbFullList, safePbQuery } from '@/lib/pocketbase/resilient'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -123,19 +123,28 @@ export function AgendaReconciliationQueue() {
           const d1 = new Date(start.getTime() + (EVIDENCE_WINDOW_DAYS + 1) * 86400_000)
 
           try {
-            // whatsapp_messages.timestamp é numérico (epoch em segundos) — filter direto sem aspas
-            const msgs = await pb.collection('whatsapp_messages').getList(1, 200, {
-              filter: `remote_jid ~ "${suffix}" && timestamp >= ${Math.floor(d0.getTime() / 1000)} && timestamp <= ${Math.floor(d1.getTime() / 1000)}`,
-              fields: 'id,timestamp,from_me',
-              sort: '-timestamp',
-              requestKey: null,
-            })
-            counts[app.id] = msgs.items.length
+            // Consulta resiliente com safePbQuery (catch individual, timeout, retry 429)
+            const msgs = await safePbQuery(
+              () =>
+                pb.collection('whatsapp_messages').getList(1, 200, {
+                  filter: `remote_jid ~ "${suffix}" && timestamp >= ${Math.floor(d0.getTime() / 1000)} && timestamp <= ${Math.floor(d1.getTime() / 1000)}`,
+                  fields: 'id,timestamp,from_me',
+                  sort: '-timestamp',
+                  requestKey: null,
+                }),
+              {
+                label: `evidence:${app.id}`,
+                fallback: { items: [], totalItems: 0 },
+                timeoutMs: 5000,
+                maxRetries: 1,
+              },
+            )
+            const itemsList = Array.isArray(msgs?.items) ? msgs.items : []
+            counts[app.id] = itemsList.length
             lasts[app.id] =
-              msgs.items.length > 0 ? (toSafeDate(msgs.items[0]?.timestamp) ?? null) : null
+              itemsList.length > 0 ? (toSafeDate(itemsList[0]?.timestamp) ?? null) : null
           } catch {
-            // Qualquer falha (rede, filtro, permissão) degrada a evidência a zero,
-            // mas a fila continua íntegra — nunca quebra a tela.
+            // Qualquer falha degrada a evidência a zero sem subir ao ErrorBoundary
             counts[app.id] = 0
             lasts[app.id] = null
           }

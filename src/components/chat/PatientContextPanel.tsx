@@ -23,7 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { CrmContact, Task, Appointment, Notification } from '@/types/models'
 import pb from '@/lib/pocketbase/client'
-import { safePbFullList } from '@/lib/pocketbase/resilient'
+import { safePbFullList, safePbQuery } from '@/lib/pocketbase/resilient'
 import { resolveDisplayName, formatPhoneBR } from '@/lib/phone'
 import { getCareCategoryMeta, getPriorityMeta, getStatusMeta } from '@/lib/task-meta'
 import { format } from 'date-fns'
@@ -155,13 +155,23 @@ export function PatientContextPanel({
         // Buscar mensagens recentes para detectar menções de orçamento BRL (se contato não tiver budget já salvo)
         if (!foundContact?.budget_value && remoteJid) {
           try {
-            const recentMsgs = await pb.collection('whatsapp_messages').getList(1, 15, {
-              filter: `remote_jid = "${remoteJid}"`,
-              sort: '-timestamp',
-              requestKey: null,
-            })
-            if (!cancelled && recentMsgs.items.length > 0) {
-              for (const m of recentMsgs.items) {
+            const recentMsgs = await safePbQuery(
+              () =>
+                pb.collection('whatsapp_messages').getList(1, 15, {
+                  filter: `remote_jid = "${remoteJid}"`,
+                  sort: '-timestamp',
+                  requestKey: null,
+                }),
+              {
+                label: 'PatientContextPanel:recentMsgs',
+                fallback: { items: [], totalItems: 0 },
+                timeoutMs: 4000,
+                maxRetries: 1,
+              },
+            )
+            const msgItems = Array.isArray(recentMsgs?.items) ? recentMsgs.items : []
+            if (!cancelled && msgItems.length > 0) {
+              for (const m of msgItems) {
                 const text = (m as any).content || ''
                 const extracted = extractBrlBudgetFromText(text)
                 if (extracted) {

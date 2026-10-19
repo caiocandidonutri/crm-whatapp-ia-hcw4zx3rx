@@ -46,6 +46,7 @@ import type { WaitlistEntry, WaitlistStatus, CrmContact } from '@/types/models'
 import { formatBrazilianDate } from '@/lib/datetime'
 import { toast } from 'sonner'
 import pb from '@/lib/pocketbase/client'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
 
 type WaitlistSectionProps = {
   accountId: string
@@ -99,15 +100,16 @@ export function WaitlistSection({ accountId, onOpenChat }: WaitlistSectionProps)
     },
     !!accountId,
   )
-  // Carregar contatos para autocomplete
+  // Carregar contatos para autocomplete com safePbFullList resiliente
   useEffect(() => {
     if (!accountId || !isAddOpen) return
-    pb.collection('crm_contacts')
-      .getFullList<CrmContact>({
-        filter: `account_id="${accountId}"`,
-        sort: 'contact_name',
-        requestKey: null,
-      })
+    safePbFullList<CrmContact>({
+      collection: 'crm_contacts',
+      filter: `account_id="${accountId}"`,
+      sort: 'contact_name',
+      perPage: 200,
+      label: 'WaitlistSection:contacts',
+    })
       .then((data) => setContacts(data))
       .catch(() => {})
   }, [accountId, isAddOpen])

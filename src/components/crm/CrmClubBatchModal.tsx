@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import pb from '@/lib/pocketbase/client'
+import { safePbFullList } from '@/lib/pocketbase/resilient'
 import {
   Dialog,
   DialogContent,
@@ -65,11 +66,18 @@ export function CrmClubBatchModal({ open, onClose, onSuccess }: CrmClubBatchModa
     const notFoundList: string[] = []
 
     try {
-      // Buscar contatos com batch moderado (200) para evitar rate limit
-      const allContacts = await pb.collection('crm_contacts').getFullList({
-        batch: 200,
+      // Buscar contatos com safePbFullList resiliente (perPage: 200, retry 429 e timeout)
+      const allContacts = await safePbFullList<{
+        id: string
+        phone?: string
+        jid?: string
+        contact_name?: string
+        push_name?: string
+      }>({
+        collection: 'crm_contacts',
+        perPage: 200,
         fields: 'id,phone,jid,contact_name,push_name',
-        requestKey: null,
+        label: 'CrmClubBatchModal:contacts',
       })
 
       // Criar mapa de dígitos limpos para contatos
