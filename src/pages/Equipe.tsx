@@ -223,37 +223,45 @@ export default function Equipe() {
             <h3 className="font-medium">Membros Ativos</h3>
           </div>
           <div className="divide-y border-t">
-            {team?.members.map((m) => (
-              <div key={m.id} className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-3">
-                  <Avatar>
-                    <AvatarImage src={getMemberAvatarUrl(m.user_id, m.avatar)} />
-                    <AvatarFallback>{m.name?.charAt(0) || 'U'}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-medium text-sm">
-                      {m.name || m.email}{' '}
-                      {m.role === 'owner' && (
-                        <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                          Admin
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{m.email}</p>
+            {team?.members && team.members.length > 0 ? (
+              team.members.map((m) => (
+                <div key={m.id} className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <Avatar>
+                      <AvatarImage src={getMemberAvatarUrl(m.user_id, m.avatar)} />
+                      <AvatarFallback>
+                        {(m.name?.charAt(0) || m.email?.charAt(0) || 'U').toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium text-sm">
+                        {m.name || m.email || 'Usuário'}{' '}
+                        {m.role === 'owner' && (
+                          <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                            Admin
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{m.email || '—'}</p>
+                    </div>
                   </div>
+                  {role === 'owner' && m.role !== 'owner' && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive"
+                      onClick={() => setMemberToRemove(m.user_id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
-                {role === 'owner' && m.role !== 'owner' && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive"
-                    onClick={() => setMemberToRemove(m.user_id)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                )}
+              ))
+            ) : (
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                Nenhum membro encontrado.
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
