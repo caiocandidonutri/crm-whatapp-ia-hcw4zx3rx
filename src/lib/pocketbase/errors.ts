@@ -28,53 +28,56 @@ export function getErrorMessage(error: unknown): string {
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
 }
 
-/**
- * Checks if the error is a network error, timeout, or abort.
- * CRITICAL: Kept permanently to avoid MISSING_EXPORT build regressions.
- */
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
-  if (error instanceof ClientResponseError) {
-    if (error.status === 0) return true
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    const name = error.name.toLowerCase()
+    return (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('aborterror') ||
+      msg.includes('signal is aborted') ||
+      msg.includes('network request failed') ||
+      name.includes('abort') ||
+      (error as any).isAbort === true
+    )
   }
-  const msg = error instanceof Error ? error.message : String(error)
-  const lower = msg.toLowerCase()
-  return (
-    lower.includes('failed to fetch') ||
-    lower.includes('networkerror') ||
-    lower.includes('network error') ||
-    lower.includes('aborterror') ||
-    lower.includes('signal is aborted') ||
-    lower.includes('econnrefused') ||
-    lower.includes('etimedout')
-  )
+  if (typeof error === 'object' && error !== null) {
+    const msg = String((error as any).message || '').toLowerCase()
+    return (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('aborterror') ||
+      msg.includes('signal is aborted') ||
+      Boolean((error as any).isAbort)
+    )
+  }
+  return false
 }
 
-/**
- * Checks if error is an HTTP 429 Rate Limit error.
- */
 export function isRateLimitError(error: unknown): boolean {
   if (!error) return false
   if (typeof error === 'object' && error !== null) {
-    if ('status' in error && (error as { status: number }).status === 429) return true
+    if ((error as any).status === 429) return true
+    const msg = String((error as any).message || '').toLowerCase()
+    if (msg.includes('429') || msg.includes('too many requests')) return true
   }
-  const msg = error instanceof Error ? error.message : String(error)
-  return msg.includes('429') || msg.toLowerCase().includes('too many requests')
+  return false
 }
 
-/**
- * Extracts Retry-After duration in milliseconds from error headers or fallback.
- */
-export function parseRetryAfterMs(error: unknown, fallbackMs = 1000): number {
-  if (error && typeof error === 'object') {
-    const response = (error as { response?: { headers?: Record<string, string> } }).response
-    const retryAfter = response?.headers?.['retry-after'] || response?.headers?.['Retry-After']
-    if (retryAfter) {
-      const parsedSeconds = parseInt(retryAfter, 10)
-      if (!Number.isNaN(parsedSeconds) && parsedSeconds > 0) {
-        return parsedSeconds * 1000
-      }
-    }
+export function parseRetryAfterMs(error: unknown): number {
+  if (!error || typeof error !== 'object') return 1000
+  const headers = (error as any).response?.headers
+  if (!headers) return 1000
+  const retryHeader =
+    headers['retry-after'] ||
+    headers['Retry-After'] ||
+    (typeof headers.get === 'function' ? headers.get('retry-after') : null)
+  if (!retryHeader) return 1000
+  const seconds = Number(retryHeader)
+  if (!isNaN(seconds) && seconds > 0) {
+    return Math.round(seconds * 1000)
   }
-  return fallbackMs
+  return 1000
 }
