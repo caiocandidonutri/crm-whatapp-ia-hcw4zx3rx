@@ -55,8 +55,9 @@ import { TaskViewDialog } from '@/components/TaskViewDialog'
 import { consultarStatusInstancia } from '@/services/whatsapp_service'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import {
-  fetchHomeMetrics,
+  fetchHomeMetricsWithStatus,
   HomeMetricsData,
+  DEFAULT_HOME_METRICS,
   isAnyAbortError as isHomeAbortError,
 } from '@/services/home_metrics'
 import {
@@ -85,6 +86,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [backendRestarting, setBackendRestarting] = useState(false)
+  const [autoRetryCount, setAutoRetryCount] = useState(0)
 
   const { members: rawTeamMembers } = useTeamMembers()
   const teamMembers = useMemo(() => {
@@ -175,11 +178,11 @@ export default function Home() {
           (async () => {
             try {
               if (signal?.aborted) return null
-              return await fetchHomeMetrics(signal, metrics || undefined)
+              return await fetchHomeMetricsWithStatus(signal, metrics || undefined)
             } catch (metricsCatchErr) {
               if (signal?.aborted || isHomeAbortError(metricsCatchErr)) return null
               console.warn('[Home] Erro seguro capturado ao obter métricas:', metricsCatchErr)
-              return metrics || null
+              return { data: metrics || DEFAULT_HOME_METRICS, isBackendUnavailable: false }
             }
           })(),
           (async () => {
@@ -202,7 +205,14 @@ export default function Home() {
         const surveyResult = results[1]
 
         if (metricsResult?.status === 'fulfilled' && metricsResult.value) {
-          setMetrics(metricsResult.value)
+          const fetchRes = metricsResult.value
+          if (fetchRes.isBackendUnavailable) {
+            setBackendRestarting(true)
+          } else {
+            setBackendRestarting(false)
+            setAutoRetryCount(0)
+            setMetrics(fetchRes.data)
+          }
         } else if (metricsResult?.status === 'rejected') {
           console.warn('[Home] Erro em metricsResult de allSettled:', metricsResult.reason)
         }
@@ -258,6 +268,16 @@ export default function Home() {
       }
     }
   }, [loadMetrics])
+
+  // Auto-retry quando servidor estiver reiniciando (502 / rede)
+  useEffect(() => {
+    if (!backendRestarting) return
+    const timer = setTimeout(() => {
+      setAutoRetryCount((c) => c + 1)
+      loadMetrics(true).catch(() => {})
+    }, 4000)
+    return () => clearTimeout(timer)
+  }, [backendRestarting, loadMetrics, autoRetryCount])
 
   // Atualização em tempo real das mensagens, conversas, contatos e tarefas
   useRealtime('whatsapp_messages', () => {
@@ -442,20 +462,24 @@ export default function Home() {
   const isConnected = !isStatusUnavailable && instanceStatus === 'connected'
   const isConnecting =
     !isStatusUnavailable && (instanceStatus === 'qrcode' || instanceStatus === 'creating')
-  const statusColor = isStatusUnavailable
-    ? 'bg-red-500'
-    : isConnected
-      ? 'bg-emerald-500'
-      : isConnecting
-        ? 'bg-amber-500'
-        : 'bg-gray-500'
-  const statusText = isStatusUnavailable
-    ? 'Indisponível'
-    : isConnected
-      ? 'Conectado'
-      : isConnecting
-        ? 'Conectando'
-        : 'Desconectado'
+  const statusColor = backendRestarting
+    ? 'bg-amber-500'
+    : isStatusUnavailable
+      ? 'bg-red-500'
+      : isConnected
+        ? 'bg-emerald-500'
+        : isConnecting
+          ? 'bg-amber-500'
+          : 'bg-gray-500'
+  const statusText = backendRestarting
+    ? 'Reconectando...'
+    : isStatusUnavailable
+      ? 'Indisponível'
+      : isConnected
+        ? 'Conectado'
+        : isConnecting
+          ? 'Conectando'
+          : 'Desconectado'
   const instanceLabel = instance?.instance_name || 'WhatsApp principal'
 
   // Dados do gráfico de 7 dias com fallbacks resilientes
@@ -809,8 +833,46 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Banner de Servidor Reiniciando (502 / erro transitório de rede com retry automático) */}
+      {backendRestarting && (
+        <Alert className="border-amber-300 bg-amber-50/90 text-amber-900 shadow-sm animate-fade-in">
+          <div className="flex items-start justify-between gap-3 w-full">
+            <div className="flex items-start gap-3">
+              <RefreshCw className="h-5 w-5 text-amber-600 shrink-0 mt-0.5 animate-spin" />
+              <div>
+                <AlertTitle className="text-amber-950 text-sm font-semibold flex items-center gap-2">
+                  <span>Servidor reiniciando, tentando de novo...</span>
+                  <Badge
+                    variant="outline"
+                    className="border-amber-300 bg-amber-100 text-[10px] text-amber-800"
+                  >
+                    Tentativa automática #{autoRetryCount + 1}
+                  </Badge>
+                </AlertTitle>
+                <AlertDescription className="text-amber-800 text-xs mt-0.5">
+                  O backend está aplicando uma atualização ou reconectando. Seus dados estão seguros
+                  e o painel atualizará sozinho em instantes.
+                </AlertDescription>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs border-amber-300 text-amber-900 hover:bg-amber-100/80 shrink-0"
+              onClick={() => {
+                setAutoRetryCount((c) => c + 1)
+                loadMetrics(false)
+              }}
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+              Tentar agora
+            </Button>
+          </div>
+        </Alert>
+      )}
+
       {/* Alerta de erro com botão Tentar novamente */}
-      {error && !loading && (
+      {error && !loading && !backendRestarting && (
         <Alert variant="destructive" className="border-rose-200 bg-rose-50 animate-fade-in">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />

@@ -174,7 +174,162 @@ export function isAnyAbortError(err: unknown): boolean {
   return false
 }
 
+export interface FetchHomeMetricsResult {
+  data: HomeMetricsData
+  isBackendUnavailable: boolean
+  status?: number
+}
+
+export const fetchHomeMetricsWithStatus = async (
+  signal?: AbortSignal,
+  fallback?: HomeMetricsData,
+): Promise<FetchHomeMetricsResult> => {
+  const safeFallback: HomeMetricsData = fallback || DEFAULT_HOME_METRICS
+
+  if (signal?.aborted) {
+    return { data: safeFallback, isBackendUnavailable: false }
+  }
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => {
+    try {
+      controller.abort()
+    } catch {
+      /* ignore */
+    }
+  }, 8000)
+
+  const onExternalAbort = () => {
+    try {
+      controller.abort()
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timeoutId)
+      return { data: safeFallback, isBackendUnavailable: false }
+    }
+    signal.addEventListener('abort', onExternalAbort, { once: true })
+  }
+
+  try {
+    if (signal?.aborted || controller.signal.aborted) {
+      return { data: safeFallback, isBackendUnavailable: false }
+    }
+
+    const token = pb.authStore.token
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers.Authorization = token
+    }
+
+    const data = await pb.send<HomeMetricsData>('/backend/v1/home/metrics', {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+      requestKey: null,
+    })
+
+    if (signal?.aborted || controller.signal.aborted) {
+      return { data: safeFallback, isBackendUnavailable: false }
+    }
+
+    if (!data || typeof data !== 'object') {
+      return { data: safeFallback, isBackendUnavailable: false }
+    }
+
+    return {
+      data: {
+        ...safeFallback,
+        ...data,
+        chart: Array.isArray(data.chart) ? data.chart : safeFallback.chart,
+        tasks: {
+          ...safeFallback.tasks,
+          ...(data.tasks || {}),
+        },
+        funnel: Array.isArray(data.funnel) ? data.funnel : safeFallback.funnel,
+        responseRate8h: {
+          ...safeFallback.responseRate8h,
+          ...(data.responseRate8h || {}),
+        },
+        audios: {
+          ...safeFallback.audios,
+          ...(data.audios || {}),
+        },
+        dailyUsage: {
+          ...safeFallback.dailyUsage,
+          ...(data.dailyUsage || {}),
+        },
+        careTasksByCategory: {
+          ...safeFallback.careTasksByCategory,
+          ...(data.careTasksByCategory || {}),
+        },
+        conversationsStats: {
+          ...safeFallback.conversationsStats,
+          ...(data.conversationsStats || {}),
+        },
+        patientRecall: {
+          ...safeFallback.patientRecall,
+          ...(data.patientRecall || {}),
+        },
+        care2Months: {
+          ...safeFallback.care2Months,
+          ...(data.care2Months || {}),
+        },
+      },
+      isBackendUnavailable: false,
+    }
+  } catch (err: any) {
+    if (signal?.aborted || controller.signal.aborted || isAnyAbortError(err)) {
+      return { data: safeFallback, isBackendUnavailable: false }
+    }
+
+    const status = err?.status || err?.response?.status || err?.statusCode
+    const msg = typeof err?.message === 'string' ? err.message.toLowerCase() : ''
+    const isNetwork =
+      status === 0 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504 ||
+      msg.includes('502') ||
+      msg.includes('503') ||
+      msg.includes('504') ||
+      msg.includes('bad gateway') ||
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network request failed') ||
+      msg.includes('connection refused')
+
+    console.warn(
+      `[fetchHomeMetricsWithStatus] Falha ${status || 'rede'} ao buscar métricas (isBackendUnavailable=${isNetwork}):`,
+      err?.message || err,
+    )
+
+    return {
+      data: safeFallback,
+      isBackendUnavailable: isNetwork,
+      status,
+    }
+  } finally {
+    clearTimeout(timeoutId)
+    if (signal) {
+      signal.removeEventListener('abort', onExternalAbort)
+    }
+  }
+}
+
 export const fetchHomeMetrics = async (
+  signal?: AbortSignal,
+  fallback?: HomeMetricsData,
+): Promise<HomeMetricsData> => {
+  const res = await fetchHomeMetricsWithStatus(signal, fallback)
+  return res.data
+}
+
+export const _unusedLegacyFetchHomeMetrics = async (
   signal?: AbortSignal,
   fallback?: HomeMetricsData,
 ): Promise<HomeMetricsData> => {

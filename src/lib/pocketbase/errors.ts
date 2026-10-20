@@ -28,71 +28,38 @@ export function getErrorMessage(error: unknown): string {
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
 }
 
-/**
- * Identifica se um erro é de rede/conexão (fetch falhou, TypeError "Failed to fetch",
- * timeout, sinal abortado pelo browser ou status HTTP 0).
- */
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
 
   if (error instanceof ClientResponseError) {
     if (error.status === 0) return true
-    if (error.isAbort) return true
   }
 
   if (typeof error === 'object') {
-    const e = error as any
-    if (e.status === 0 || e.statusCode === 0) return true
-    if (e.isAbort === true) return true
+    const err = error as Record<string, any>
+    if (err.status === 0 || err.statusCode === 0) return true
+    if (err.name === 'AbortError' || err.isAbort === true) return true
 
-    const name = typeof e.name === 'string' ? e.name : ''
-    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
-    const code = typeof e.code === 'string' ? e.code : ''
-
+    const msg = typeof err.message === 'string' ? err.message : ''
     if (
-      name === 'AbortError' ||
-      name === 'CanceledError' ||
-      name === 'TimeoutError' ||
-      name === 'NetworkError'
-    ) {
-      return true
-    }
-
-    if (
-      code === 'ECONNRESET' ||
-      code === 'ENOTFOUND' ||
-      code === 'ECONNREFUSED' ||
-      code === 'ETIMEDOUT' ||
-      code === 'ERR_NETWORK'
-    ) {
-      return true
-    }
-
-    if (
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('network error') ||
-      msg.includes('aborterror') ||
+      msg.includes('Failed to fetch') ||
+      msg.includes('NetworkError') ||
+      msg.includes('Network request failed') ||
+      msg.includes('AbortError') ||
       msg.includes('signal is aborted') ||
-      msg.includes('user aborted') ||
-      msg.includes('connection refused') ||
-      msg.includes('econnrefused') ||
-      msg.includes('net::') ||
-      msg.includes('timeout')
+      msg.includes('Load failed') ||
+      msg.includes('net::ERR_')
     ) {
       return true
     }
 
-    if (e.originalError && isNetworkError(e.originalError)) return true
-    if (e.cause && isNetworkError(e.cause)) return true
+    if (err.originalError && isNetworkError(err.originalError)) return true
+    if (err.cause && isNetworkError(err.cause)) return true
   }
 
   return false
 }
 
-/**
- * Identifica se um erro é HTTP 429 (Rate Limit) por status ou mensagem.
- */
 export function isRateLimitError(error: unknown): boolean {
   if (!error) return false
 
@@ -101,61 +68,47 @@ export function isRateLimitError(error: unknown): boolean {
   }
 
   if (typeof error === 'object') {
-    const e = error as any
-    if (e.status === 429 || e.statusCode === 429 || e.response?.status === 429) {
+    const err = error as Record<string, any>
+    if (err.status === 429 || err.statusCode === 429) return true
+
+    const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+    if (msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit')) {
       return true
     }
 
-    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
-    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests')) {
-      return true
-    }
-
-    if (e.originalError && isRateLimitError(e.originalError)) return true
-    if (e.cause && isRateLimitError(e.cause)) return true
+    if (err.originalError && isRateLimitError(err.originalError)) return true
+    if (err.cause && isRateLimitError(err.cause)) return true
   }
 
   return false
 }
 
-/**
- * Extrai o header Retry-After (segundos) do erro ou dados de resposta,
- * converte para ms, aplicando clamp mínimo de 500ms e máximo de 30000ms.
- * Se ausente ou inválido, retorna fallbackMs (também com clamp).
- */
-export function parseRetryAfterMs(error: unknown, fallbackMs: number = 1000): number {
-  const clamp = (val: number) => Math.min(30000, Math.max(500, val))
+export function parseRetryAfterMs(error: unknown, defaultMs = 1500): number {
+  const MIN_MS = 500
+  const MAX_MS = 30000
 
-  if (!error || typeof error !== 'object') {
-    return clamp(fallbackMs)
-  }
+  let retryAfterSeconds: number | null = null
 
-  const e = error as any
-  let headerVal: string | number | undefined
+  if (error && typeof error === 'object') {
+    const err = error as Record<string, any>
+    const headers = err.response?.headers || err.headers || err.responseHeaders || {}
 
-  if (e.response?.headers) {
-    const headers = e.response.headers
+    let rawVal: any = undefined
     if (typeof headers.get === 'function') {
-      headerVal = headers.get('retry-after') || headers.get('Retry-After')
-    } else {
-      headerVal = headers['retry-after'] || headers['Retry-After']
+      rawVal = headers.get('retry-after') || headers.get('Retry-After')
+    }
+    if (rawVal === undefined && typeof headers === 'object') {
+      rawVal = headers['retry-after'] ?? headers['Retry-After']
+    }
+
+    if (rawVal !== undefined && rawVal !== null) {
+      const num = parseFloat(String(rawVal))
+      if (!isNaN(num) && num > 0) {
+        retryAfterSeconds = num
+      }
     }
   }
 
-  if (headerVal === undefined && e.response?.data?.retry_after) {
-    headerVal = e.response.data.retry_after
-  }
-
-  if (headerVal === undefined && e.retryAfter !== undefined) {
-    headerVal = e.retryAfter
-  }
-
-  if (headerVal !== undefined) {
-    const seconds = typeof headerVal === 'number' ? headerVal : parseFloat(String(headerVal))
-    if (!isNaN(seconds) && seconds > 0) {
-      return clamp(Math.round(seconds * 1000))
-    }
-  }
-
-  return clamp(fallbackMs)
+  const ms = retryAfterSeconds !== null ? retryAfterSeconds * 1000 : defaultMs
+  return Math.min(Math.max(ms, MIN_MS), MAX_MS)
 }
