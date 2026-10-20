@@ -109,15 +109,19 @@ export function AgendaLogisticsReport({
 
   // Estatísticas dos últimos 2 meses
   const stats = useMemo(() => {
-    const total = last2MonthsAppointments.length
     let confirmados = 0
     let agendados = 0
     let realizados = 0
     let faltas = 0
     let cancelados = 0
+    let remarcados = 0
+    let aConfirmar = 0
 
     let acionados = 0
     let naoAcionados = 0
+
+    // Remarcados são excluídos de total, porCidade e porTipo para não inflar a base
+    let total = 0
 
     const porCidade: Record<string, number> = {
       'Climed Carmo do Rio Claro': 0,
@@ -135,12 +139,21 @@ export function AgendaLogisticsReport({
     }
 
     last2MonthsAppointments.forEach((a) => {
-      // Status
+      // Status individual de todas as consultas do período
       if (a.status === 'confirmado') confirmados++
       else if (a.status === 'agendado') agendados++
       else if (a.status === 'realizado') realizados++
       else if (a.status === 'faltou') faltas++
       else if (a.status === 'cancelado') cancelados++
+      else if (a.status === 'remarcado') remarcados++
+      else if (a.status === 'a_confirmar') aConfirmar++
+
+      // Remarcados não contam no total efetivo, porCidade e porTipo
+      if (a.status === 'remarcado') {
+        return
+      }
+
+      total++
 
       // Tipo (Consulta, Retorno, Consultoria) com inferência por histórico
       const historyInfo = getAppointmentHistoryInfo(a, patientHistoryMap)
@@ -190,6 +203,8 @@ export function AgendaLogisticsReport({
       realizados,
       faltas,
       cancelados,
+      remarcados,
+      aConfirmar,
       acionados,
       naoAcionados,
       taxaAcionamento: total > 0 ? Math.round((acionados / total) * 100) : 0,
@@ -432,7 +447,7 @@ export function AgendaLogisticsReport({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div className="p-3 rounded-lg border bg-muted/30">
                 <span className="text-xs text-muted-foreground">Confirmadas / Realizadas</span>
                 <p className="text-xl font-bold text-emerald-600 mt-1">
@@ -463,6 +478,22 @@ export function AgendaLogisticsReport({
                 <span className="text-xs text-muted-foreground">Cancelamentos</span>
                 <p className="text-xl font-bold text-rose-600 mt-1">{stats.cancelados}</p>
                 <span className="text-[10px] text-muted-foreground">Desmarcados</span>
+              </div>
+
+              <div className="p-3 rounded-lg border bg-muted/30">
+                <span className="text-xs text-muted-foreground">Remarcadas</span>
+                <p className="text-xl font-bold text-amber-700 dark:text-amber-400 mt-1">
+                  {stats.remarcados}
+                </p>
+                <span className="text-[10px] text-muted-foreground">Transferidas de data</span>
+              </div>
+
+              <div className="p-3 rounded-lg border bg-muted/30">
+                <span className="text-xs text-muted-foreground">A confirmar</span>
+                <p className="text-xl font-bold text-orange-600 dark:text-orange-400 mt-1">
+                  {stats.aConfirmar}
+                </p>
+                <span className="text-[10px] text-muted-foreground">Pendentes na fila</span>
               </div>
             </div>
           </CardContent>

@@ -93,7 +93,7 @@ export function AgendaReconciliationQueue() {
 
       const res = await safePbFullList<Appointment>({
         collection: 'appointments',
-        filter: `account_id = "${accountId}" && starts_at < "${nowIso}" && starts_at > "${since}" && status = "confirmado"`,
+        filter: `account_id = "${accountId}" && starts_at < "${nowIso}" && starts_at > "${since}" && (status = "confirmado" || status = "a_confirmar")`,
         sort: '-starts_at',
         perPage: 200,
         label: 'reconciliation:appointments',
@@ -268,8 +268,8 @@ export function AgendaReconciliationQueue() {
               Fila de Reconciliação
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Consultas passadas ainda &quot;confirmado&quot;. Confirme como &quot;realizado&quot;
-              após checar a conversa — nada é automático.
+              Consultas passadas ainda &quot;confirmado&quot; ou &quot;a confirmar&quot;. Confirme
+              como &quot;realizado&quot; após checar a conversa — nada é automático.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -339,6 +339,14 @@ export function AgendaReconciliationQueue() {
                             ? `${formatBrazilianDate(app.starts_at)} ${formatTimeSaoPaulo(app.starts_at)}`
                             : 'data inválida'}
                         </Badge>
+                        {app.status === 'a_confirmar' && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] py-0 bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800"
+                          >
+                            a confirmar
+                          </Badge>
+                        )}
                         <Badge
                           variant="outline"
                           className={cn(

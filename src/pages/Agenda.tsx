@@ -145,6 +145,13 @@ const STATUS_CONFIG: Record<string, StatusConfigItem> = {
     borderClass: 'border-l-4 border-l-amber-500',
     icon: HelpCircle,
   },
+  a_confirmar: {
+    label: 'A confirmar',
+    badgeClass:
+      'bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300',
+    borderClass: 'border-l-4 border-l-orange-500',
+    icon: HelpCircle,
+  },
   cancelado: {
     label: 'Cancelado',
     badgeClass:
@@ -521,6 +528,8 @@ export default function Agenda() {
         if (!a || !a.starts_at) return false
         const appDayKey = getDayKeySaoPaulo(a.starts_at)
         if (appDayKey !== targetDayKey) return false
+        // Excluir remarcados da visão normal do dia (aparecem se o filtro de status for explicitamente 'remarcado')
+        if (selectedStatus === 'all' && a.status === 'remarcado') return false
         if (selectedCity !== 'all' && a.city !== selectedCity) return false
         if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
         if (selectedType !== 'all') {
@@ -547,6 +556,8 @@ export default function Agenda() {
       if (!a || !a.starts_at) return false
       const appDayKey = getDayKeySaoPaulo(a.starts_at)
       if (!weekDaysKeys.has(appDayKey)) return false
+      // Excluir remarcados da visão normal da semana (aparecem se o filtro de status for explicitamente 'remarcado')
+      if (selectedStatus === 'all' && a.status === 'remarcado') return false
       if (selectedCity !== 'all' && a.city !== selectedCity) return false
       if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
       if (selectedType !== 'all') {
@@ -1367,6 +1378,7 @@ export default function Agenda() {
               <SelectItem value="realizado">Realizado</SelectItem>
               <SelectItem value="faltou">Faltou</SelectItem>
               <SelectItem value="remarcado">Remarcado</SelectItem>
+              <SelectItem value="a_confirmar">A confirmar</SelectItem>
               <SelectItem value="cancelado">Cancelado</SelectItem>
             </SelectContent>
           </Select>
@@ -2082,6 +2094,7 @@ export default function Agenda() {
                     <SelectItem value="realizado">Realizado</SelectItem>
                     <SelectItem value="faltou">Faltou</SelectItem>
                     <SelectItem value="remarcado">Remarcado</SelectItem>
+                    <SelectItem value="a_confirmar">A confirmar</SelectItem>
                     <SelectItem value="cancelado">Cancelado</SelectItem>
                   </SelectContent>
                 </Select>
