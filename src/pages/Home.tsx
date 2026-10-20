@@ -127,14 +127,14 @@ export default function Home() {
   )
 
   const loadCommandCenter = useCallback(
-    async (signal?: AbortSignal) => {
+    async (isCurrentCheck?: () => boolean) => {
       try {
-        const res = await fetchCommandCenterMetrics(accountId, signal)
-        if (signal?.aborted) return
+        const res = await fetchCommandCenterMetrics(accountId)
+        if (isCurrentCheck && !isCurrentCheck()) return
         setCommandCenter(res)
       } catch {
         // Proteção absoluta: qualquer falha mantém os valores silenciosos (null/0)
-        if (!signal?.aborted) {
+        if (!isCurrentCheck || isCurrentCheck()) {
           setCommandCenter(DEFAULT_COMMAND_CENTER_METRICS)
         }
       }
@@ -143,16 +143,12 @@ export default function Home() {
   )
 
   useEffect(() => {
-    const controller = new AbortController()
-    loadCommandCenter(controller.signal).catch(() => {
+    let isMounted = true
+    loadCommandCenter(() => isMounted).catch(() => {
       // Nenhum rejection escapa: a /home nunca pode cair por causa deste cartão
     })
     return () => {
-      try {
-        controller.abort()
-      } catch {
-        // Ignora (AbortError ao desmontar é inofensivo)
-      }
+      isMounted = false
     }
   }, [loadCommandCenter])
 
@@ -164,7 +160,7 @@ export default function Home() {
   }, [loadCommandCenter])
 
   const loadMetrics = useCallback(
-    async (silent = false, signal?: AbortSignal) => {
+    async (silent = false, isCurrentCheck?: () => boolean) => {
       if (!silent) {
         setLoading(true)
       } else {
@@ -172,15 +168,15 @@ export default function Home() {
       }
       setError(null)
       try {
-        if (signal?.aborted) return
+        if (isCurrentCheck && !isCurrentCheck()) return
 
         const results = await Promise.allSettled([
           (async () => {
             try {
-              if (signal?.aborted) return null
-              return await fetchHomeMetricsWithStatus(signal, metrics || undefined)
+              if (isCurrentCheck && !isCurrentCheck()) return null
+              return await fetchHomeMetricsWithStatus(undefined, metrics || undefined)
             } catch (metricsCatchErr) {
-              if (signal?.aborted) return null
+              if (isCurrentCheck && !isCurrentCheck()) return null
               console.warn(
                 '[Home] Erro capturado ao obter métricas (tratando como backend indisponível):',
                 metricsCatchErr,
@@ -190,10 +186,10 @@ export default function Home() {
           })(),
           (async () => {
             try {
-              if (!accountId || signal?.aborted) return null
-              return await getSatisfactionSummary(accountId, signal, surveyStats || undefined)
+              if (!accountId || (isCurrentCheck && !isCurrentCheck())) return null
+              return await getSatisfactionSummary(accountId, undefined, surveyStats || undefined)
             } catch (surveyCatchErr) {
-              if (signal?.aborted) return null
+              if (isCurrentCheck && !isCurrentCheck()) return null
               console.warn(
                 '[Home] Erro seguro capturado ao obter pesquisa de satisfação:',
                 surveyCatchErr,
@@ -202,7 +198,7 @@ export default function Home() {
             }
           })(),
         ])
-        if (signal?.aborted) return
+        if (isCurrentCheck && !isCurrentCheck()) return
 
         const metricsResult = results[0]
         const surveyResult = results[1]
@@ -231,8 +227,8 @@ export default function Home() {
         }
         setSessionExpired(false)
       } catch (err: any) {
-        if (signal?.aborted) {
-          // Ignora cancelamentos por desmontagem silenciosamente
+        if (isCurrentCheck && !isCurrentCheck()) {
+          // Ignora se o componente já desmontou
           return
         }
         console.error('Failed to load aggregated home metrics:', err)
@@ -255,26 +251,25 @@ export default function Home() {
           setBackendRestarting(true)
         }
       } finally {
-        if (!signal?.aborted) {
+        if (!isCurrentCheck || isCurrentCheck()) {
           if (!silent) setLoading(false)
           setIsRefreshing(false)
         }
       }
     },
-    [toast, metrics],
+    [toast, metrics, accountId, surveyStats],
   )
 
   useEffect(() => {
-    const controller = new AbortController()
-    loadMetrics(false, controller.signal).catch(() => {
+    let isMounted = true
+    loadMetrics(false, () => isMounted).catch(() => {
       // Proteção absoluta contra unhandled rejection
+      if (isMounted) {
+        setBackendRestarting(true)
+      }
     })
     return () => {
-      try {
-        controller.abort()
-      } catch {
-        // Ignora
-      }
+      isMounted = false
     }
   }, [loadMetrics])
 

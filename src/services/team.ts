@@ -26,8 +26,31 @@ export interface TeamData {
   invites: TeamInvite[]
 }
 
+export const DEFAULT_TEAM_DATA: TeamData = {
+  account: {
+    id: '',
+    name: '',
+    owner_id: '',
+  },
+  members: [],
+  invites: [],
+}
+
 export const fetchTeam = async (): Promise<TeamData> => {
-  return pb.send<TeamData>('/backend/v1/team/members', { method: 'GET' })
+  try {
+    const data = await pb.send<TeamData>('/backend/v1/team/members', { method: 'GET' })
+    if (!data || typeof data !== 'object') {
+      return DEFAULT_TEAM_DATA
+    }
+    return {
+      account: data.account || DEFAULT_TEAM_DATA.account,
+      members: Array.isArray(data.members) ? data.members : [],
+      invites: Array.isArray(data.invites) ? data.invites : [],
+    }
+  } catch (err) {
+    console.warn('[fetchTeam] Falha segura ao buscar membros da equipe (retornando fallback):', err)
+    return DEFAULT_TEAM_DATA
+  }
 }
 
 export const inviteMember = async (email: string, role: 'owner' | 'member') => {

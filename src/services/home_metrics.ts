@@ -178,6 +178,7 @@ export interface FetchHomeMetricsResult {
   data: HomeMetricsData
   isBackendUnavailable: boolean
   status?: number
+  error?: unknown
 }
 
 export const fetchHomeMetricsWithStatus = async (
@@ -186,6 +187,7 @@ export const fetchHomeMetricsWithStatus = async (
 ): Promise<FetchHomeMetricsResult> => {
   const safeFallback: HomeMetricsData = fallback || DEFAULT_HOME_METRICS
 
+  // Se o sinal externo já foi abortado (desmontagem do componente), retorna silencioso
   if (signal?.aborted) {
     return { data: safeFallback, isBackendUnavailable: false }
   }
@@ -208,10 +210,6 @@ export const fetchHomeMetricsWithStatus = async (
   }
 
   if (signal) {
-    if (signal.aborted) {
-      clearTimeout(timeoutId)
-      return { data: safeFallback, isBackendUnavailable: false }
-    }
     signal.addEventListener('abort', onExternalAbort, { once: true })
   }
 
@@ -283,21 +281,18 @@ export const fetchHomeMetricsWithStatus = async (
       isBackendUnavailable: false,
     }
   } catch (err: any) {
-    // Se o sinal EXTERNO foi abortado (o componente desmontou porque o usuário saiu da página),
-    // não é falha de backend: ignora silenciosamente sem ativar estado de erro.
+    // Se o sinal EXTERNO foi abortado (desmontagem no React 18 StrictMode ou navegação do usuário),
+    // é um cancelamento limpo e esperado: retorna silencioso sem erro e sem indisponibilidade.
     if (signal?.aborted) {
       return { data: safeFallback, isBackendUnavailable: false }
     }
 
-    // Se o componente AINDA está montado, QUALQUER falha de requisição:
-    // - AbortError ("signal is aborted without reason") por timeout do controller interno
-    // - Erro de rede ou HTTP N/A
-    // - HTTP 502/503/504 / servidor reiniciando
-    // É tratada estritamente como "backend indisponível" (isBackendUnavailable: true).
-    // NUNCA propaga exceção para o ErrorBoundary.
+    // QUALQUER OUTRA REJEIÇÃO (AbortError por timeout interno, status 0, HTTP N/A, autocancelled,
+    // falha de conexão, 502/503/504, erro de JSON, TypeError, etc.):
+    // NUNCA propaga throw; retorna o objeto controlado com isBackendUnavailable: true.
     const status = err?.status || err?.response?.status || err?.statusCode
     console.warn(
-      `[fetchHomeMetricsWithStatus] Falha segura capturada (backend indisponível, status=${status || 'N/A'}):`,
+      `[fetchHomeMetricsWithStatus] Falha segura capturada (backend indisponível, status=${status ?? 'N/A'}):`,
       err?.message || err,
     )
 
@@ -305,11 +300,16 @@ export const fetchHomeMetricsWithStatus = async (
       data: safeFallback,
       isBackendUnavailable: true,
       status,
+      error: err,
     }
   } finally {
     clearTimeout(timeoutId)
     if (signal) {
-      signal.removeEventListener('abort', onExternalAbort)
+      try {
+        signal.removeEventListener('abort', onExternalAbort)
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
@@ -320,7 +320,7 @@ export const fetchHomeMetrics = async (
 ): Promise<HomeMetricsData> => {
   try {
     const res = await fetchHomeMetricsWithStatus(signal, fallback)
-    return res.data
+    return res?.data || fallback || DEFAULT_HOME_METRICS
   } catch {
     return fallback || DEFAULT_HOME_METRICS
   }

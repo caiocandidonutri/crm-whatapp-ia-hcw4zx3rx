@@ -145,8 +145,9 @@ export function useInstanciaAtiva() {
         signal: ctrl.signal,
         requestKey: null,
       })
-      const connected = records.find((r) => r.status === 'connected')
-      setInstance(connected || records[0] || null)
+      const safeRecords = Array.isArray(records) ? records : []
+      const connected = safeRecords.find((r) => r && r.status === 'connected')
+      setInstance(connected || safeRecords[0] || null)
     } catch (e) {
       if (isAbort(e)) return
       console.warn('[useInstanciaAtiva] Falha ao carregar instâncias (fallback silencioso):', e)
@@ -239,14 +240,13 @@ export function useConversas(
 
       if (ctrl.signal.aborted) return
 
-      const sortedFirst = sortByLastMessageTs(firstPage.items)
+      const items = Array.isArray(firstPage?.items) ? firstPage.items : []
+      const sortedFirst = sortByLastMessageTs(items)
       setConversations(sortedFirst)
       setCurrentPage(1)
-      setHasMore(firstPage.totalPages > 1)
+      setHasMore((firstPage?.totalPages || 0) > 1)
       setLoading(false) // user já pode interagir com as 50 mais recentes
 
-      const totalItems = firstPage.totalItems
-      const totalPages = firstPage.totalPages
       const missingTs = sortedFirst.filter(
         (r) => !r.last_message_timestamp || r.last_message_timestamp === 0,
       ).length
@@ -267,8 +267,8 @@ export function useConversas(
       setLoadingMore(false)
     } catch (e) {
       if (isAbort(e)) return
-      console.error('[useConversas] erro ao carregar conversas:', e)
-      setConversations([])
+      console.warn('[useConversas] falha resiliente ao carregar conversas:', e)
+      setConversations((prev) => prev || [])
       setLoading(false)
       setLoadingMore(false)
     }

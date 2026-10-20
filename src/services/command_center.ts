@@ -233,16 +233,26 @@ export async function fetchCommandCenterMetrics(
   accountId: string | null | undefined,
   signal?: AbortSignal,
 ): Promise<CommandCenterMetrics> {
-  // Carregamento escalonado (staggered) para evitar rajada simultânea de requisições
-  const unreadConversations = await countUnreadConversations(accountId, signal)
-  if (signal?.aborted) return DEFAULT_COMMAND_CENTER_METRICS
+  try {
+    // Carregamento escalonado (staggered) para evitar rajada simultânea de requisições
+    const unreadConversations = await countUnreadConversations(accountId, signal)
+    if (signal?.aborted) return DEFAULT_COMMAND_CENTER_METRICS
 
-  await new Promise((r) => setTimeout(r, 60))
-  const todayAppointments = await countTodayAppointments(accountId, signal)
-  if (signal?.aborted) return DEFAULT_COMMAND_CENTER_METRICS
+    await new Promise((r) => setTimeout(r, 60))
+    const todayAppointments = await countTodayAppointments(accountId, signal)
+    if (signal?.aborted) return DEFAULT_COMMAND_CENTER_METRICS
 
-  await new Promise((r) => setTimeout(r, 60))
-  const automations = await getAutomationsHealth(accountId, signal)
+    await new Promise((r) => setTimeout(r, 60))
+    const automations = await getAutomationsHealth(accountId, signal)
 
-  return { unreadConversations, todayAppointments, automations }
+    return { unreadConversations, todayAppointments, automations }
+  } catch (err) {
+    if (!isAnyAbortError(err)) {
+      console.warn(
+        '[CommandCenter] Exceção capturada em fetchCommandCenterMetrics (retornando fallback):',
+        err,
+      )
+    }
+    return DEFAULT_COMMAND_CENTER_METRICS
+  }
 }

@@ -20,24 +20,25 @@ export function useTeamMembers() {
       if (isInitial) setLoading(true)
       try {
         const res = await fetchTeam()
-        const mappedMembers = res.members.map((m: any) => ({
-          id: m.id,
+        const list = Array.isArray(res?.members) ? res.members : []
+        const mappedMembers = list.map((m: any) => ({
+          id: m?.id || '',
           collectionId: 'account_members',
           collectionName: 'account_members',
           account_id: accountId,
-          user_id: m.user_id,
-          role: m.role,
-          joined_at: m.joined_at || '',
+          user_id: m?.user_id || '',
+          role: m?.role || 'member',
+          joined_at: m?.joined_at || '',
           created: '',
           updated: '',
           expand: {
             user_id: {
-              id: m.user_id,
+              id: m?.user_id || '',
               collectionId: 'users',
               collectionName: 'users',
-              name: m.name,
-              email: m.email,
-              avatar: m.avatar || '',
+              name: m?.name || '',
+              email: m?.email || '',
+              avatar: m?.avatar || '',
               created: '',
               updated: '',
             } as User,
@@ -45,7 +46,8 @@ export function useTeamMembers() {
         })) as TeamMember[]
         setMembers(mappedMembers)
       } catch (err) {
-        console.error('Failed to fetch team members', err)
+        console.warn('[useTeamMembers] Falha defensiva ao carregar membros da equipe:', err)
+        setMembers([])
       } finally {
         if (isInitial) setLoading(false)
       }
