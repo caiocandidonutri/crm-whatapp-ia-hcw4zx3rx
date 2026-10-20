@@ -197,7 +197,7 @@ export const fetchHomeMetricsWithStatus = async (
     } catch {
       /* ignore */
     }
-  }, 8000)
+  }, 12000)
 
   const onExternalAbort = () => {
     try {
@@ -216,7 +216,7 @@ export const fetchHomeMetricsWithStatus = async (
   }
 
   try {
-    if (signal?.aborted || controller.signal.aborted) {
+    if (signal?.aborted) {
       return { data: safeFallback, isBackendUnavailable: false }
     }
 
@@ -233,12 +233,12 @@ export const fetchHomeMetricsWithStatus = async (
       requestKey: null,
     })
 
-    if (signal?.aborted || controller.signal.aborted) {
+    if (signal?.aborted) {
       return { data: safeFallback, isBackendUnavailable: false }
     }
 
     if (!data || typeof data !== 'object') {
-      return { data: safeFallback, isBackendUnavailable: false }
+      return { data: safeFallback, isBackendUnavailable: true }
     }
 
     return {
@@ -283,34 +283,27 @@ export const fetchHomeMetricsWithStatus = async (
       isBackendUnavailable: false,
     }
   } catch (err: any) {
-    if (signal?.aborted || controller.signal.aborted || isAnyAbortError(err)) {
+    // Se o sinal EXTERNO foi abortado (o componente desmontou porque o usuário saiu da página),
+    // não é falha de backend: ignora silenciosamente sem ativar estado de erro.
+    if (signal?.aborted) {
       return { data: safeFallback, isBackendUnavailable: false }
     }
 
+    // Se o componente AINDA está montado, QUALQUER falha de requisição:
+    // - AbortError ("signal is aborted without reason") por timeout do controller interno
+    // - Erro de rede ou HTTP N/A
+    // - HTTP 502/503/504 / servidor reiniciando
+    // É tratada estritamente como "backend indisponível" (isBackendUnavailable: true).
+    // NUNCA propaga exceção para o ErrorBoundary.
     const status = err?.status || err?.response?.status || err?.statusCode
-    const msg = typeof err?.message === 'string' ? err.message.toLowerCase() : ''
-    const isNetwork =
-      status === 0 ||
-      status === 502 ||
-      status === 503 ||
-      status === 504 ||
-      msg.includes('502') ||
-      msg.includes('503') ||
-      msg.includes('504') ||
-      msg.includes('bad gateway') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('network request failed') ||
-      msg.includes('connection refused')
-
     console.warn(
-      `[fetchHomeMetricsWithStatus] Falha ${status || 'rede'} ao buscar métricas (isBackendUnavailable=${isNetwork}):`,
+      `[fetchHomeMetricsWithStatus] Falha segura capturada (backend indisponível, status=${status || 'N/A'}):`,
       err?.message || err,
     )
 
     return {
       data: safeFallback,
-      isBackendUnavailable: isNetwork,
+      isBackendUnavailable: true,
       status,
     }
   } finally {
@@ -325,8 +318,12 @@ export const fetchHomeMetrics = async (
   signal?: AbortSignal,
   fallback?: HomeMetricsData,
 ): Promise<HomeMetricsData> => {
-  const res = await fetchHomeMetricsWithStatus(signal, fallback)
-  return res.data
+  try {
+    const res = await fetchHomeMetricsWithStatus(signal, fallback)
+    return res.data
+  } catch {
+    return fallback || DEFAULT_HOME_METRICS
+  }
 }
 
 export const _unusedLegacyFetchHomeMetrics = async (

@@ -2,93 +2,60 @@ import { ClientResponseError } from 'pocketbase'
 
 export type FieldErrors = Record<string, string>
 
-/**
- * Identifica se um erro é decorrente de falha de rede, timeout, cancelamento
- * ou indisponibilidade temporária de conexão com o PocketBase (status 0).
- */
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-
-  if (error instanceof ClientResponseError) {
-    if (error.status === 0) return true
-    if (error.isAbort) return true
+export function isNetworkError(err: unknown): boolean {
+  if (!err) return false
+  if (err instanceof ClientResponseError) {
+    if (err.status === 0) return true
   }
-
-  if (typeof error === 'object' && error !== null) {
-    const err = error as Record<string, unknown>
-    if (err.status === 0 || err.status === '0') return true
-    if (err.name === 'AbortError' || err.isAbort === true) return true
-
-    const msg = typeof err.message === 'string' ? err.message : ''
+  if (typeof err === 'object') {
+    const e = err as any
+    if (e.status === 0 || e.statusCode === 0) return true
+    if (e.name === 'AbortError' || e.name === 'CanceledError' || e.name === 'TimeoutError')
+      return true
+    if (e.code === 20 || e.code === 'ERR_CANCELED' || e.code === 'ABORT_ERR') return true
+    if (e.isAbort === true) return true
+    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
     if (
-      msg.includes('Failed to fetch') ||
-      msg.includes('NetworkError') ||
-      msg.includes('AbortError') ||
-      msg.includes('network') ||
-      msg.includes('fetch') ||
-      msg.includes('ERR_CONNECTION_REFUSED') ||
-      msg.includes('signal is aborted')
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network request failed') ||
+      msg.includes('aborted') ||
+      msg.includes('abort') ||
+      msg.includes('signal is aborted') ||
+      msg.includes('connection refused')
     ) {
       return true
     }
   }
-
   return false
 }
 
-/**
- * Identifica se o erro é HTTP 429 (Too Many Requests / rate limit).
- */
-export function isRateLimitError(error: unknown): boolean {
-  if (!error) return false
-
-  if (error instanceof ClientResponseError) {
-    if (error.status === 429) return true
+export function isRateLimitError(err: unknown): boolean {
+  if (!err) return false
+  if (typeof err === 'object') {
+    const e = err as any
+    if (e.status === 429 || e.statusCode === 429) return true
+    const msg = typeof e.message === 'string' ? e.message : ''
+    if (msg.includes('429') || msg.toLowerCase().includes('too many requests')) return true
   }
-
-  if (typeof error === 'object' && error !== null) {
-    const err = error as Record<string, unknown>
-    if (err.status === 429 || err.status === '429') return true
-    const msg = typeof err.message === 'string' ? err.message : ''
-    if (msg.includes('429') || msg.toLowerCase().includes('too many requests')) {
-      return true
-    }
-  }
-
   return false
 }
 
-/**
- * Extrai o tempo de espera (em milissegundos) a partir do cabeçalho retry-after
- * com clamping entre 500ms e 30000ms.
- */
-export function parseRetryAfterMs(error: unknown, fallbackMs = 1200): number {
-  const MIN_MS = 500
-  const MAX_MS = 30000
-
-  if (typeof error === 'object' && error !== null) {
-    const err = error as any
-    const headers = err.response?.headers || err.headers
-    let headerVal: unknown
-
-    if (headers) {
-      if (typeof headers.get === 'function') {
-        headerVal = headers.get('retry-after')
-      } else if (typeof headers === 'object') {
-        headerVal = headers['retry-after'] || headers['Retry-After']
-      }
-    }
-
-    if (headerVal !== undefined && headerVal !== null) {
-      const parsedSeconds = parseFloat(String(headerVal))
-      if (!Number.isNaN(parsedSeconds) && parsedSeconds > 0) {
-        const ms = Math.round(parsedSeconds * 1000)
-        return Math.min(Math.max(ms, MIN_MS), MAX_MS)
-      }
+export function parseRetryAfterMs(error: unknown, fallbackMs = 1500): number {
+  if (!error || typeof error !== 'object') return fallbackMs
+  const e = error as any
+  const rawHeader =
+    e?.response?.headers?.['retry-after'] ||
+    e?.response?.headers?.get?.('retry-after') ||
+    e?.headers?.['retry-after']
+  if (rawHeader) {
+    const parsedSec = parseFloat(rawHeader)
+    if (!isNaN(parsedSec) && parsedSec > 0) {
+      const ms = Math.round(parsedSec * 1000)
+      return Math.min(Math.max(ms, 500), 30000)
     }
   }
-
-  return Math.min(Math.max(fallbackMs, MIN_MS), MAX_MS)
+  return fallbackMs
 }
 
 export function extractFieldErrors(error: unknown): FieldErrors {

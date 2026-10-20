@@ -180,9 +180,12 @@ export default function Home() {
               if (signal?.aborted) return null
               return await fetchHomeMetricsWithStatus(signal, metrics || undefined)
             } catch (metricsCatchErr) {
-              if (signal?.aborted || isHomeAbortError(metricsCatchErr)) return null
-              console.warn('[Home] Erro seguro capturado ao obter métricas:', metricsCatchErr)
-              return { data: metrics || DEFAULT_HOME_METRICS, isBackendUnavailable: false }
+              if (signal?.aborted) return null
+              console.warn(
+                '[Home] Erro capturado ao obter métricas (tratando como backend indisponível):',
+                metricsCatchErr,
+              )
+              return { data: metrics || DEFAULT_HOME_METRICS, isBackendUnavailable: true }
             }
           })(),
           (async () => {
@@ -190,7 +193,7 @@ export default function Home() {
               if (!accountId || signal?.aborted) return null
               return await getSatisfactionSummary(accountId, signal, surveyStats || undefined)
             } catch (surveyCatchErr) {
-              if (signal?.aborted || isHomeAbortError(surveyCatchErr)) return null
+              if (signal?.aborted) return null
               console.warn(
                 '[Home] Erro seguro capturado ao obter pesquisa de satisfação:',
                 surveyCatchErr,
@@ -214,7 +217,11 @@ export default function Home() {
             setMetrics(fetchRes.data)
           }
         } else if (metricsResult?.status === 'rejected') {
-          console.warn('[Home] Erro em metricsResult de allSettled:', metricsResult.reason)
+          console.warn(
+            '[Home] Erro em metricsResult de allSettled (ativando retry de backend indisponível):',
+            metricsResult.reason,
+          )
+          setBackendRestarting(true)
         }
 
         if (surveyResult?.status === 'fulfilled' && surveyResult.value) {
@@ -224,7 +231,7 @@ export default function Home() {
         }
         setSessionExpired(false)
       } catch (err: any) {
-        if (signal?.aborted || isHomeAbortError(err)) {
+        if (signal?.aborted) {
           // Ignora cancelamentos por desmontagem silenciosamente
           return
         }
@@ -234,16 +241,18 @@ export default function Home() {
         if (isAuthErr) {
           setSessionExpired(true)
           setError('Sua sessão expirou. Entre novamente para visualizar os dados da clínica.')
+          if (!silent) {
+            toast({
+              title: 'Erro de autenticação',
+              description: 'Sua sessão expirou. Entre novamente.',
+              variant: 'destructive',
+            })
+          }
         } else {
-          setError(err?.message || 'Não foi possível carregar os dados do painel.')
-        }
-
-        if (!silent && !isAuthErr) {
-          toast({
-            title: 'Erro ao carregar dados',
-            description: 'Não foi possível carregar os dados do painel de gestão.',
-            variant: 'destructive',
-          })
+          // Em qualquer outra falha (AbortError, HTTP N/A, timeout, rede),
+          // NUNCA exibe alerta genérico de erro nem derruba para ErrorBoundary:
+          // ativa o estado gracioso de "Servidor reiniciando, tentando de novo..." com auto-retry.
+          setBackendRestarting(true)
         }
       } finally {
         if (!signal?.aborted) {
