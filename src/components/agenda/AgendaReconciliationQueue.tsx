@@ -6,8 +6,11 @@ import {
   MessageSquare,
   RefreshCw,
   ShieldAlert,
+  XCircle,
+  Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { AppointmentClosingDialog } from '@/components/agenda/AppointmentClosingDialog'
 import pb from '@/lib/pocketbase/client'
 import { safePbFullList, safePbQuery } from '@/lib/pocketbase/resilient'
 import { Badge } from '@/components/ui/badge'
@@ -217,7 +220,20 @@ export function AgendaReconciliationQueue() {
     }
   }
 
-  const runBatch = async () => {
+  const [closingDialogOpen, setClosingDialogOpen] = useState(false)
+  const [activeAppointmentForClosing, setActiveAppointmentForClosing] =
+    useState<Appointment | null>(null)
+  const [closingInitialOutcome, setClosingInitialOutcome] = useState<'realizado' | 'faltou'>(
+    'realizado',
+  )
+
+  const openClosingFor = (app: Appointment, outcome: 'realizado' | 'faltou') => {
+    setActiveAppointmentForClosing(app)
+    setClosingInitialOutcome(outcome)
+    setClosingDialogOpen(true)
+  }
+
+  const runBatchWithOutcome = async (outcome: 'realizado' | 'faltou') => {
     const ids = Array.from(selected)
     if (ids.length === 0) return
     setConfirming((prev) => new Set([...prev, ...ids]))
@@ -225,7 +241,7 @@ export function AgendaReconciliationQueue() {
     let fail = 0
     for (const id of ids) {
       try {
-        await updateAppointment(id, { status: 'realizado' })
+        await updateAppointment(id, { status: outcome })
         ok += 1
       } catch {
         fail += 1
@@ -233,13 +249,18 @@ export function AgendaReconciliationQueue() {
     }
     setAppointments((prev) => prev.filter((a) => !ids.includes(a.id)))
     setSelected(new Set())
-    setBatchConfirmOpen(false)
     if (fail === 0) {
-      toast.success(`${ok} atendimento(s) marcado(s) como realizado`)
+      toast.success(
+        `${ok} atendimento(s) marcado(s) como ${outcome === 'realizado' ? 'realizado' : 'falta (no-show)'}`,
+      )
     } else {
       toast.warning(`${ok} confirmado(s), ${fail} com erro — revise e tente novamente`)
     }
     setConfirming(new Set())
+  }
+
+  const runBatch = async () => {
+    await runBatchWithOutcome('realizado')
   }
 
   if (loading) {
@@ -278,10 +299,25 @@ export function AgendaReconciliationQueue() {
               Atualizar
             </Button>
             {selectedCount > 0 && (
-              <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={runBatch}>
-                <CheckCheck className="w-3.5 h-3.5" />
-                Confirmar {selectedCount} selecionado(s)
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => runBatchWithOutcome('realizado')}
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  Marcar {selectedCount} Realizado(s)
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs border-rose-300 text-rose-700 hover:bg-rose-50"
+                  onClick={() => runBatchWithOutcome('faltou')}
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  Marcar {selectedCount} Falta(s)
+                </Button>
+              </div>
             )}
           </div>
         </div>
@@ -375,16 +411,40 @@ export function AgendaReconciliationQueue() {
                           : ''}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 gap-1.5 text-xs shrink-0"
-                      disabled={isConfirming}
-                      onClick={() => confirmOne(item)}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      {isConfirming ? 'Confirmando...' : 'Marcar realizado'}
-                    </Button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className={cn(
+                          'h-8 gap-1 text-xs',
+                          item.hasDplusMinusEvidence
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 font-semibold'
+                            : 'hover:bg-slate-50 text-foreground',
+                        )}
+                        disabled={isConfirming}
+                        onClick={() => openClosingFor(app, 'realizado')}
+                        title="Fechar como realizada (com valor/pagamento opcional)"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Realizada {item.hasDplusMinusEvidence ? '(Sugerido)' : ''}</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className={cn(
+                          'h-8 gap-1 text-xs',
+                          !item.hasDplusMinusEvidence
+                            ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100 font-semibold'
+                            : 'hover:bg-slate-50 text-foreground',
+                        )}
+                        disabled={isConfirming}
+                        onClick={() => openClosingFor(app, 'faltou')}
+                        title="Fechar como falta/no-show"
+                      >
+                        <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Faltou {!item.hasDplusMinusEvidence ? '(Sugerido)' : ''}</span>
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="pl-8 flex items-center gap-2">
@@ -431,6 +491,23 @@ export function AgendaReconciliationQueue() {
           </div>
         )}
       </CardContent>
+
+      <AppointmentClosingDialog
+        appointment={activeAppointmentForClosing}
+        open={closingDialogOpen}
+        onOpenChange={setClosingDialogOpen}
+        initialOutcome={closingInitialOutcome}
+        onSuccess={() => {
+          if (activeAppointmentForClosing) {
+            setAppointments((prev) => prev.filter((a) => a.id !== activeAppointmentForClosing.id))
+            setSelected((prev) => {
+              const next = new Set(prev)
+              next.delete(activeAppointmentForClosing.id)
+              return next
+            })
+          }
+        }}
+      />
     </Card>
   )
 }

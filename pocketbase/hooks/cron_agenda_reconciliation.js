@@ -362,10 +362,15 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
                 )
             } catch (_) {}
           } else {
-            // Ausente sem novo agendamento -> a_confirmar + Fila de Reconciliação
-            local.set('status', 'a_confirmar')
+            // Ausente sem novo agendamento:
+            // REGRA SEMÂNTICA: Consulta futura = 'agendado'. 'a_confirmar' é EXCLUSIVO para consulta PASSADA sem status final.
+            var isFuture = startsAt >= nowIsoCutoff
+            var targetStatus = isFuture ? 'agendado' : 'a_confirmar'
+            local.set('status', targetStatus)
             var currentNotesA = local.getString('notes') || ''
-            var confNote = 'Ausente da agenda oficial sem remarcação — pendente confirmação'
+            var confNote = isFuture
+              ? 'Ausente da agenda oficial — mantido agendado para verificação'
+              : 'Ausente da agenda oficial sem remarcação — pendente confirmação (passada)'
             if (currentNotesA.indexOf('Ausente da agenda oficial') === -1) {
               local.set('notes', currentNotesA ? currentNotesA + ' - ' + confNote : confNote)
             }
@@ -376,7 +381,9 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
               $app
                 .logger()
                 .info(
-                  '[cron_reconciliacao_ia] Reclassificado para a_confirmar (Fila de Reconciliação)',
+                  '[cron_reconciliacao_ia] Reclassificado para ' +
+                    targetStatus +
+                    ' (Fila de Reconciliação)',
                   'id',
                   local.id,
                   'paciente',
@@ -390,7 +397,9 @@ cronAdd('agenda_reconciliation', '19 4 * * *', () => {
                 pName +
                 ' em ' +
                 startsAt +
-                ' sumiu da agenda oficial sem novo agendamento registrado. Marcado como "a_confirmar" para validação pela Fabiana.',
+                ' sumiu da agenda oficial sem novo agendamento registrado. Marcado como "' +
+                targetStatus +
+                '" para validação pela Fabiana.',
               pContactId,
             )
           }
