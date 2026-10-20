@@ -4,12 +4,21 @@ import { safePbQuery, safePbFullList } from './resilient'
 import { ClientResponseError } from 'pocketbase'
 
 describe('pocketbase/errors export guard', () => {
-  it('must export isNetworkError to prevent regressions (recurrent issue guard)', () => {
+  it('must export isNetworkError, isRateLimitError, parseRetryAfterMs, extractFieldErrors and getErrorMessage', () => {
     expect(errorsModule).toHaveProperty('isNetworkError')
     expect(typeof errorsModule.isNetworkError).toBe('function')
+    expect(errorsModule).toHaveProperty('isRateLimitError')
+    expect(typeof errorsModule.isRateLimitError).toBe('function')
+    expect(errorsModule).toHaveProperty('parseRetryAfterMs')
+    expect(typeof errorsModule.parseRetryAfterMs).toBe('function')
+    expect(errorsModule).toHaveProperty('extractFieldErrors')
+    expect(typeof errorsModule.extractFieldErrors).toBe('function')
+    expect(errorsModule).toHaveProperty('getErrorMessage')
+    expect(typeof errorsModule.getErrorMessage).toBe('function')
   })
 
-  it('isNetworkError correctly identifies network and abort errors', () => {
+  it('isNetworkError correctly identifies network, status 0 and abort errors', () => {
+    expect(errorsModule.isNetworkError(new ClientResponseError({ status: 0 }))).toBe(true)
     expect(errorsModule.isNetworkError(new Error('Failed to fetch'))).toBe(true)
     expect(
       errorsModule.isNetworkError(new Error('NetworkError when attempting to fetch resource')),
@@ -33,6 +42,16 @@ describe('pocketbase/errors export guard', () => {
       },
     }
     expect(errorsModule.parseRetryAfterMs(errorWithHeader)).toBe(2000)
+
+    // Clamping min 500ms and max 30000ms
+    const tooSmall = { response: { headers: { 'retry-after': '0.1' } } }
+    expect(errorsModule.parseRetryAfterMs(tooSmall)).toBe(500)
+
+    const tooBig = { response: { headers: { 'retry-after': '60' } } }
+    expect(errorsModule.parseRetryAfterMs(tooBig)).toBe(30000)
+
+    // Fallback when missing
+    expect(errorsModule.parseRetryAfterMs({}, 1500)).toBe(1500)
   })
 })
 

@@ -29,89 +29,133 @@ export function getErrorMessage(error: unknown): string {
 }
 
 /**
- * Identifica erros de rede, timeout, abort, 502/503/504 Bad Gateway / Gateway Timeout
- * ou indisponibilidade de conexão.
+ * Identifica se um erro é de rede/conexão (fetch falhou, TypeError "Failed to fetch",
+ * timeout, sinal abortado pelo browser ou status HTTP 0).
  */
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
-  if (typeof error !== 'object') return false
 
-  const err = error as any
-  const status = err.status ?? err.statusCode ?? err.response?.status
-  if (status === 0 || status === 502 || status === 503 || status === 504) {
-    return true
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0) return true
+    if (error.isAbort) return true
   }
 
-  const name = String(err.name || '')
-  if (name === 'AbortError' || name === 'TimeoutError' || name === 'CanceledError') {
-    return true
-  }
+  if (typeof error === 'object') {
+    const e = error as any
+    if (e.status === 0 || e.statusCode === 0) return true
+    if (e.isAbort === true) return true
 
-  const msg = String(err.message || '').toLowerCase()
-  if (
-    msg.includes('networkerror') ||
-    msg.includes('failed to fetch') ||
-    msg.includes('network error') ||
-    msg.includes('aborterror') ||
-    msg.includes('signal is aborted') ||
-    msg.includes('timeout') ||
-    msg.includes('econnrefused') ||
-    msg.includes('bad gateway') ||
-    msg.includes('502') ||
-    msg.includes('gateway timeout') ||
-    msg.includes('504') ||
-    msg.includes('service unavailable') ||
-    msg.includes('503')
-  ) {
-    return true
-  }
+    const name = typeof e.name === 'string' ? e.name : ''
+    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
+    const code = typeof e.code === 'string' ? e.code : ''
 
-  if (err.originalError && isNetworkError(err.originalError)) return true
-  if (err.cause && isNetworkError(err.cause)) return true
+    if (
+      name === 'AbortError' ||
+      name === 'CanceledError' ||
+      name === 'TimeoutError' ||
+      name === 'NetworkError'
+    ) {
+      return true
+    }
+
+    if (
+      code === 'ECONNRESET' ||
+      code === 'ENOTFOUND' ||
+      code === 'ECONNREFUSED' ||
+      code === 'ETIMEDOUT' ||
+      code === 'ERR_NETWORK'
+    ) {
+      return true
+    }
+
+    if (
+      msg.includes('failed to fetch') ||
+      msg.includes('networkerror') ||
+      msg.includes('network error') ||
+      msg.includes('aborterror') ||
+      msg.includes('signal is aborted') ||
+      msg.includes('user aborted') ||
+      msg.includes('connection refused') ||
+      msg.includes('econnrefused') ||
+      msg.includes('net::') ||
+      msg.includes('timeout')
+    ) {
+      return true
+    }
+
+    if (e.originalError && isNetworkError(e.originalError)) return true
+    if (e.cause && isNetworkError(e.cause)) return true
+  }
 
   return false
 }
 
 /**
- * Identifica erros 429 de Rate Limit.
+ * Identifica se um erro é HTTP 429 (Rate Limit) por status ou mensagem.
  */
 export function isRateLimitError(error: unknown): boolean {
   if (!error) return false
-  if (typeof error !== 'object') return false
 
-  const err = error as any
-  const status = err.status ?? err.statusCode ?? err.response?.status
-  if (status === 429) return true
+  if (error instanceof ClientResponseError) {
+    if (error.status === 429) return true
+  }
 
-  const msg = String(err.message || '').toLowerCase()
-  return msg.includes('429') || msg.includes('too many requests')
+  if (typeof error === 'object') {
+    const e = error as any
+    if (e.status === 429 || e.statusCode === 429 || e.response?.status === 429) {
+      return true
+    }
+
+    const msg = typeof e.message === 'string' ? e.message.toLowerCase() : ''
+    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests')) {
+      return true
+    }
+
+    if (e.originalError && isRateLimitError(e.originalError)) return true
+    if (e.cause && isRateLimitError(e.cause)) return true
+  }
+
+  return false
 }
 
 /**
- * Extrai o tempo de espera em ms a partir do cabeçalho retry-after.
+ * Extrai o header Retry-After (segundos) do erro ou dados de resposta,
+ * converte para ms, aplicando clamp mínimo de 500ms e máximo de 30000ms.
+ * Se ausente ou inválido, retorna fallbackMs (também com clamp).
  */
-export function parseRetryAfterMs(error: unknown, fallbackMs = 1500): number {
-  if (!error || typeof error !== 'object') return fallbackMs
-  const err = error as any
-  const headers = err.response?.headers || err.headers
-  let headerVal: string | null = null
+export function parseRetryAfterMs(error: unknown, fallbackMs: number = 1000): number {
+  const clamp = (val: number) => Math.min(30000, Math.max(500, val))
 
-  if (headers) {
+  if (!error || typeof error !== 'object') {
+    return clamp(fallbackMs)
+  }
+
+  const e = error as any
+  let headerVal: string | number | undefined
+
+  if (e.response?.headers) {
+    const headers = e.response.headers
     if (typeof headers.get === 'function') {
-      headerVal = headers.get('retry-after')
-    } else if (headers['retry-after']) {
-      headerVal = headers['retry-after']
-    } else if (headers['Retry-After']) {
-      headerVal = headers['Retry-After']
+      headerVal = headers.get('retry-after') || headers.get('Retry-After')
+    } else {
+      headerVal = headers['retry-after'] || headers['Retry-After']
     }
   }
 
-  if (headerVal) {
-    const sec = parseInt(headerVal, 10)
-    if (!isNaN(sec) && sec > 0) {
-      return sec * 1000
+  if (headerVal === undefined && e.response?.data?.retry_after) {
+    headerVal = e.response.data.retry_after
+  }
+
+  if (headerVal === undefined && e.retryAfter !== undefined) {
+    headerVal = e.retryAfter
+  }
+
+  if (headerVal !== undefined) {
+    const seconds = typeof headerVal === 'number' ? headerVal : parseFloat(String(headerVal))
+    if (!isNaN(seconds) && seconds > 0) {
+      return clamp(Math.round(seconds * 1000))
     }
   }
 
-  return fallbackMs
+  return clamp(fallbackMs)
 }
