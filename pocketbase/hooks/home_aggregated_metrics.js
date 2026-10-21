@@ -34,6 +34,20 @@ routerAdd(
           followup_10_15: 0,
         },
         conversationsStats: { active: 0, archived: 0, total: 0 },
+        patientRecall: { detected: 0, sentToday: 0, reengaged: 0 },
+        care2Months: { total: 0, contacted: 0, notContacted: 0 },
+        unansweredTiers: {
+          ate_1h: 0,
+          h1_a_4h: 0,
+          h4_a_24h: 0,
+          h24_a_48h: 0,
+          acima_48h: 0,
+          total: 0,
+        },
+        firstResponseAvgMinutes: {
+          days7: null,
+          days30: null,
+        },
       })
     }
 
@@ -545,6 +559,105 @@ routerAdd(
       recallReengaged = reengRow.cnt
     } catch (_) {}
 
+    // 6. Mensagens recebidas sem resposta por faixa (<1h, 1h-4h, 4h-24h, 24h-48h, >48h)
+    // Uma conversa está "sem resposta" se sua última mensagem relevante for from_me = 0 (entrante do paciente).
+    var unansweredTiers = {
+      ate_1h: 0,
+      h1_a_4h: 0,
+      h4_a_24h: 0,
+      h24_a_48h: 0,
+      acima_48h: 0,
+      total: 0,
+    }
+
+    try {
+      var unansweredSql =
+        'WITH LastMsgs AS (' +
+        '  SELECT remote_jid, MAX(timestamp) as last_ts ' +
+        '  FROM whatsapp_messages ' +
+        '  WHERE account_id = {:accId} AND remote_jid != "" ' +
+        '  GROUP BY remote_jid' +
+        '),' +
+        'LastMsgDetails AS (' +
+        '  SELECT m.remote_jid, m.timestamp, m.from_me ' +
+        '  FROM whatsapp_messages m ' +
+        '  INNER JOIN LastMsgs lm ON m.account_id = {:accId} AND m.remote_jid = lm.remote_jid AND m.timestamp = lm.last_ts ' +
+        '  GROUP BY m.remote_jid' +
+        ') ' +
+        'SELECT ' +
+        '  SUM(CASE WHEN (:nowSec - timestamp) < 3600 THEN 1 ELSE 0 END) as ate_1h, ' +
+        '  SUM(CASE WHEN (:nowSec - timestamp) >= 3600 AND (:nowSec - timestamp) < 14400 THEN 1 ELSE 0 END) as h1_a_4h, ' +
+        '  SUM(CASE WHEN (:nowSec - timestamp) >= 14400 AND (:nowSec - timestamp) < 86400 THEN 1 ELSE 0 END) as h4_a_24h, ' +
+        '  SUM(CASE WHEN (:nowSec - timestamp) >= 86400 AND (:nowSec - timestamp) < 172800 THEN 1 ELSE 0 END) as h24_a_48h, ' +
+        '  SUM(CASE WHEN (:nowSec - timestamp) >= 172800 THEN 1 ELSE 0 END) as acima_48h, ' +
+        '  COUNT(*) as total ' +
+        'FROM LastMsgDetails ' +
+        'WHERE from_me = 0'
+
+      var tiersRow = new DynamicModel({
+        ate_1h: 0,
+        h1_a_4h: 0,
+        h4_a_24h: 0,
+        h24_a_48h: 0,
+        acima_48h: 0,
+        total: 0,
+      })
+
+      var nowEpochSec = Math.floor(nowUtcMs / 1000)
+      $app
+        .db()
+        .newQuery(unansweredSql)
+        .bind({ accId: accountId, nowSec: nowEpochSec })
+        .one(tiersRow)
+
+      unansweredTiers.ate_1h = tiersRow.ate_1h || 0
+      unansweredTiers.h1_a_4h = tiersRow.h1_a_4h || 0
+      unansweredTiers.h4_a_24h = tiersRow.h4_a_24h || 0
+      unansweredTiers.h24_a_48h = tiersRow.h24_a_48h || 0
+      unansweredTiers.acima_48h = tiersRow.acima_48h || 0
+      unansweredTiers.total = tiersRow.total || 0
+    } catch (_) {}
+
+    // 7. Tempo médio de primeira resposta (primeira entrante -> primeira resposta da clínica) em 7 e 30 dias
+    var firstResponseAvgMinutes = {
+      days7: null,
+      days30: null,
+    }
+
+    try {
+      var calcFirstResponseAvg = function (sinceSec) {
+        var avgRow = new DynamicModel({ avg_minutes: 0, count: 0 })
+        var sql =
+          'WITH FirstInbound AS (' +
+          '  SELECT remote_jid, MIN(timestamp) as first_in_ts ' +
+          '  FROM whatsapp_messages ' +
+          '  WHERE account_id = {:accId} AND from_me = 0 AND timestamp >= {:sinceSec} ' +
+          '  GROUP BY remote_jid' +
+          '),' +
+          'FirstOutboundAfter AS (' +
+          '  SELECT fi.remote_jid, fi.first_in_ts, MIN(m.timestamp) as first_out_ts ' +
+          '  FROM FirstInbound fi ' +
+          '  INNER JOIN whatsapp_messages m ON m.account_id = {:accId} AND m.remote_jid = fi.remote_jid AND m.from_me = 1 AND m.timestamp >= fi.first_in_ts ' +
+          '  GROUP BY fi.remote_jid, fi.first_in_ts' +
+          ') ' +
+          'SELECT AVG((first_out_ts - first_in_ts) / 60.0) as avg_minutes, COUNT(*) as count ' +
+          'FROM FirstOutboundAfter'
+
+        $app.db().newQuery(sql).bind({ accId: accountId, sinceSec: sinceSec }).one(avgRow)
+
+        if (avgRow.count && avgRow.count > 0 && typeof avgRow.avg_minutes === 'number') {
+          return Math.round(avgRow.avg_minutes)
+        }
+        return null
+      }
+
+      var thirtyDaysAgoSec = Math.floor(nowUtcMs / 1000) - 30 * 86400
+      var sevenDaysAgoEpochSec = Math.floor(nowUtcMs / 1000) - 7 * 86400
+
+      firstResponseAvgMinutes.days7 = calcFirstResponseAvg(sevenDaysAgoEpochSec)
+      firstResponseAvgMinutes.days30 = calcFirstResponseAvg(thirtyDaysAgoSec)
+    } catch (_) {}
+
     return e.json(200, {
       conversations: conversations,
       unread: unread,
@@ -585,6 +698,8 @@ routerAdd(
         reengaged: recallReengaged,
       },
       care2Months: care2Months,
+      unansweredTiers: unansweredTiers,
+      firstResponseAvgMinutes: firstResponseAvgMinutes,
     })
   },
   $apis.requireAuth(),

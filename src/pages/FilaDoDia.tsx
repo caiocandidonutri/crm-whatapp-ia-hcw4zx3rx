@@ -163,6 +163,7 @@ export default function FilaDoDia() {
   const navigate = useNavigate()
   const { accountId } = useCurrentAccount()
 
+  const [metrics, setMetrics] = useState<HomeMetricsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [contacts, setContacts] = useState<CrmContact[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -274,6 +275,14 @@ export default function FilaDoDia() {
       setConversations(Array.isArray(convsRes) ? convsRes : [])
       setTasks(Array.isArray(tasksRes) ? tasksRes : [])
       setTasksDegraded(false)
+
+      // Carrega métricas agregadas de SLA e faixas sem resposta
+      try {
+        const mData = await fetchHomeMetrics()
+        setMetrics(mData)
+      } catch {
+        /* intentionally ignored */
+      }
     } catch (err) {
       if (isNetworkError(err) || isRateLimitError(err)) {
         setLoadError('Instabilidade de conexão momentânea. Exibindo dados em cache.')
@@ -819,6 +828,111 @@ export default function FilaDoDia() {
           </CardContent>
         </Card>
       )}
+
+      {/* ═══ MENSAGENS RECEBIDAS SEM RESPOSTA POR FAIXA & SLA ═══ */}
+      <Card className="border-border/50 bg-white/70 dark:bg-card/70 backdrop-blur-sm shadow-xs p-4 rounded-2xl">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-border/40">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-rose-100 text-rose-700 rounded-lg shrink-0">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-serif font-bold text-sm sm:text-base text-primary">
+                  Mensagens sem Resposta por Faixa de Espera
+                </span>
+                <Badge
+                  variant="outline"
+                  className="bg-rose-50 text-rose-800 border-rose-200 text-[10px] font-semibold"
+                >
+                  {metrics?.unansweredTiers?.total ?? 0} aguardando
+                </Badge>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Tempo decorrido desde a última mensagem recebida do paciente sem retorno posterior
+                da clínica
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs divide-x divide-border/60 bg-muted/40 px-3 py-1.5 rounded-xl border self-start md:self-auto">
+            <div className="flex flex-col items-center pr-1">
+              <span className="font-serif font-bold text-sm sm:text-base text-primary">
+                {metrics?.firstResponseAvgMinutes?.days7 !== null &&
+                metrics?.firstResponseAvgMinutes?.days7 !== undefined
+                  ? `${metrics.firstResponseAvgMinutes.days7} min`
+                  : '—'}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase font-medium">
+                1ª Resp. (7d)
+              </span>
+            </div>
+            <div className="flex flex-col items-center pl-3">
+              <span className="font-serif font-bold text-sm sm:text-base text-primary">
+                {metrics?.firstResponseAvgMinutes?.days30 !== null &&
+                metrics?.firstResponseAvgMinutes?.days30 !== undefined
+                  ? `${metrics.firstResponseAvgMinutes.days30} min`
+                  : '—'}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase font-medium">
+                1ª Resp. (30d)
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-3">
+          <div className="p-2.5 rounded-xl border border-border/60 bg-emerald-50/40 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-[11px] font-semibold text-emerald-800">
+              <span>Até 1h</span>
+              <span className="text-[9px] bg-emerald-200/60 px-1 rounded-full">&lt;60m</span>
+            </div>
+            <span className="font-serif font-bold text-xl text-emerald-900 mt-1">
+              {metrics?.unansweredTiers?.ate_1h ?? '—'}
+            </span>
+          </div>
+
+          <div className="p-2.5 rounded-xl border border-border/60 bg-blue-50/40 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-[11px] font-semibold text-blue-800">
+              <span>1h a 4h</span>
+              <span className="text-[9px] bg-blue-200/60 px-1 rounded-full">60-240m</span>
+            </div>
+            <span className="font-serif font-bold text-xl text-blue-900 mt-1">
+              {metrics?.unansweredTiers?.h1_a_4h ?? '—'}
+            </span>
+          </div>
+
+          <div className="p-2.5 rounded-xl border border-border/60 bg-amber-50/40 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-[11px] font-semibold text-amber-800">
+              <span>4h a 24h</span>
+              <span className="text-[9px] bg-amber-200/60 px-1 rounded-full">Mesmo dia</span>
+            </div>
+            <span className="font-serif font-bold text-xl text-amber-900 mt-1">
+              {metrics?.unansweredTiers?.h4_a_24h ?? '—'}
+            </span>
+          </div>
+
+          <div className="p-2.5 rounded-xl border border-border/60 bg-orange-50/40 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-[11px] font-semibold text-orange-800">
+              <span>24h a 48h</span>
+              <span className="text-[9px] bg-orange-200/60 px-1 rounded-full">1-2 dias</span>
+            </div>
+            <span className="font-serif font-bold text-xl text-orange-900 mt-1">
+              {metrics?.unansweredTiers?.h24_a_48h ?? '—'}
+            </span>
+          </div>
+
+          <div className="p-2.5 rounded-xl border border-border/60 bg-rose-50/50 flex flex-col justify-between col-span-2 sm:col-span-1">
+            <div className="flex items-center justify-between text-[11px] font-semibold text-rose-800">
+              <span>&gt; 48h</span>
+              <span className="text-[9px] bg-rose-200/60 px-1 rounded-full font-bold">Urgente</span>
+            </div>
+            <span className="font-serif font-bold text-xl text-rose-900 mt-1">
+              {metrics?.unansweredTiers?.acima_48h ?? '—'}
+            </span>
+          </div>
+        </div>
+      </Card>
 
       {/* KPI Cards — Panorama do Dia */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

@@ -233,6 +233,9 @@ routerAdd(
       newConv.set('last_message', text)
       newConv.set('last_message_timestamp', nowTs)
       newConv.set('unread_count', 0)
+      // Responsável obrigatório em novas conversas: atribui o remetente atual se não houver
+      const assignedToUser = body.assigned_to || userId
+      newConv.set('assigned_to', assignedToUser)
       $app.save(newConv)
     }
 

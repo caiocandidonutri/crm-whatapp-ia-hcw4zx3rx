@@ -110,6 +110,13 @@ export interface Conversation extends RecordModel {
   last_after_hours_sent_at?: string
   awaiting_contact_reason?: boolean
   awaiting_survey_response?: boolean
+  assigned_to?: string
+  expand?: {
+    user_id?: User
+    ai_agent_id?: AiAgent
+    account_id?: Account
+    assigned_to?: User
+  }
 }
 
 export interface CrmContact extends RecordModel {

@@ -73,7 +73,97 @@ import {
   DEFAULT_COMMAND_CENTER_METRICS,
   type CommandCenterMetrics,
 } from '@/services/command_center'
+class HomeInternalErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null; retryCount: number }
+> {
+  private timer: any = null
+
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false, error: null, retryCount: 0 }
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.warn('[HomeInternalErrorBoundary] Render recuperado com fallback:', error, errorInfo)
+    this.scheduleAutoRetry()
+  }
+
+  componentWillUnmount() {
+    if (this.timer) clearTimeout(this.timer)
+  }
+
+  scheduleAutoRetry = () => {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      this.handleRetry()
+    }, 4000)
+  }
+
+  handleRetry = () => {
+    if (this.timer) clearTimeout(this.timer)
+    this.setState((prev) => ({
+      hasError: false,
+      error: null,
+      retryCount: prev.retryCount + 1,
+    }))
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="max-w-7xl mx-auto p-4 md:p-6 w-full animate-fade-in">
+          <Alert className="border-amber-300 bg-amber-50/95 text-amber-900 shadow-sm rounded-2xl p-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 w-full">
+              <div className="flex items-start gap-3.5">
+                <RefreshCw className="h-6 w-6 text-amber-600 shrink-0 mt-0.5 animate-spin" />
+                <div>
+                  <AlertTitle className="text-amber-950 text-base font-bold flex items-center gap-2 flex-wrap">
+                    <span>Servidor reiniciando, tentando de novo...</span>
+                    <Badge
+                      variant="outline"
+                      className="border-amber-400 bg-amber-100 text-[11px] text-amber-900 font-semibold"
+                    >
+                      Tentativa automática #{this.state.retryCount + 1}
+                    </Badge>
+                  </AlertTitle>
+                  <AlertDescription className="text-amber-800 text-xs sm:text-sm mt-1">
+                    O painel está recuperando os dados da clínica em modo resiliente. Seus dados
+                    estão seguros e a tela recarrega a cada 4s.
+                  </AlertDescription>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-400 text-amber-950 hover:bg-amber-100 rounded-full h-9 px-4 shrink-0 font-medium"
+                onClick={this.handleRetry}
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                Tentar agora
+              </Button>
+            </div>
+          </Alert>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function Home() {
+  return (
+    <HomeInternalErrorBoundary>
+      <HomeContent />
+    </HomeInternalErrorBoundary>
+  )
+}
+
+function HomeContent() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { toast } = useToast()
@@ -1480,6 +1570,142 @@ export default function Home() {
                 Acionados / Pendentes (2m)
               </span>
             </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* ═══ SECTION MENSAGENS RECEBIDAS SEM RESPOSTA POR FAIXA & TEMPO MÉDIO 1ª RESPOSTA ═══ */}
+      <Card className="border-border/40 bg-white/70 backdrop-blur-md shadow-sm rounded-2xl overflow-hidden p-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-border/30">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-serif font-bold text-base md:text-lg text-primary">
+                  Mensagens Recebidas sem Resposta & SLA
+                </h3>
+                <Badge
+                  variant="outline"
+                  className="bg-rose-50 text-rose-800 border-rose-200 text-[10px] font-semibold"
+                >
+                  {metrics?.unansweredTiers?.total ?? 0} paciente
+                  {(metrics?.unansweredTiers?.total ?? 0) === 1 ? '' : 's'} aguardando
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground font-sans mt-0.5">
+                Distribuição das conversas por tempo de espera desde a última mensagem do paciente
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 text-xs divide-x divide-border/60 bg-muted/30 p-2.5 rounded-xl border border-border/40 self-start md:self-auto">
+            <div className="flex flex-col items-center px-2">
+              <span className="font-serif font-bold text-base md:text-lg text-primary">
+                {metrics?.firstResponseAvgMinutes?.days7 !== null &&
+                metrics?.firstResponseAvgMinutes?.days7 !== undefined
+                  ? `${metrics.firstResponseAvgMinutes.days7} min`
+                  : '—'}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase font-medium tracking-wide">
+                1ª Resp. (7 dias)
+              </span>
+            </div>
+            <div className="flex flex-col items-center pl-4 pr-2">
+              <span className="font-serif font-bold text-base md:text-lg text-primary">
+                {metrics?.firstResponseAvgMinutes?.days30 !== null &&
+                metrics?.firstResponseAvgMinutes?.days30 !== undefined
+                  ? `${metrics.firstResponseAvgMinutes.days30} min`
+                  : '—'}
+              </span>
+              <span className="text-[10px] text-muted-foreground uppercase font-medium tracking-wide">
+                1ª Resp. (30 dias)
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 5 Faixas de Espera */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-4">
+          <div
+            onClick={() => navigate('/fila')}
+            className="p-3 rounded-xl border border-border/50 bg-emerald-50/40 hover:bg-emerald-50/70 transition-all cursor-pointer flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between text-[11px] text-emerald-800 font-semibold mb-1">
+              <span>Até 1h</span>
+              <span className="text-[10px] bg-emerald-200/60 px-1.5 py-0.2 rounded-full">
+                Recente
+              </span>
+            </div>
+            <span className="font-serif font-bold text-2xl text-emerald-900">
+              {metrics?.unansweredTiers?.ate_1h ?? '—'}
+            </span>
+            <span className="text-[10px] text-muted-foreground mt-1">&lt; 60 minutos</span>
+          </div>
+
+          <div
+            onClick={() => navigate('/fila')}
+            className="p-3 rounded-xl border border-border/50 bg-blue-50/40 hover:bg-blue-50/70 transition-all cursor-pointer flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between text-[11px] text-blue-800 font-semibold mb-1">
+              <span>1h a 4h</span>
+              <span className="text-[10px] bg-blue-200/60 px-1.5 py-0.2 rounded-full">
+                Moderado
+              </span>
+            </div>
+            <span className="font-serif font-bold text-2xl text-blue-900">
+              {metrics?.unansweredTiers?.h1_a_4h ?? '—'}
+            </span>
+            <span className="text-[10px] text-muted-foreground mt-1">60 a 240 min</span>
+          </div>
+
+          <div
+            onClick={() => navigate('/fila')}
+            className="p-3 rounded-xl border border-border/50 bg-amber-50/40 hover:bg-amber-50/70 transition-all cursor-pointer flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between text-[11px] text-amber-800 font-semibold mb-1">
+              <span>4h a 24h</span>
+              <span className="text-[10px] bg-amber-200/60 px-1.5 py-0.2 rounded-full">
+                Atenção
+              </span>
+            </div>
+            <span className="font-serif font-bold text-2xl text-amber-900">
+              {metrics?.unansweredTiers?.h4_a_24h ?? '—'}
+            </span>
+            <span className="text-[10px] text-muted-foreground mt-1">Mesmo dia</span>
+          </div>
+
+          <div
+            onClick={() => navigate('/fila')}
+            className="p-3 rounded-xl border border-border/50 bg-orange-50/40 hover:bg-orange-50/70 transition-all cursor-pointer flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between text-[11px] text-orange-800 font-semibold mb-1">
+              <span>24h a 48h</span>
+              <span className="text-[10px] bg-orange-200/60 px-1.5 py-0.2 rounded-full">
+                Crítico
+              </span>
+            </div>
+            <span className="font-serif font-bold text-2xl text-orange-900">
+              {metrics?.unansweredTiers?.h24_a_48h ?? '—'}
+            </span>
+            <span className="text-[10px] text-muted-foreground mt-1">1 a 2 dias</span>
+          </div>
+
+          <div
+            onClick={() => navigate('/fila')}
+            className="p-3 rounded-xl border border-border/50 bg-rose-50/50 hover:bg-rose-50/80 transition-all cursor-pointer flex flex-col justify-between col-span-2 sm:col-span-1"
+          >
+            <div className="flex items-center justify-between text-[11px] text-rose-800 font-semibold mb-1">
+              <span>Acima de 48h</span>
+              <span className="text-[10px] bg-rose-200/60 px-1.5 py-0.2 rounded-full font-bold">
+                Urgente
+              </span>
+            </div>
+            <span className="font-serif font-bold text-2xl text-rose-900">
+              {metrics?.unansweredTiers?.acima_48h ?? '—'}
+            </span>
+            <span className="text-[10px] text-muted-foreground mt-1">&gt; 2 dias sem retorno</span>
           </div>
         </div>
       </Card>

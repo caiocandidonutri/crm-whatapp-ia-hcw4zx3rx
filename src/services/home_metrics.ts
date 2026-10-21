@@ -76,6 +76,18 @@ export interface HomeMetricsData {
     contacted: number
     notContacted: number
   }
+  unansweredTiers?: {
+    ate_1h: number
+    h1_a_4h: number
+    h4_a_24h: number
+    h24_a_48h: number
+    acima_48h: number
+    total: number
+  }
+  firstResponseAvgMinutes?: {
+    days7: number | null
+    days30: number | null
+  }
 }
 
 export const DEFAULT_HOME_METRICS: HomeMetricsData = {
@@ -135,6 +147,18 @@ export const DEFAULT_HOME_METRICS: HomeMetricsData = {
     total: 0,
     contacted: 0,
     notContacted: 0,
+  },
+  unansweredTiers: {
+    ate_1h: 0,
+    h1_a_4h: 0,
+    h4_a_24h: 0,
+    h24_a_48h: 0,
+    acima_48h: 0,
+    total: 0,
+  },
+  firstResponseAvgMinutes: {
+    days7: null,
+    days30: null,
   },
 }
 
@@ -276,6 +300,14 @@ export const fetchHomeMetricsWithStatus = async (
         care2Months: {
           ...safeFallback.care2Months,
           ...(data.care2Months || {}),
+        },
+        unansweredTiers: {
+          ...safeFallback.unansweredTiers,
+          ...(data.unansweredTiers || {}),
+        },
+        firstResponseAvgMinutes: {
+          ...safeFallback.firstResponseAvgMinutes,
+          ...(data.firstResponseAvgMinutes || {}),
         },
       },
       isBackendUnavailable: false,
