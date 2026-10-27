@@ -49,12 +49,29 @@ function isAnyAbortError(err: unknown): boolean {
   return false
 }
 
+// Cache leve de 30 segundos em memória para evitar tempestade de consultas repetidas
+let lastSatisfactionCache: {
+  accountId: string
+  timestamp: number
+  data: SurveySummaryStats
+} | null = null
+
 export async function getSatisfactionSummary(
   accountId: string,
   signal?: AbortSignal,
   fallback?: SurveySummaryStats,
 ): Promise<SurveySummaryStats> {
   const safeFallback: SurveySummaryStats = fallback || DEFAULT_SURVEY_SUMMARY_STATS
+
+  const now = Date.now()
+  if (
+    accountId &&
+    lastSatisfactionCache &&
+    lastSatisfactionCache.accountId === accountId &&
+    now - lastSatisfactionCache.timestamp < 30000
+  ) {
+    return lastSatisfactionCache.data
+  }
 
   if (!accountId) return safeFallback
   if (signal?.aborted) return safeFallback
@@ -165,6 +182,14 @@ export async function getSatisfactionSummary(
     if (count > 0) {
       result.averageScore = Number((sum / count).toFixed(1))
       result.nps = Math.round(((prom - det) / count) * 100)
+    }
+
+    if (accountId) {
+      lastSatisfactionCache = {
+        accountId,
+        timestamp: Date.now(),
+        data: result,
+      }
     }
 
     return result

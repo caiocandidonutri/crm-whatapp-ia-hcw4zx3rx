@@ -249,6 +249,11 @@ function HomeContent() {
     })
   }, [loadCommandCenter])
 
+  const metricsRef = useRef(metrics)
+  metricsRef.current = metrics
+  const surveyStatsRef = useRef(surveyStats)
+  surveyStatsRef.current = surveyStats
+
   const loadMetrics = useCallback(
     async (silent = false, isCurrentCheck?: () => boolean) => {
       if (!silent) {
@@ -260,31 +265,34 @@ function HomeContent() {
       try {
         if (isCurrentCheck && !isCurrentCheck()) return
 
+        const currentMetrics = metricsRef.current
+        const currentSurveys = surveyStatsRef.current
+
         const results = await Promise.allSettled([
           (async () => {
             try {
               if (isCurrentCheck && !isCurrentCheck()) return null
-              return await fetchHomeMetricsWithStatus(undefined, metrics || undefined)
+              return await fetchHomeMetricsWithStatus(undefined, currentMetrics || undefined)
             } catch (metricsCatchErr) {
               if (isCurrentCheck && !isCurrentCheck()) return null
               console.warn(
                 '[Home] Erro capturado ao obter métricas (tratando como backend indisponível):',
                 metricsCatchErr,
               )
-              return { data: metrics || DEFAULT_HOME_METRICS, isBackendUnavailable: true }
+              return { data: currentMetrics || DEFAULT_HOME_METRICS, isBackendUnavailable: true }
             }
           })(),
           (async () => {
             try {
               if (!accountId || (isCurrentCheck && !isCurrentCheck())) return null
-              return await getSatisfactionSummary(accountId, undefined, surveyStats || undefined)
+              return await getSatisfactionSummary(accountId, undefined, currentSurveys || undefined)
             } catch (surveyCatchErr) {
               if (isCurrentCheck && !isCurrentCheck()) return null
               console.warn(
                 '[Home] Erro seguro capturado ao obter pesquisa de satisfação:',
                 surveyCatchErr,
               )
-              return surveyStats || null
+              return currentSurveys || null
             }
           })(),
         ])
@@ -347,7 +355,7 @@ function HomeContent() {
         }
       }
     },
-    [toast, metrics, accountId, surveyStats],
+    [toast, accountId],
   )
 
   useEffect(() => {
@@ -364,40 +372,73 @@ function HomeContent() {
   }, [loadMetrics])
 
   // Auto-retry quando servidor estiver reiniciando (502 / rede)
+  // Regra rígida: no máximo 1 retry automático e backoff exponencial com teto
   useEffect(() => {
     if (!backendRestarting) return
+    if (autoRetryCount >= 1) {
+      // Máximo 1 retry automático para evitar loop de DDoS / 502 contínuos
+      return
+    }
+    const delayMs = Math.min(1000 * Math.pow(2, autoRetryCount + 1), 8000) // 2s no primeiro retry
     const timer = setTimeout(() => {
       setAutoRetryCount((c) => c + 1)
       loadMetrics(true).catch(() => {})
-    }, 4000)
+    }, delayMs)
     return () => clearTimeout(timer)
   }, [backendRestarting, loadMetrics, autoRetryCount])
 
   // Atualização em tempo real das mensagens, conversas, contatos e tarefas
+  // IMPORTANTE: debounce de 10s para não disparar enxurrada a cada mensagem ou áudio transcrito
+  const lastRealtimeRefreshRef = useRef<number>(0)
+  const realtimeDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const scheduleDebouncedMetricsRefresh = useCallback(() => {
+    const now = Date.now()
+    if (now - lastRealtimeRefreshRef.current < 10000) {
+      if (realtimeDebounceTimerRef.current) return
+      realtimeDebounceTimerRef.current = setTimeout(() => {
+        realtimeDebounceTimerRef.current = null
+        lastRealtimeRefreshRef.current = Date.now()
+        loadMetrics(true).catch(() => {})
+      }, 10000)
+      return
+    }
+    lastRealtimeRefreshRef.current = now
+    loadMetrics(true).catch(() => {})
+  }, [loadMetrics])
+
+  useEffect(() => {
+    return () => {
+      if (realtimeDebounceTimerRef.current) {
+        clearTimeout(realtimeDebounceTimerRef.current)
+      }
+    }
+  }, [])
+
   useRealtime('whatsapp_messages', () => {
     try {
-      loadMetrics(true).catch(() => {})
+      scheduleDebouncedMetricsRefresh()
     } catch {
       /* intentionally ignored */
     }
   })
   useRealtime('conversations', () => {
     try {
-      loadMetrics(true).catch(() => {})
+      scheduleDebouncedMetricsRefresh()
     } catch {
       /* intentionally ignored */
     }
   })
   useRealtime('tasks', () => {
     try {
-      loadMetrics(true).catch(() => {})
+      scheduleDebouncedMetricsRefresh()
     } catch {
       /* intentionally ignored */
     }
   })
   useRealtime('crm_contacts', () => {
     try {
-      loadMetrics(true).catch(() => {})
+      scheduleDebouncedMetricsRefresh()
     } catch {
       /* intentionally ignored */
     }
