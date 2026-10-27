@@ -425,7 +425,7 @@ export function CrmPipelineBoard({
                           </div>
                         )}
 
-                        {contact.category_ids && contact.category_ids.length > 0 && (
+                        {Array.isArray(contact.category_ids) && contact.category_ids.length > 0 && (
                           <div className="flex flex-wrap items-center gap-1 mt-2.5">
                             {contact.category_ids.slice(0, 3).map((id) => {
                               const cat = categories.find((c) => c.id === id)
@@ -468,12 +468,20 @@ export function CrmPipelineBoard({
                                   }
                                 />
                                 <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
-                                  {assigned.name?.charAt(0) || assigned.email?.charAt(0)}
+                                  {(
+                                    assigned.name?.charAt(0) ||
+                                    assigned.email?.charAt(0) ||
+                                    'U'
+                                  ).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
                               <span className="font-medium truncate max-w-[110px] text-foreground/70">
-                                {assigned.name?.split(' ')[0] || assigned.email?.split('@')[0]}
-                              </span>
+                                {assigned.name
+                                  ? assigned.name.split(' ')[0]
+                                  : assigned.email
+                                    ? assigned.email.split('@')[0]
+                                    : 'Usuário'}
+                              </span>{' '}
                             </div>
                           ) : (
                             <span className="text-muted-foreground/50 italic">Sem responsável</span>

@@ -243,7 +243,8 @@ export default function CRM() {
 
       const matchCategories =
         selectedCategoryIds.length === 0 ||
-        selectedCategoryIds.every((catId) => c.category_ids?.includes(catId))
+        (Array.isArray(c.category_ids) &&
+          selectedCategoryIds.every((catId) => c.category_ids?.includes(catId)))
 
       const matchRole = roleFilter === 'todos' || c.role === roleFilter
 
@@ -1072,31 +1073,32 @@ export default function CRM() {
                                 : 'Sem contato'}
                             </Badge>
                           )}
-                          {contact.category_ids && contact.category_ids.length > 0 && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              {contact.category_ids.slice(0, 3).map((id) => {
-                                const cat = categories.find((c) => c.id === id)
-                                if (!cat) return null
-                                return (
-                                  <Badge
-                                    key={cat.id}
-                                    variant="secondary"
-                                    className={cn(
-                                      'text-[10px] px-1.5 py-0 border-0 text-white font-medium leading-tight h-4',
-                                      cat.color ? CATEGORY_COLOR_MAP[cat.color] : undefined,
-                                    )}
-                                  >
-                                    {cat.name}
-                                  </Badge>
-                                )
-                              })}
-                              {contact.category_ids.length > 3 && (
-                                <span className="text-[10px] text-muted-foreground font-medium">
-                                  +{contact.category_ids.length - 3}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          {Array.isArray(contact.category_ids) &&
+                            contact.category_ids.length > 0 && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                {contact.category_ids.slice(0, 3).map((id) => {
+                                  const cat = categories.find((c) => c.id === id)
+                                  if (!cat) return null
+                                  return (
+                                    <Badge
+                                      key={cat.id}
+                                      variant="secondary"
+                                      className={cn(
+                                        'text-[10px] px-1.5 py-0 border-0 text-white font-medium leading-tight h-4',
+                                        cat.color ? CATEGORY_COLOR_MAP[cat.color] : undefined,
+                                      )}
+                                    >
+                                      {cat.name}
+                                    </Badge>
+                                  )
+                                })}
+                                {contact.category_ids.length > 3 && (
+                                  <span className="text-[10px] text-muted-foreground font-medium">
+                                    +{contact.category_ids.length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                         </div>
                         <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5">
                           <span className="font-mono text-xs">{formatPhoneBR(contact.phone)}</span>
@@ -1142,7 +1144,7 @@ export default function CRM() {
                               <Avatar className="w-4 h-4">
                                 <AvatarImage
                                   src={
-                                    contact.expand.assigned_to.avatar
+                                    contact.expand?.assigned_to?.avatar
                                       ? pb.files.getUrl(
                                           contact.expand.assigned_to,
                                           contact.expand.assigned_to.avatar,
@@ -1152,13 +1154,19 @@ export default function CRM() {
                                   }
                                 />
                                 <AvatarFallback className="text-[8px] bg-primary/10 text-primary">
-                                  {contact.expand.assigned_to.name?.charAt(0) ||
-                                    contact.expand.assigned_to.email?.charAt(0)}
+                                  {(
+                                    contact.expand?.assigned_to?.name?.charAt(0) ||
+                                    contact.expand?.assigned_to?.email?.charAt(0) ||
+                                    'U'
+                                  ).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
                               <span className="hidden sm:inline font-medium">
-                                {contact.expand.assigned_to.name?.split(' ')[0] ||
-                                  contact.expand.assigned_to.email?.split('@')[0]}
+                                {contact.expand?.assigned_to?.name
+                                  ? contact.expand.assigned_to.name.split(' ')[0]
+                                  : contact.expand?.assigned_to?.email
+                                    ? contact.expand.assigned_to.email.split('@')[0]
+                                    : 'Usuário'}
                               </span>
                             </div>
                           )}

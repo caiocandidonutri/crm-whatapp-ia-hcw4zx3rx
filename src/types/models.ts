@@ -135,6 +135,11 @@ export interface CrmContact extends RecordModel {
   is_patient?: boolean
   converted_at?: string
   care_status?: string
+  care_state?: string
+  care_state_reason?: string
+  last_human_contact_at?: string
+  last_reconciled_at?: string
+  alert_active?: boolean
   last_synced_at?: string
   // Empresa (migration 0024)
   company_id?: string
