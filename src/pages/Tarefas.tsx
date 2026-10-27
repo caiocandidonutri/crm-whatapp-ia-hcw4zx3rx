@@ -44,6 +44,7 @@ import {
   ListChecks,
   MoveRight,
   Tag,
+  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { resyncCareTasks } from '@/services/crm_care_service'
