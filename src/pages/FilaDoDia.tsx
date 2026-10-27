@@ -390,74 +390,52 @@ export default function FilaDoDia() {
           lastContactWho = 'cliente'
         }
 
-        // Cálculo de Status da Fila
+        // Cálculo de Status da Fila usando care_state único da clínica
+        // REGRA DO USUÁRIO: só "responder" gera alerta. "atendido_a_fechar" nunca é alerta.
         let status: FilaStatus = 'NAO_PRECISA'
         let suggestedAction =
-          String(c.ai_suggested_action || '').trim() ||
+          String(c.ai_suggested_action || c.care_state_reason || '').trim() ||
           'Manter contato ativo conforme necessidade clínica.'
 
         const stageKey = String(c.stage || 'lead')
           .trim()
           .toLowerCase()
-        const hoursSinceLastContact =
-          lastContactAt && !isNaN(lastContactAt.getTime())
-            ? (now - lastContactAt.getTime()) / 3600000
-            : 9999
-        const daysSinceLastContact = hoursSinceLastContact / 24
+        const careState = String(c.care_state || '')
+          .trim()
+          .toLowerCase()
+        const isAlertActive = c.alert_active === true || careState === 'responder'
 
-        // Lógica de Priorização e Status
-        if (
-          c.care_status === 'precisa_atencao' ||
-          c.care_status === 'alta_demanda' ||
-          (hasOpenTask && contactTasks.some((t) => t?.priority === 'urgente'))
-        ) {
+        if (isAlertActive || careState === 'responder') {
           status = 'ALERTA'
           suggestedAction =
-            openTaskTitle ||
-            c.ai_suggested_action ||
-            'Paciente em alerta de cuidado — verificar histórico e acolher.'
+            c.care_state_reason || 'Mensagem do paciente sem resposta — responder com acolhimento.'
+        } else if (careState === 'atendido_a_fechar') {
+          // "atendido_a_fechar" nunca é alerta: consulta do dia com horário passado aguardando fechamento humano
+          status = 'AGUARDANDO_RESPOSTA'
+          suggestedAction =
+            c.care_state_reason || 'Consulta realizada hoje — aguardando fechamento na recepção.'
+        } else if (careState === 'confirmacao_enviada') {
+          status = 'AGUARDANDO_RESPOSTA'
+          suggestedAction = c.care_state_reason || 'Confirmação/lembrete enviado nas últimas 48h.'
+        } else if (careState === 'agendado') {
+          status = 'NAO_PRECISA'
+          suggestedAction = c.care_state_reason || 'Consulta futura confirmada/agendada.'
+        } else if (careState === 'retorno_a_oferecer') {
+          status = 'PRECISA_DE_MENSAGEM'
+          suggestedAction =
+            c.care_state_reason || 'Paciente sem novo agendamento — oferecer retorno/consulta.'
+        } else if (careState === 'inativo') {
+          status = 'NAO_PRECISA'
+          suggestedAction = c.care_state_reason || 'Lead sem resposta há mais de 30 dias.'
+        } else if (careState === 'contatado') {
+          status = 'AGUARDANDO_RESPOSTA'
+          suggestedAction = c.care_state_reason || 'Clínica respondeu recentemente.'
         } else if (stageKey === 'orcamento_enviado') {
           status = 'EM_NEGOCIACAO'
-          suggestedAction =
-            c.ai_suggested_action ||
-            (daysSinceLastContact >= 3
-              ? 'Proposta em aberto há mais de 3 dias — fazer follow-up acolhedor via WhatsApp.'
-              : 'Acompanhar decisão do orçamento enviado.')
-        } else if (hasUnreadFromClient || c.care_status === 'precisa_retorno') {
-          status = 'PRECISA_DE_MENSAGEM'
-          suggestedAction = hasUnreadFromClient
-            ? 'Mensagem nova não respondida — responder e dar andamento ao atendimento.'
-            : 'Paciente precisa de retorno (agendamento ou dúvidas clínicas).'
-        } else if (c.care_status === 'nao_respondeu' || stageKey === 'nao_respondido') {
-          if (daysSinceLastContact >= 5) {
-            status = 'PRECISA_DE_MENSAGEM'
-            suggestedAction =
-              'Paciente não respondeu aos últimos contatos — enviar tentativa suave de reengajamento.'
-          } else {
-            status = 'AGUARDANDO_RESPOSTA'
-            suggestedAction = 'Aguardando paciente visualizar e responder mensagem recente.'
-          }
-        } else if (stageKey === 'em_atendimento' || stageKey === 'lead') {
-          if (hoursSinceLastContact >= 12) {
-            status = 'PRECISA_DE_MENSAGEM'
-            suggestedAction =
-              'Lead/Atendimento em aberto sem interação há mais de 12h — avançar próximo passo.'
-          } else {
-            status = 'AGUARDANDO_RESPOSTA'
-            suggestedAction = 'Em atendimento ativo hoje — acompanhar troca de mensagens.'
-          }
-        } else if (stageKey === 'cliente') {
-          // Verificar se plano está expirando
-          if (c.plan_expires_at) {
-            const expDate = parseToDate(c.plan_expires_at)
-            if (expDate && !isNaN(expDate.getTime())) {
-              const daysUntilExp = (expDate.getTime() - now) / 86400000
-              if (daysUntilExp <= 20 && daysUntilExp >= -5) {
-                status = 'EM_NEGOCIACAO'
-                suggestedAction = `Plano/clube vence em ${Math.max(0, Math.round(daysUntilExp))} dias — propor renovação.`
-              }
-            }
-          }
+          suggestedAction = 'Acompanhar proposta enviada.'
+        } else if (hasUnreadFromClient) {
+          status = 'ALERTA'
+          suggestedAction = 'Mensagem nova não respondida — responder e acolher.'
         }
 
         // Prioridade numérica (para ordenação)

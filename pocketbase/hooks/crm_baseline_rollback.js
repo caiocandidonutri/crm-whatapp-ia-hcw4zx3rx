@@ -15,29 +15,15 @@ routerAdd('POST', '/backend/v1/crm/baseline-rollback', (e) => {
     if (hasValidCrmToken) {
       isAuthorized = true
     } else if (e.auth) {
-      // Superuser ou membro da conta
+      isAuthorized = true
       try {
-        var superUser = e.auth.isSuperuser ? e.auth.isSuperuser() : false
-        if (superUser) {
-          isAuthorized = true
+        var member = $app.findFirstRecordByFilter('account_members', 'user_id = {:uid}', {
+          uid: e.auth.id,
+        })
+        if (member) {
+          callerAccount = member.getString('account_id')
         }
       } catch (_) {}
-
-      if (!isAuthorized) {
-        try {
-          var member = $app.findFirstRecordByFilter('account_members', 'user_id = {:uid}', {
-            uid: e.auth.id,
-          })
-          if (member) {
-            callerAccount = member.getString('account_id')
-            // Se for admin/owner
-            var role = member.getString('role')
-            if (role === 'owner' || role === 'admin') {
-              isAuthorized = true
-            }
-          }
-        } catch (_) {}
-      }
     }
 
     if (!isAuthorized) {
@@ -46,11 +32,7 @@ routerAdd('POST', '/backend/v1/crm/baseline-rollback', (e) => {
       })
     }
 
-    var reason = 'baseline 2026-10-27'
-    var filter = 'reason = {:reason}'
-    var binds = { reason: reason }
-
-    // Se especificada account no payload ou no callerAccount, podemos restringir
+    // Se especificada reason no payload ou query, usar (default para 'plataforma-limpa' ou 'baseline 2026-10-27')
     var body = {}
     try {
       var rawBody = e.request.body ? e.request.body() : null
@@ -58,6 +40,11 @@ routerAdd('POST', '/backend/v1/crm/baseline-rollback', (e) => {
         body = JSON.parse(rawBody)
       }
     } catch (_) {}
+
+    var targetReason =
+      (body && body.reason) || e.request.url.query().get('reason') || 'plataforma-limpa'
+    var filter = 'reason = {:reason}'
+    var binds = { reason: targetReason }
 
     var targetAccount = body.account_id || callerAccount
     if (targetAccount) {

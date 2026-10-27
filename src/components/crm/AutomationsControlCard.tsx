@@ -13,7 +13,10 @@ import {
   CheckCircle2,
   AlertTriangle,
   Calendar,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react'
+import { runBaselineRollback, runCareStateRetroativo } from '@/services/care_retroativo_service'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import {
@@ -52,6 +55,10 @@ export function AutomationsControlCard({
   // Estado do Modo Plantão (fim de semana)
   const [plantaoFimDeSemana, setPlantaoFimDeSemanaState] = useState<boolean>(false)
   const [salvandoPlantao, setSalvandoPlantao] = useState<boolean>(false)
+
+  // Estado de Rollback e Reconciliação Retroativa
+  const [rollingBack, setRollingBack] = useState<boolean>(false)
+  const [runningRetroativo, setRunningRetroativo] = useState<boolean>(false)
 
   React.useEffect(() => {
     let cancel = false
@@ -123,6 +130,41 @@ export function AutomationsControlCard({
     }
   }
 
+  const handleRollback = async () => {
+    if (rollingBack) return
+    const confirmAction = window.confirm(
+      'Deseja desfazer a reconciliação e restaurar os estados anteriores registrados no snapshot "plataforma-limpa"?',
+    )
+    if (!confirmAction) return
+
+    setRollingBack(true)
+    try {
+      const res = await runBaselineRollback('plataforma-limpa')
+      toast.success(`Desfazer concluído: ${res.restored_count} registros restaurados com sucesso.`)
+    } catch (err: any) {
+      console.error('[AutomationsControlCard] Erro no rollback:', err)
+      toast.error('Erro ao executar Desfazer: ' + (err?.message || 'Falha de comunicação'))
+    } finally {
+      setRollingBack(false)
+    }
+  }
+
+  const handleRunRetroativo = async () => {
+    if (runningRetroativo) return
+    setRunningRetroativo(true)
+    try {
+      const res = await runCareStateRetroativo()
+      toast.success(
+        `Plataforma limpa: ${res.total_contacts_processed} contatos reconciliados, ${res.resolved_obsolete_tasks_count} tarefas resolvidas.`,
+      )
+    } catch (err: any) {
+      console.error('[AutomationsControlCard] Erro na reconciliação retroativa:', err)
+      toast.error('Erro na reconciliação: ' + (err?.message || 'Falha'))
+    } finally {
+      setRunningRetroativo(false)
+    }
+  }
+
   return (
     <>
       <Card
@@ -180,6 +222,22 @@ export function AutomationsControlCard({
                   Auditoria
                 </Button>
               )}
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRollback}
+                disabled={rollingBack || runningRetroativo}
+                className="h-7 text-[11px] px-2 rounded-lg border-amber-300 text-amber-800 hover:bg-amber-50 gap-1 font-medium"
+                title="Desfazer snapshot plataforma-limpa"
+              >
+                {rollingBack ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3 h-3 text-amber-700" />
+                )}
+                <span>Desfazer</span>
+              </Button>
 
               <Button
                 size="sm"
@@ -341,6 +399,40 @@ export function AutomationsControlCard({
                       Ver auditoria de envios
                     </Button>
                   )}
+
+                  <div className="flex items-center gap-1.5 border-l border-border/50 pl-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRollback}
+                      disabled={rollingBack || runningRetroativo}
+                      className="h-7 text-xs px-2.5 rounded-lg border-amber-300 text-amber-800 hover:bg-amber-50 gap-1 font-medium"
+                      title="Restaurar estado gravado no snapshot plataforma-limpa"
+                    >
+                      {rollingBack ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <RotateCcw className="w-3 h-3 text-amber-700" />
+                      )}
+                      <span>Desfazer (Snapshot)</span>
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRunRetroativo}
+                      disabled={runningRetroativo || rollingBack}
+                      className="h-7 text-xs px-2.5 rounded-lg border-indigo-200 text-indigo-700 hover:bg-indigo-50 gap-1 font-medium"
+                      title="Rodar Reconciliação Retroativa Determinística"
+                    >
+                      {runningRetroativo ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3 text-indigo-600" />
+                      )}
+                      <span>Limpar Plataforma</span>
+                    </Button>
+                  </div>
                 </div>
               </div>
             </CardContent>

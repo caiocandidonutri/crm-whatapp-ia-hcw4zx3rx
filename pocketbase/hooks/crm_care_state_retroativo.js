@@ -18,31 +18,21 @@ routerAdd('POST', '/backend/v1/crm/care-state/reconcile-retroativo', (e) => {
     if (hasValidCrmToken) {
       isAuthorized = true
     } else if (e.auth) {
+      // Qualquer usuário logado ou admin
+      isAuthorized = true
       try {
-        if (e.auth.isSuperuser && e.auth.isSuperuser()) {
-          isAuthorized = true
+        const member = $app.findFirstRecordByFilter('account_members', 'user_id = {:uid}', {
+          uid: e.auth.id,
+        })
+        if (member) {
+          callerAccount = member.getString('account_id')
         }
       } catch (_) {}
-
-      if (!isAuthorized) {
-        try {
-          const member = $app.findFirstRecordByFilter('account_members', 'user_id = {:uid}', {
-            uid: e.auth.id,
-          })
-          if (member) {
-            callerAccount = member.getString('account_id')
-            const role = member.getString('role')
-            if (role === 'owner' || role === 'admin') {
-              isAuthorized = true
-            }
-          }
-        } catch (_) {}
-      }
     }
 
     if (!isAuthorized) {
       return e.json(401, {
-        error: 'Acesso não autorizado. Envie X-CRM-Token ou credenciais de administrador.',
+        error: 'Acesso não autorizado. Envie X-CRM-Token ou credenciais de autenticação.',
       })
     }
 
@@ -81,17 +71,18 @@ routerAdd('POST', '/backend/v1/crm/care-state/reconcile-retroativo', (e) => {
       return e.json(500, { error: 'Erro ao buscar contatos: ' + String(cErr) })
     }
 
-    // Snapshot helper
+    // Snapshot helper com reason "plataforma-limpa"
     const snapCol = $app.findCollectionByNameOrId('baseline_snapshots')
-    function recordSnapshot(accountId, recId, field, oldValue) {
+    const SNAP_REASON = 'plataforma-limpa'
+    function recordSnapshot(accountId, colName, recId, field, oldValue) {
       try {
         const snap = new Record(snapCol)
         if (accountId) snap.set('account_id', accountId)
-        snap.set('collection_name', 'crm_contacts')
+        snap.set('collection_name', colName || 'crm_contacts')
         snap.set('record_id', recId)
         snap.set('field', field)
-        snap.set('old_value', oldValue || '')
-        snap.set('reason', 'care-state')
+        snap.set('old_value', oldValue !== null && oldValue !== undefined ? String(oldValue) : '')
+        snap.set('reason', SNAP_REASON)
         $app.saveNoValidate(snap)
       } catch (sErr) {
         $app.logger().warn('snapshot_save_error', 'recId', recId, 'err', String(sErr))
@@ -292,6 +283,63 @@ routerAdd('POST', '/backend/v1/crm/care-state/reconcile-retroativo', (e) => {
 
     let resolvedObsoleteTasksCount = 0
 
+    // (a) Conversas cuja última mensagem é humana (origin humano_celular/humano_crm) → unread_count=0 local, SEM recibo de leitura
+    let convsResetCount = 0
+    try {
+      const convsWithUnread = $app.findRecordsByFilter(
+        'conversations',
+        'unread_count > 0',
+        '-updated',
+        2000,
+        0,
+      )
+      for (let ci = 0; ci < convsWithUnread.length; ci++) {
+        const conv = convsWithUnread[ci]
+        const rJid = conv.getString('remote_jid')
+        if (!rJid) continue
+
+        // Buscar última mensagem trocada nesta conversa
+        let lastMsg = null
+        try {
+          const mList = $app.findRecordsByFilter(
+            'whatsapp_messages',
+            'remote_jid = {:jid}',
+            '-timestamp',
+            1,
+            0,
+            { jid: rJid },
+          )
+          if (mList && mList.length > 0) {
+            lastMsg = mList[0]
+          }
+        } catch (_) {}
+
+        if (lastMsg) {
+          const fromMe = lastMsg.getBool('from_me')
+          const origin = lastMsg.getString('origin') || ''
+          const isHuman = origin === 'humano_celular' || origin === 'humano_crm' || fromMe
+
+          if (isHuman) {
+            const oldUnread = conv.getInt('unread_count')
+            recordSnapshot(
+              conv.getString('account_id'),
+              'conversations',
+              conv.id,
+              'unread_count',
+              oldUnread,
+            )
+            conv.set('unread_count', 0)
+            try {
+              $app.saveNoValidate(conv)
+              convsResetCount++
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (convErr) {
+      $app.logger().warn('reconcile_retroativo: convs unread check err', 'err', String(convErr))
+    }
+
     // Processar cada contato
     for (let i = 0; i < contacts.length; i++) {
       const contact = contacts[i]
@@ -377,7 +425,13 @@ routerAdd('POST', '/backend/v1/crm/care-state/reconcile-retroativo', (e) => {
       // Gravar baseline_snapshot do care_state anterior se mudou
       const oldCareState = contact.getString('care_state')
       if (oldCareState !== result.state) {
-        recordSnapshot(contact.getString('account_id'), contact.id, 'care_state', oldCareState)
+        recordSnapshot(
+          contact.getString('account_id'),
+          'crm_contacts',
+          contact.id,
+          'care_state',
+          oldCareState,
+        )
         contact.set('care_state', result.state)
         contact.set('care_state_reason', result.reason)
       }
@@ -386,6 +440,7 @@ routerAdd('POST', '/backend/v1/crm/care-state/reconcile-retroativo', (e) => {
       if (oldAlertActive !== result.alertActive) {
         recordSnapshot(
           contact.getString('account_id'),
+          'crm_contacts',
           contact.id,
           'alert_active',
           String(oldAlertActive),
@@ -418,30 +473,55 @@ routerAdd('POST', '/backend/v1/crm/care-state/reconcile-retroativo', (e) => {
         countsAfter.sem_estado++
       }
 
-      // Pendências obsoletas: se o estado atual não for "responder", tarefas de "nao_respondeu"
-      // ou tarefas abertas que já foram resolvidas viram "resolvida_auto"
-      if (result.state !== 'responder') {
-        try {
-          const obsoleteTasks = $app.findRecordsByFilter(
-            'tasks',
-            "crm_contact_id = {:cid} && (care_category = 'nao_respondeu' || care_category = 'precisa_retorno') && (status = 'pendente' || status = 'em_andamento')",
-            '-created',
-            50,
-            0,
-            { cid: contact.id },
-          )
-          for (let oi = 0; oi < obsoleteTasks.length; oi++) {
-            const obT = obsoleteTasks[oi]
+      // Tarefas/pendências deste contato: se houver mensagem humana posterior à criação da tarefa
+      // OU se o contato estiver em estado resolvido (não "responder") com tarefa de care_category
+      // viram "resolvida_auto" com motivo e hora (NUNCA "concluída"; métricas de recuperação excluem resolvida_auto)
+      try {
+        const contactOpenTasks = $app.findRecordsByFilter(
+          'tasks',
+          "crm_contact_id = {:cid} && (status = 'pendente' || status = 'em_andamento')",
+          '-created',
+          100,
+          0,
+          { cid: contact.id },
+        )
+
+        for (let oi = 0; oi < contactOpenTasks.length; oi++) {
+          const obT = contactOpenTasks[oi]
+          const taskCreatedIso = obT.getString('created')
+          const taskCreatedMs = taskCreatedIso ? Date.parse(taskCreatedIso) : 0
+
+          // Checar se há mensagem humana posterior à criação da tarefa
+          let hasHumanMsgAfterTask = false
+          if (result.lastHumanContactAt) {
+            const lastHumanMs = Date.parse(result.lastHumanContactAt)
+            if (!isNaN(lastHumanMs) && lastHumanMs > taskCreatedMs) {
+              hasHumanMsgAfterTask = true
+            }
+          }
+
+          // Se há mensagem humana posterior OU se o care_state não é 'responder' e a tarefa é de cuidado
+          const shouldResolveAuto = hasHumanMsgAfterTask || result.state !== 'responder'
+
+          if (shouldResolveAuto) {
+            const oldTStatus = obT.getString('status')
+            recordSnapshot(obT.getString('account_id'), 'tasks', obT.id, 'status', oldTStatus)
             obT.set('status', 'resolvida_auto')
             const pDesc = obT.getString('description') || ''
-            const reasonTag =
-              '[resolvida_auto: reconciliacao care_state ' + result.state + ' às ' + nowIso + ']'
+            const reasonDetail = hasHumanMsgAfterTask
+              ? 'mensagem humana posterior à criação da tarefa'
+              : 'care_state ' + result.state + ' sem pendência'
+            const reasonTag = '[resolvida_auto: ' + reasonDetail + ' às ' + nowIso + ']'
             obT.set('description', pDesc ? pDesc + '\n' + reasonTag : reasonTag)
             obT.set('completed_at', nowIso)
             $app.saveNoValidate(obT)
             resolvedObsoleteTasksCount++
           }
-        } catch (_) {}
+        }
+      } catch (tErr) {
+        $app
+          .logger()
+          .warn('reconcile_retroativo: tasks check err', 'cid', contact.id, 'err', String(tErr))
       }
     }
 
@@ -450,6 +530,7 @@ routerAdd('POST', '/backend/v1/crm/care-state/reconcile-retroativo', (e) => {
       total_contacts_processed: contacts.length,
       counts_before: countsBefore,
       counts_after: countsAfter,
+      conversations_reset_count: convsResetCount,
       resolved_obsolete_tasks_count: resolvedObsoleteTasksCount,
     })
   } catch (fatalErr) {
