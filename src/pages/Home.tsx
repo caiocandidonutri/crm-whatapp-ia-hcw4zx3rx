@@ -640,108 +640,151 @@ function HomeContent() {
     return Math.max(...totals, 1)
   }, [chartData])
 
-  // Dados do funil com total para cálculo percentual (com blindagens defensivas)
+  // Dados do funil com total para cálculo percentual (com blindagens defensivas profundas)
   const funnelStages = useMemo(() => {
-    const list = metrics?.funnel
-    if (!Array.isArray(list)) return []
-    return list.map((stage) => ({
-      key: stage?.key || 'outro',
-      label: stage?.label || 'Estágio',
-      color: stage?.color || 'blue',
-      count: typeof stage?.count === 'number' && !isNaN(stage.count) ? stage.count : 0,
-    }))
+    try {
+      const list = metrics?.funnel
+      if (!Array.isArray(list)) return []
+      return list.map((stage) => ({
+        key: typeof stage?.key === 'string' ? stage.key : 'outro',
+        label: typeof stage?.label === 'string' ? stage.label : 'Estágio',
+        color: typeof stage?.color === 'string' ? stage.color : 'blue',
+        count: typeof stage?.count === 'number' && !isNaN(stage.count) ? stage.count : 0,
+      }))
+    } catch (err) {
+      console.warn('[Home] Erro ao processar funnelStages, degradando para vazio:', err)
+      return []
+    }
   }, [metrics?.funnel])
 
   const funnelTotalPatients = useMemo(() => {
-    return funnelStages.reduce((acc, stage) => acc + (stage.count || 0), 0)
+    try {
+      if (!Array.isArray(funnelStages)) return 0
+      return funnelStages.reduce(
+        (acc, stage) =>
+          acc + (typeof stage?.count === 'number' && !isNaN(stage.count) ? stage.count : 0),
+        0,
+      )
+    } catch {
+      return 0
+    }
   }, [funnelStages])
 
-  // Total de pendências de cuidado
-  const careCategoryCounts = metrics?.careTasksByCategory || {
-    precisa_consulta: 0,
-    precisa_atencao: 0,
-    nao_respondeu: 0,
-    precisa_retorno: 0,
-    alta_demanda: 0,
-    followup_10_15: 0,
-  }
+  // Total de pendências de cuidado (blindagem profunda com fallback seguro)
+  const careCategoryCounts = useMemo(() => {
+    const raw = metrics?.careTasksByCategory
+    const safeObj: Record<string, number> = {
+      precisa_consulta: 0,
+      precisa_atencao: 0,
+      nao_respondeu: 0,
+      precisa_retorno: 0,
+      alta_demanda: 0,
+      followup_10_15: 0,
+    }
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const k of Object.keys(safeObj)) {
+        const val = (raw as Record<string, any>)[k]
+        safeObj[k] = typeof val === 'number' && !isNaN(val) ? val : 0
+      }
+    }
+    return safeObj
+  }, [metrics?.careTasksByCategory])
 
   const totalCarePending = useMemo(() => {
-    return Object.values(careCategoryCounts).reduce((acc, cur) => acc + (cur || 0), 0)
+    try {
+      if (!careCategoryCounts || typeof careCategoryCounts !== 'object') return 0
+      return Object.values(careCategoryCounts).reduce(
+        (acc, cur) => acc + (typeof cur === 'number' && !isNaN(cur) ? cur : 0),
+        0,
+      )
+    } catch {
+      return 0
+    }
   }, [careCategoryCounts])
 
-  // Mapeamento das pendências com metadados
+  // Mapeamento das pendências com metadados e degradação segura via try/catch
   const careCategoriesList = useMemo(() => {
-    const keys: Array<{
-      key: keyof typeof careCategoryCounts
-      fallbackLabel: string
-      fallbackEmoji: string
-      fallbackColor: string
-      accentClass: string
-      badgeClass: string
-    }> = [
-      {
-        key: 'precisa_consulta',
-        fallbackLabel: 'Precisa consulta',
-        fallbackEmoji: '📅',
-        fallbackColor: 'blue',
-        accentClass: 'hover:border-blue-400 bg-blue-50/40 text-blue-900',
-        badgeClass: 'bg-blue-100 text-blue-800 border-blue-200',
-      },
-      {
-        key: 'precisa_atencao',
-        fallbackLabel: 'Precisa atenção',
-        fallbackEmoji: '⚡',
-        fallbackColor: 'violet',
-        accentClass: 'hover:border-violet-400 bg-violet-50/40 text-violet-900',
-        badgeClass: 'bg-violet-100 text-violet-800 border-violet-200',
-      },
-      {
-        key: 'nao_respondeu',
-        fallbackLabel: 'Não respondeu',
-        fallbackEmoji: '⏰',
-        fallbackColor: 'rose',
-        accentClass: 'hover:border-rose-400 bg-rose-50/40 text-rose-900',
-        badgeClass: 'bg-rose-100 text-rose-800 border-rose-200',
-      },
-      {
-        key: 'precisa_retorno',
-        fallbackLabel: 'Precisa retorno',
-        fallbackEmoji: '🔄',
-        fallbackColor: 'amber',
-        accentClass: 'hover:border-amber-400 bg-amber-50/40 text-amber-900',
-        badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
-      },
-      {
-        key: 'alta_demanda',
-        fallbackLabel: 'Alta demanda',
-        fallbackEmoji: '🚨',
-        fallbackColor: 'orange',
-        accentClass: 'hover:border-orange-400 bg-orange-50/40 text-orange-900',
-        badgeClass: 'bg-orange-100 text-orange-800 border-orange-200',
-      },
-      {
-        key: 'followup_10_15',
-        fallbackLabel: 'Follow-up 10-15 dias',
-        fallbackEmoji: '⏳',
-        fallbackColor: 'teal',
-        accentClass: 'hover:border-teal-400 bg-teal-50/40 text-teal-900',
-        badgeClass: 'bg-teal-100 text-teal-800 border-teal-200',
-      },
-    ]
+    try {
+      const keys: Array<{
+        key: string
+        fallbackLabel: string
+        fallbackEmoji: string
+        fallbackColor: string
+        accentClass: string
+        badgeClass: string
+      }> = [
+        {
+          key: 'precisa_consulta',
+          fallbackLabel: 'Precisa consulta',
+          fallbackEmoji: '📅',
+          fallbackColor: 'blue',
+          accentClass: 'hover:border-blue-400 bg-blue-50/40 text-blue-900',
+          badgeClass: 'bg-blue-100 text-blue-800 border-blue-200',
+        },
+        {
+          key: 'precisa_atencao',
+          fallbackLabel: 'Atenção necessária',
+          fallbackEmoji: '⚡',
+          fallbackColor: 'violet',
+          accentClass: 'hover:border-violet-400 bg-violet-50/40 text-violet-900',
+          badgeClass: 'bg-violet-100 text-violet-800 border-violet-200',
+        },
+        {
+          key: 'nao_respondeu',
+          fallbackLabel: 'Não respondeu',
+          fallbackEmoji: '⏰',
+          fallbackColor: 'rose',
+          accentClass: 'hover:border-rose-400 bg-rose-50/40 text-rose-900',
+          badgeClass: 'bg-rose-100 text-rose-800 border-rose-200',
+        },
+        {
+          key: 'precisa_retorno',
+          fallbackLabel: 'Precisa retorno',
+          fallbackEmoji: '🔄',
+          fallbackColor: 'amber',
+          accentClass: 'hover:border-amber-400 bg-amber-50/40 text-amber-900',
+          badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
+        },
+        {
+          key: 'alta_demanda',
+          fallbackLabel: 'Alta demanda',
+          fallbackEmoji: '🚨',
+          fallbackColor: 'orange',
+          accentClass: 'hover:border-orange-400 bg-orange-50/40 text-orange-900',
+          badgeClass: 'bg-orange-100 text-orange-800 border-orange-200',
+        },
+        {
+          key: 'followup_10_15',
+          fallbackLabel: 'Follow-up 10-15 dias',
+          fallbackEmoji: '⏳',
+          fallbackColor: 'teal',
+          accentClass: 'hover:border-teal-400 bg-teal-50/40 text-teal-900',
+          badgeClass: 'bg-teal-100 text-teal-800 border-teal-200',
+        },
+      ]
 
-    return keys.map((item) => {
-      const meta = CARE_CATEGORIES.find((c) => c.id === item.key)
-      const count = careCategoryCounts[item.key] || 0
-      return {
-        key: item.key,
-        label: meta?.label || item.fallbackLabel,
-        emoji: meta?.emoji || item.fallbackEmoji,
-        count,
-        accentClass: item.accentClass,
-        badgeClass: item.badgeClass,
-      }
-    })
+      return keys.map((item) => {
+        const meta = Array.isArray(CARE_CATEGORIES)
+          ? CARE_CATEGORIES.find((c) => c?.id === item.key)
+          : null
+        const count =
+          typeof careCategoryCounts?.[item.key] === 'number' ? careCategoryCounts[item.key] : 0
+        return {
+          key: item.key,
+          label: meta?.label || item.fallbackLabel,
+          emoji: meta?.emoji || item.fallbackEmoji,
+          count,
+          accentClass: item.accentClass,
+          badgeClass: item.badgeClass,
+        }
+      })
+    } catch (err) {
+      console.warn(
+        '[Home] Erro seguro ao montar careCategoriesList, degradando para lista vazia:',
+        err,
+      )
+      return []
+    }
   }, [careCategoryCounts])
 
   const getMessageSnippet = (text: string) => {
@@ -779,17 +822,49 @@ function HomeContent() {
   // 2. Taxa de resposta em até 8h (%)
   // 3. Áudios transcritos (com pendentes)
   // 4. Conversas ativas
+  // Blindagem profunda de todos os acessos a metrics
   const activeConversations =
-    metrics?.conversationsStats?.active ?? metrics?.conversations ?? conversations.length
-  const archivedConversations = metrics?.conversationsStats?.archived ?? 0
-  const responseRate = metrics?.responseRate8h?.ratePct ?? 100
-  const answeredCount = metrics?.responseRate8h?.answeredWithin8h ?? 0
-  const totalAttendantMsgs = metrics?.responseRate8h?.totalAttendantMsgs ?? 0
-  const audiosTranscribed = metrics?.audios?.transcribed ?? 0
-  const audiosPending = metrics?.audios?.pending ?? 0
-  const followupsRecovered = metrics?.followupsRecovered7d ?? 0
-  const patientRecallStats = metrics?.patientRecall ?? { detected: 0, sentToday: 0, reengaged: 0 }
-  const care2MonthsStats = metrics?.care2Months ?? { total: 0, contacted: 0, notContacted: 0 }
+    typeof metrics?.conversationsStats?.active === 'number'
+      ? metrics.conversationsStats.active
+      : typeof metrics?.conversations === 'number'
+        ? metrics.conversations
+        : Array.isArray(conversations)
+          ? conversations.length
+          : 0
+  const archivedConversations =
+    typeof metrics?.conversationsStats?.archived === 'number'
+      ? metrics.conversationsStats.archived
+      : 0
+  const responseRate =
+    typeof metrics?.responseRate8h?.ratePct === 'number' ? metrics.responseRate8h.ratePct : 100
+  const answeredCount =
+    typeof metrics?.responseRate8h?.answeredWithin8h === 'number'
+      ? metrics.responseRate8h.answeredWithin8h
+      : 0
+  const totalAttendantMsgs =
+    typeof metrics?.responseRate8h?.totalAttendantMsgs === 'number'
+      ? metrics.responseRate8h.totalAttendantMsgs
+      : 0
+  const audiosTranscribed =
+    typeof metrics?.audios?.transcribed === 'number' ? metrics.audios.transcribed : 0
+  const audiosPending = typeof metrics?.audios?.pending === 'number' ? metrics.audios.pending : 0
+  const followupsRecovered =
+    typeof metrics?.followupsRecovered7d === 'number' ? metrics.followupsRecovered7d : 0
+  const patientRecallStats = {
+    detected:
+      typeof metrics?.patientRecall?.detected === 'number' ? metrics.patientRecall.detected : 0,
+    sentToday:
+      typeof metrics?.patientRecall?.sentToday === 'number' ? metrics.patientRecall.sentToday : 0,
+    reengaged:
+      typeof metrics?.patientRecall?.reengaged === 'number' ? metrics.patientRecall.reengaged : 0,
+  }
+  const care2MonthsStats = {
+    total: typeof metrics?.care2Months?.total === 'number' ? metrics.care2Months.total : 0,
+    contacted:
+      typeof metrics?.care2Months?.contacted === 'number' ? metrics.care2Months.contacted : 0,
+    notContacted:
+      typeof metrics?.care2Months?.notContacted === 'number' ? metrics.care2Months.notContacted : 0,
+  }
 
   if (sessionExpired) {
     return (
@@ -1432,11 +1507,24 @@ function HomeContent() {
                       Fila em dia
                     </Badge>
                   )}
-                  {metrics?.dailyUsage && (
+                  {metrics?.dailyUsage && typeof metrics.dailyUsage === 'object' && (
                     <span className="text-[10px] text-muted-foreground font-sans">
-                      • Hoje: {metrics.dailyUsage.transcriptions_count}/
-                      {metrics.dailyUsage.transcriptions_limit} áudios |{' '}
-                      {metrics.dailyUsage.ai_analyses_count}/{metrics.dailyUsage.ai_analyses_limit}{' '}
+                      • Hoje:{' '}
+                      {typeof metrics.dailyUsage.transcriptions_count === 'number'
+                        ? metrics.dailyUsage.transcriptions_count
+                        : 0}
+                      /
+                      {typeof metrics.dailyUsage.transcriptions_limit === 'number'
+                        ? metrics.dailyUsage.transcriptions_limit
+                        : 150}{' '}
+                      áudios |{' '}
+                      {typeof metrics.dailyUsage.ai_analyses_count === 'number'
+                        ? metrics.dailyUsage.ai_analyses_count
+                        : 0}
+                      /
+                      {typeof metrics.dailyUsage.ai_analyses_limit === 'number'
+                        ? metrics.dailyUsage.ai_analyses_limit
+                        : 200}{' '}
                       IA
                     </span>
                   )}
@@ -1653,8 +1741,16 @@ function HomeContent() {
                   variant="outline"
                   className="bg-rose-50 text-rose-800 border-rose-200 text-[10px] font-semibold"
                 >
-                  {metrics?.unansweredTiers?.total ?? 0} paciente
-                  {(metrics?.unansweredTiers?.total ?? 0) === 1 ? '' : 's'} aguardando
+                  {typeof metrics?.unansweredTiers?.total === 'number'
+                    ? metrics.unansweredTiers.total
+                    : 0}{' '}
+                  paciente
+                  {(typeof metrics?.unansweredTiers?.total === 'number'
+                    ? metrics.unansweredTiers.total
+                    : 0) === 1
+                    ? ''
+                    : 's'}{' '}
+                  aguardando
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground font-sans mt-0.5">
@@ -1666,8 +1762,7 @@ function HomeContent() {
           <div className="flex items-center gap-4 text-xs divide-x divide-border/60 bg-muted/30 p-2.5 rounded-xl border border-border/40 self-start md:self-auto">
             <div className="flex flex-col items-center px-2">
               <span className="font-serif font-bold text-base md:text-lg text-primary">
-                {metrics?.firstResponseAvgMinutes?.days7 !== null &&
-                metrics?.firstResponseAvgMinutes?.days7 !== undefined
+                {typeof metrics?.firstResponseAvgMinutes?.days7 === 'number'
                   ? `${metrics.firstResponseAvgMinutes.days7} min`
                   : '—'}
               </span>
@@ -1677,8 +1772,7 @@ function HomeContent() {
             </div>
             <div className="flex flex-col items-center pl-4 pr-2">
               <span className="font-serif font-bold text-base md:text-lg text-primary">
-                {metrics?.firstResponseAvgMinutes?.days30 !== null &&
-                metrics?.firstResponseAvgMinutes?.days30 !== undefined
+                {typeof metrics?.firstResponseAvgMinutes?.days30 === 'number'
                   ? `${metrics.firstResponseAvgMinutes.days30} min`
                   : '—'}
               </span>
@@ -1702,7 +1796,9 @@ function HomeContent() {
               </span>
             </div>
             <span className="font-serif font-bold text-2xl text-emerald-900">
-              {metrics?.unansweredTiers?.ate_1h ?? '—'}
+              {typeof metrics?.unansweredTiers?.ate_1h === 'number'
+                ? metrics.unansweredTiers.ate_1h
+                : '—'}
             </span>
             <span className="text-[10px] text-muted-foreground mt-1">&lt; 60 minutos</span>
           </div>
@@ -1718,7 +1814,9 @@ function HomeContent() {
               </span>
             </div>
             <span className="font-serif font-bold text-2xl text-blue-900">
-              {metrics?.unansweredTiers?.h1_a_4h ?? '—'}
+              {typeof metrics?.unansweredTiers?.h1_a_4h === 'number'
+                ? metrics.unansweredTiers.h1_a_4h
+                : '—'}
             </span>
             <span className="text-[10px] text-muted-foreground mt-1">60 a 240 min</span>
           </div>
@@ -1734,7 +1832,9 @@ function HomeContent() {
               </span>
             </div>
             <span className="font-serif font-bold text-2xl text-amber-900">
-              {metrics?.unansweredTiers?.h4_a_24h ?? '—'}
+              {typeof metrics?.unansweredTiers?.h4_a_24h === 'number'
+                ? metrics.unansweredTiers.h4_a_24h
+                : '—'}
             </span>
             <span className="text-[10px] text-muted-foreground mt-1">Mesmo dia</span>
           </div>
@@ -1750,7 +1850,9 @@ function HomeContent() {
               </span>
             </div>
             <span className="font-serif font-bold text-2xl text-orange-900">
-              {metrics?.unansweredTiers?.h24_a_48h ?? '—'}
+              {typeof metrics?.unansweredTiers?.h24_a_48h === 'number'
+                ? metrics.unansweredTiers.h24_a_48h
+                : '—'}
             </span>
             <span className="text-[10px] text-muted-foreground mt-1">1 a 2 dias</span>
           </div>
@@ -1766,7 +1868,9 @@ function HomeContent() {
               </span>
             </div>
             <span className="font-serif font-bold text-2xl text-rose-900">
-              {metrics?.unansweredTiers?.acima_48h ?? '—'}
+              {typeof metrics?.unansweredTiers?.acima_48h === 'number'
+                ? metrics.unansweredTiers.acima_48h
+                : '—'}
             </span>
             <span className="text-[10px] text-muted-foreground mt-1">&gt; 2 dias sem retorno</span>
           </div>

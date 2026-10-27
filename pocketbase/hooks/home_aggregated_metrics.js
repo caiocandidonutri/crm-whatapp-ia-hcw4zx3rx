@@ -423,10 +423,12 @@ routerAdd(
         )
         .bind({ accId: accountId })
         .all()
-      for (var ci = 0; ci < catRows.length; ci++) {
-        var cRow = catRows[ci]
-        if (careTasksByCategory[cRow.care_category] !== undefined) {
-          careTasksByCategory[cRow.care_category] = cRow.cnt
+      if (catRows && Array.isArray(catRows)) {
+        for (var ci = 0; ci < catRows.length; ci++) {
+          var cRow = catRows[ci]
+          if (cRow && cRow.care_category && careTasksByCategory[cRow.care_category] !== undefined) {
+            careTasksByCategory[cRow.care_category] = Number(cRow.cnt) || 0
+          }
         }
       }
     } catch (_) {}
