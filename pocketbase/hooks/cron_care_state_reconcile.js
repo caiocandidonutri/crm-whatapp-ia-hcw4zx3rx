@@ -348,6 +348,7 @@ cronAdd('cron_care_state_reconcile', '2,17,32,47 * * * *', () => {
 
       const oldState = contact.getString('care_state')
       const oldAlert = contact.getBool('alert_active')
+      const oldCareStatus = contact.getString('care_status')
 
       let dirty = false
       if (oldState !== result.state) {
@@ -365,6 +366,12 @@ cronAdd('cron_care_state_reconcile', '2,17,32,47 * * * *', () => {
         contact.getString('last_human_contact_at') !== result.lastHumanContactAt
       ) {
         contact.set('last_human_contact_at', result.lastHumanContactAt)
+        dirty = true
+      }
+
+      // Sincronização legada contínua: se care_state é 'retorno_a_oferecer', limpa legado 'precisa_retorno'
+      if (result.state === 'retorno_a_oferecer' && oldCareStatus === 'precisa_retorno') {
+        contact.set('care_status', 'em_dia')
         dirty = true
       }
 
@@ -386,6 +393,55 @@ cronAdd('cron_care_state_reconcile', '2,17,32,47 * * * *', () => {
             )
         }
       }
+
+      // Limpeza contínua de tarefas fantasmas para este contato:
+      // Tarefas pendentes com vencimento no passado OU criadas antes de mensagem humana posterior
+      try {
+        const contactTasks = $app.findRecordsByFilter(
+          'tasks',
+          "crm_contact_id = {:cid} && (status = 'pendente' || status = 'em_andamento')",
+          '-created',
+          50,
+          0,
+          { cid: contact.id },
+        )
+
+        for (let ti = 0; ti < contactTasks.length; ti++) {
+          const tsk = contactTasks[ti]
+          const dueStr = tsk.getString('due_date')
+          const dueMs = dueStr ? Date.parse(dueStr) : 0
+          const taskCreatedMs = Date.parse(tsk.getString('created')) || 0
+
+          let isOverduePast = dueMs > 0 && dueMs < Date.now() - 60000
+          let hasHumanMsgAfter = false
+          if (result.lastHumanContactAt) {
+            const hMs = Date.parse(result.lastHumanContactAt)
+            if (!isNaN(hMs) && hMs > taskCreatedMs) {
+              hasHumanMsgAfter = true
+            }
+          }
+
+          if (
+            isOverduePast ||
+            hasHumanMsgAfter ||
+            (result.state !== 'responder' && tsk.getString('care_category') === 'precisa_atencao')
+          ) {
+            tsk.set('status', 'resolvida_auto')
+            const pDesc = tsk.getString('description') || ''
+            const reason = isOverduePast
+              ? 'vencimento no passado'
+              : hasHumanMsgAfter
+                ? 'mensagem humana posterior do contato'
+                : 'care_state ' + result.state + ' sem alerta ativo'
+            const tag = '[resolvida_auto: ' + reason + ' às ' + nowIso + ']'
+            tsk.set('description', pDesc ? pDesc + '\n' + tag : tag)
+            tsk.set('completed_at', nowIso)
+            try {
+              $app.saveNoValidate(tsk)
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
     }
 
     // Incrementar alert_drift_fixes em care_alert_settings se houve correção

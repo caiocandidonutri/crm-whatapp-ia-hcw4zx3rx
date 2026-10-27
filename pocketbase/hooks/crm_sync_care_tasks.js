@@ -185,6 +185,8 @@ cronAdd('sync_care_tasks', '24,54 * * * *', () => {
         }
         var contactName =
           contact.getString('contact_name') || contact.getString('push_name') || jid || 'Contato'
+        var careState = contact.getString('care_state') || ''
+        var alertActive = contact.getBool('alert_active')
         var careStatus = contact.getString('care_status') || 'em_dia'
         var stage = contact.getString('stage') || ''
         var aiAction = contact.getString('ai_suggested_action') || ''
@@ -226,6 +228,15 @@ cronAdd('sync_care_tasks', '24,54 * * * *', () => {
           careStatus = 'em_dia'
         }
 
+        // Se o care_state é 'retorno_a_oferecer', não manter legado 'precisa_retorno'
+        if (careState === 'retorno_a_oferecer' && careStatus === 'precisa_retorno') {
+          contact.set('care_status', 'em_dia')
+          try {
+            $app.saveNoValidate(contact)
+          } catch (_) {}
+          careStatus = 'em_dia'
+        }
+
         var currentCategories = []
 
         // Pendências de agendamento (retorno/consulta/follow-up) só entram se NÃO houver cobertura pela agenda
@@ -250,7 +261,9 @@ cronAdd('sync_care_tasks', '24,54 * * * *', () => {
           currentCategories.push('nao_respondeu')
         }
 
-        if (aiAction && aiPriority >= 5) {
+        // Só gera alerta/tarefa de atenção se o care_state for 'responder' ou alert_active=true
+        // NUNCA gera alerta genérico quando o paciente já foi atendido ou já está em outro estado
+        if ((careState === 'responder' || alertActive) && aiAction && aiPriority >= 5) {
           currentCategories.push('precisa_atencao')
         }
 

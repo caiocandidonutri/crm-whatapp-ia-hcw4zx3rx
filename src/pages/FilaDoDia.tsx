@@ -177,7 +177,7 @@ export default function FilaDoDia() {
   const [salvandoPlantao, setSalvandoPlantao] = useState<boolean>(false)
   const [abaFimDeSemanaAtiva, setAbaFimDeSemanaAtiva] = useState<boolean>(false)
 
-  // Carrega configuração de plantao_fim_de_semana
+  // Carrega configuração de plantao_fim_de_semana com debounce / fallback seguro
   useEffect(() => {
     let cancel = false
     async function carregarPlantao() {
@@ -188,12 +188,13 @@ export default function FilaDoDia() {
           setPlantaoFimDeSemanaState(Boolean(settings.plantao_fim_de_semana))
         }
       } catch (err) {
-        console.warn('[FilaDoDia] Erro ao carregar plantao_fim_de_semana:', err)
+        // Ignora silenciosamente em caso de rate-limit
       }
     }
-    carregarPlantao()
+    const t = setTimeout(carregarPlantao, 120)
     return () => {
       cancel = true
+      clearTimeout(t)
     }
   }, [accountId])
 
@@ -256,7 +257,7 @@ export default function FilaDoDia() {
         label: 'FilaDoDia:contacts',
       })
 
-      await new Promise((r) => setTimeout(r, 60))
+      await new Promise((r) => setTimeout(r, 100))
 
       // 2. Conversas ativas
       const convsRes = await safePbFullListWithStatus<Conversation>({
@@ -267,12 +268,12 @@ export default function FilaDoDia() {
         label: 'FilaDoDia:conversations',
       })
 
-      await new Promise((r) => setTimeout(r, 60))
+      await new Promise((r) => setTimeout(r, 100))
 
       // 3. Tarefas abertas (sem expand para evitar broken pipe; perPage 100)
       const tasksRes = await safePbFullListWithStatus<Task>({
         collection: 'tasks',
-        filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
+        filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada" && status != "resolvida_auto"`,
         sort: '-created',
         perPage: 100,
         label: 'FilaDoDia:tasks',
@@ -284,14 +285,20 @@ export default function FilaDoDia() {
         return
       }
 
-      if (contactsRes.failed) {
+      if (contactsRes.failed && contacts.length === 0) {
         setLoadError('Não foi possível carregar os contatos. Tentar de novo')
         return
       }
 
-      setContacts(contactsRes.items)
-      setConversations(convsRes.items)
-      setTasks(tasksRes.items)
+      if (Array.isArray(contactsRes.items) && contactsRes.items.length > 0) {
+        setContacts(contactsRes.items)
+      }
+      if (Array.isArray(convsRes.items)) {
+        setConversations(convsRes.items)
+      }
+      if (Array.isArray(tasksRes.items)) {
+        setTasks(tasksRes.items)
+      }
       setTasksDegraded(tasksRes.failed)
       setLastLoadedAt(new Date())
 
@@ -304,27 +311,43 @@ export default function FilaDoDia() {
       }
     } catch (err) {
       console.warn('[FilaDoDia] Erro ao carregar dados:', err)
-      setLoadError('Não foi possível carregar. Tentar de novo')
+      if (contacts.length === 0) {
+        setLoadError('Não foi possível carregar. Tentar de novo')
+      }
     } finally {
       setLoading(false)
     }
-  }, [accountId, accountError])
+  }, [accountId, accountError, contacts.length])
 
   useEffect(() => {
     loadData()
   }, [loadData])
 
-  // Assinaturas realtime com kill-safety
-  useRealtime('crm_contacts', () => loadData(), !!accountId)
-  useRealtime('conversations', () => loadData(), !!accountId)
-  useRealtime('tasks', () => loadData(), !!accountId)
+  // Assinaturas realtime com debounce para não disparar rajadas
+  const debouncedReloadTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleReload = useCallback(() => {
+    if (debouncedReloadTimerRef.current) {
+      clearTimeout(debouncedReloadTimerRef.current)
+    }
+    debouncedReloadTimerRef.current = setTimeout(() => {
+      loadData()
+    }, 1500)
+  }, [loadData])
 
-  // Mapas auxiliares para busca O(1)
+  useRealtime('crm_contacts', scheduleReload, !!accountId)
+  useRealtime('conversations', scheduleReload, !!accountId)
+  useRealtime('tasks', scheduleReload, !!accountId)
+
+  // Mapas auxiliares para busca O(1) com guardas estritas
   const convByJid = useMemo(() => {
     const map = new Map<string, Conversation>()
+    if (!Array.isArray(conversations)) return map
     for (const c of conversations) {
-      if (c.remote_jid) map.set(c.remote_jid, c)
-      if (c.contact_phone) {
+      if (!c) continue
+      if (c.remote_jid && typeof c.remote_jid === 'string') {
+        map.set(c.remote_jid, c)
+      }
+      if (c.contact_phone && typeof c.contact_phone === 'string') {
         const clean = c.contact_phone.replace(/\D/g, '')
         if (clean) map.set(clean, c)
       }
@@ -334,8 +357,10 @@ export default function FilaDoDia() {
 
   const tasksByContactId = useMemo(() => {
     const map = new Map<string, Task[]>()
+    if (!Array.isArray(tasks)) return map
     for (const t of tasks) {
-      if (t.crm_contact_id) {
+      if (!t) continue
+      if (t.crm_contact_id && typeof t.crm_contact_id === 'string') {
         if (!map.has(t.crm_contact_id)) map.set(t.crm_contact_id, [])
         map.get(t.crm_contact_id)!.push(t)
       }
@@ -343,179 +368,187 @@ export default function FilaDoDia() {
     return map
   }, [tasks])
 
-  // Derivação estrita da fila a partir dos dados existentes com blindagem total contra nulos
+  // Derivação estrita da fila a partir dos dados existentes com blindagem total contra nulos/indefinidos
   const queueItems: FilaItem[] = useMemo(() => {
-    const now = Date.now()
-
     if (!Array.isArray(contacts)) return []
 
     return contacts
       .filter((c): c is CrmContact => Boolean(c && typeof c === 'object' && c.id))
       .map((c) => {
-        const rawJid = String(c.jid || '')
-        const rawPhone = String(c.phone || '')
-        const cleanPhone = (rawPhone || rawJid).replace(/\D/g, '')
-        const conv =
-          (rawJid ? convByJid.get(rawJid) : undefined) ||
-          (cleanPhone ? convByJid.get(cleanPhone) : undefined)
-        const contactTasks = (c.id ? tasksByContactId.get(c.id) : undefined) || []
-        const hasOpenTask = contactTasks.length > 0
-        const openTaskTitle = contactTasks[0]?.title || ''
+        try {
+          const rawJid = String(c.jid || '').trim()
+          const rawPhone = String(c.phone || '').trim()
+          const cleanPhone = (rawPhone || rawJid).replace(/\D/g, '')
+          const conv =
+            (rawJid ? convByJid.get(rawJid) : undefined) ||
+            (cleanPhone ? convByJid.get(cleanPhone) : undefined)
+          const contactTasks = (c.id ? tasksByContactId.get(c.id) : undefined) || []
+          const hasOpenTask = contactTasks.length > 0
+          const openTaskTitle = contactTasks[0]?.title ? String(contactTasks[0].title) : ''
 
-        // Identificação da última mensagem / contato
-        let lastContactAt: Date | null = null
-        let lastContactWho: 'cliente' | 'equipe' | 'desconhecido' = 'desconhecido'
+          // Identificação da última mensagem / contato de forma blindada
+          let lastContactAt: Date | null = null
+          let lastContactWho: 'cliente' | 'equipe' | 'desconhecido' = 'desconhecido'
 
-        if (conv?.last_message_timestamp) {
-          const ts = Number(conv.last_message_timestamp)
-          if (!isNaN(ts) && ts > 0) {
-            const ms = ts > 1e12 ? ts : ts * 1000
-            const parsed = new Date(ms)
-            if (!isNaN(parsed.getTime())) {
-              lastContactAt = parsed
+          if (conv?.last_message_timestamp) {
+            const ts = Number(conv.last_message_timestamp)
+            if (!isNaN(ts) && ts > 0) {
+              const ms = ts > 1e12 ? ts : ts * 1000
+              const parsed = new Date(ms)
+              if (!isNaN(parsed.getTime())) {
+                lastContactAt = parsed
+              }
             }
           }
-        }
-        if (!lastContactAt && c.last_synced_at) {
-          lastContactAt = parseToDate(c.last_synced_at)
-        }
-        if (!lastContactAt && c.updated) {
-          lastContactAt = parseToDate(c.updated)
-        }
+          if (!lastContactAt && c.last_synced_at) {
+            lastContactAt = parseToDate(c.last_synced_at)
+          }
+          if (!lastContactAt && c.updated) {
+            lastContactAt = parseToDate(c.updated)
+          }
 
-        // Se temos unread_count > 0, o cliente mandou mensagem e aguarda retorno
-        const unreadCount = Number(conv?.unread_count) || 0
-        const hasUnreadFromClient = unreadCount > 0
-        if (hasUnreadFromClient) {
-          lastContactWho = 'cliente'
-        }
+          // Se temos unread_count > 0, o cliente mandou mensagem e aguarda retorno
+          const unreadCount = Number(conv?.unread_count) || 0
+          const hasUnreadFromClient = unreadCount > 0
+          if (hasUnreadFromClient) {
+            lastContactWho = 'cliente'
+          }
 
-        // Cálculo de Status da Fila usando care_state único da clínica
-        // REGRA DO USUÁRIO: só "responder" gera alerta. "atendido_a_fechar" nunca é alerta.
-        let status: FilaStatus = 'NAO_PRECISA'
-        let suggestedAction =
-          String(c.ai_suggested_action || c.care_state_reason || '').trim() ||
-          'Manter contato ativo conforme necessidade clínica.'
+          // Cálculo de Status da Fila usando care_state único da clínica
+          // REGRA DO USUÁRIO: só "responder" gera alerta. "atendido_a_fechar" nunca é alerta.
+          let status: FilaStatus = 'NAO_PRECISA'
+          let suggestedAction =
+            String(c.ai_suggested_action || c.care_state_reason || '').trim() ||
+            'Manter contato ativo conforme necessidade clínica.'
 
-        const stageKey = String(c.stage || 'lead')
-          .trim()
-          .toLowerCase()
-        const careState = String(c.care_state || '')
-          .trim()
-          .toLowerCase()
-        const isAlertActive = c.alert_active === true || careState === 'responder'
+          const stageKey = String(c.stage || 'lead')
+            .trim()
+            .toLowerCase()
+          const careState = String(c.care_state || '')
+            .trim()
+            .toLowerCase()
+          const isAlertActive = c.alert_active === true || careState === 'responder'
 
-        if (isAlertActive || careState === 'responder') {
-          status = 'ALERTA'
-          suggestedAction =
-            c.care_state_reason || 'Mensagem do paciente sem resposta — responder com acolhimento.'
-        } else if (careState === 'atendido_a_fechar') {
-          // "atendido_a_fechar" nunca é alerta: consulta do dia com horário passado aguardando fechamento humano
-          status = 'AGUARDANDO_RESPOSTA'
-          suggestedAction =
-            c.care_state_reason || 'Consulta realizada hoje — aguardando fechamento na recepção.'
-        } else if (careState === 'confirmacao_enviada') {
-          status = 'AGUARDANDO_RESPOSTA'
-          suggestedAction = c.care_state_reason || 'Confirmação/lembrete enviado nas últimas 48h.'
-        } else if (careState === 'agendado') {
-          status = 'NAO_PRECISA'
-          suggestedAction = c.care_state_reason || 'Consulta futura confirmada/agendada.'
-        } else if (careState === 'retorno_a_oferecer') {
-          status = 'PRECISA_DE_MENSAGEM'
-          suggestedAction =
-            c.care_state_reason || 'Paciente sem novo agendamento — oferecer retorno/consulta.'
-        } else if (careState === 'inativo') {
-          status = 'NAO_PRECISA'
-          suggestedAction = c.care_state_reason || 'Lead sem resposta há mais de 30 dias.'
-        } else if (careState === 'contatado') {
-          status = 'AGUARDANDO_RESPOSTA'
-          suggestedAction = c.care_state_reason || 'Clínica respondeu recentemente.'
-        } else if (stageKey === 'orcamento_enviado') {
-          status = 'EM_NEGOCIACAO'
-          suggestedAction = 'Acompanhar proposta enviada.'
-        } else if (hasUnreadFromClient) {
-          status = 'ALERTA'
-          suggestedAction = 'Mensagem nova não respondida — responder e acolher.'
-        }
+          if (isAlertActive || careState === 'responder') {
+            status = 'ALERTA'
+            suggestedAction =
+              c.care_state_reason ||
+              'Mensagem do paciente sem resposta — responder com acolhimento.'
+          } else if (careState === 'atendido_a_fechar') {
+            // "atendido_a_fechar" nunca é alerta: consulta do dia com horário passado aguardando fechamento humano
+            status = 'AGUARDANDO_RESPOSTA'
+            suggestedAction =
+              c.care_state_reason || 'Consulta realizada hoje — aguardando fechamento na recepção.'
+          } else if (careState === 'confirmacao_enviada') {
+            status = 'AGUARDANDO_RESPOSTA'
+            suggestedAction = c.care_state_reason || 'Confirmação/lembrete enviado nas últimas 48h.'
+          } else if (careState === 'agendado') {
+            status = 'NAO_PRECISA'
+            suggestedAction = c.care_state_reason || 'Consulta futura confirmada/agendada.'
+          } else if (careState === 'retorno_a_oferecer') {
+            status = 'PRECISA_DE_MENSAGEM'
+            suggestedAction =
+              c.care_state_reason || 'Paciente sem novo agendamento — oferecer retorno/consulta.'
+          } else if (careState === 'inativo') {
+            status = 'NAO_PRECISA'
+            suggestedAction = c.care_state_reason || 'Lead sem resposta há mais de 30 dias.'
+          } else if (careState === 'contatado') {
+            status = 'AGUARDANDO_RESPOSTA'
+            suggestedAction = c.care_state_reason || 'Clínica respondeu recentemente.'
+          } else if (stageKey === 'orcamento_enviado') {
+            status = 'EM_NEGOCIACAO'
+            suggestedAction = 'Acompanhar proposta enviada.'
+          } else if (hasUnreadFromClient) {
+            status = 'ALERTA'
+            suggestedAction = 'Mensagem nova não respondida — responder e acolher.'
+          }
 
-        // Prioridade numérica (para ordenação)
-        let priorityScore = 100
-        let priority: 'baixa' | 'media' | 'alta' | 'urgente' = 'media'
+          // Prioridade numérica (para ordenação)
+          let priorityScore = 100
+          let priority: 'baixa' | 'media' | 'alta' | 'urgente' = 'media'
 
-        const aiPriorityNum = Number(c.ai_priority)
-        if (!isNaN(aiPriorityNum) && aiPriorityNum > 0) {
-          priorityScore += aiPriorityNum * 10
-        }
+          const aiPriorityNum = Number(c.ai_priority)
+          if (!isNaN(aiPriorityNum) && aiPriorityNum > 0) {
+            priorityScore += aiPriorityNum * 10
+          }
 
-        if (status === 'ALERTA') {
-          priorityScore += 300
-          priority = 'urgente'
-        } else if (status === 'PRECISA_DE_MENSAGEM') {
-          priorityScore += 200
-          priority = 'alta'
-        } else if (status === 'EM_NEGOCIACAO') {
-          priorityScore += 150
-          priority = 'alta'
-        } else if (status === 'AGUARDANDO_RESPOSTA') {
-          priorityScore += 80
-          priority = 'media'
-        } else {
-          priorityScore += 20
-          priority = 'baixa'
-        }
+          if (status === 'ALERTA') {
+            priorityScore += 300
+            priority = 'urgente'
+          } else if (status === 'PRECISA_DE_MENSAGEM') {
+            priorityScore += 200
+            priority = 'alta'
+          } else if (status === 'EM_NEGOCIACAO') {
+            priorityScore += 150
+            priority = 'alta'
+          } else if (status === 'AGUARDANDO_RESPOSTA') {
+            priorityScore += 80
+            priority = 'media'
+          } else {
+            priorityScore += 20
+            priority = 'baixa'
+          }
 
-        // Se tem tarefa de alta prioridade aberta
-        if (
-          hasOpenTask &&
-          contactTasks.some((t) => t?.priority === 'alta' || t?.priority === 'urgente')
-        ) {
-          priorityScore += 100
-          priority = 'urgente'
-        }
+          // Se tem tarefa de alta prioridade aberta
+          if (
+            hasOpenTask &&
+            contactTasks.some((t) => t?.priority === 'alta' || t?.priority === 'urgente')
+          ) {
+            priorityScore += 100
+            priority = 'urgente'
+          }
 
-        const isCompletedToday = doneTodayIds.has(c.id)
+          const isCompletedToday = Boolean(c.id && doneTodayIds.has(c.id))
 
-        // Identificação da Unidade
-        const notesStr = String(c.notes || '').toLowerCase()
-        let unidade = 'Carmo do Rio Claro'
-        if (notesStr.includes('alfenas')) unidade = 'Alfenas'
-        else if (notesStr.includes('monte belo')) unidade = 'Monte Belo'
-        else if (notesStr.includes('online')) unidade = 'Online'
+          // Identificação da Unidade
+          const notesStr = String(c.notes || '').toLowerCase()
+          let unidade = 'Carmo do Rio Claro'
+          if (notesStr.includes('alfenas')) unidade = 'Alfenas'
+          else if (notesStr.includes('monte belo')) unidade = 'Monte Belo'
+          else if (notesStr.includes('online')) unidade = 'Online'
 
-        const displayName =
-          c.contact_name?.trim() ||
-          c.push_name?.trim() ||
-          (rawPhone ? formatPhoneBR(rawPhone) : 'Sem Nome')
-        const formattedPhone = formatPhoneBR(rawPhone || rawJid)
+          const displayName =
+            (typeof c.contact_name === 'string' && c.contact_name.trim()) ||
+            (typeof c.push_name === 'string' && c.push_name.trim()) ||
+            (rawPhone ? formatPhoneBR(rawPhone) : 'Sem Nome')
+          const formattedPhone = formatPhoneBR(rawPhone || rawJid) || rawPhone || rawJid
 
-        const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.NAO_PRECISA
+          const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.NAO_PRECISA
 
-        return {
-          id: c.id,
-          contactId: c.id,
-          name: displayName,
-          phone: rawPhone || rawJid,
-          formattedPhone,
-          instanceName: c.instance_name || 'Principal',
-          unidade,
-          stageKey,
-          stageLabel: STAGE_LABELS[stageKey] || stageKey,
-          lastContactAt,
-          lastContactWho,
-          status,
-          statusLabel: cfg.label,
-          priority,
-          priorityScore,
-          suggestedAction,
-          completedToday: isCompletedToday,
-          budget: typeof c.budget_value === 'number' ? c.budget_value : Number(c.budget_value) || 0,
-          isPatient: Boolean(c.is_patient),
-          isClubMember: Boolean(c.is_club_member),
-          planExpiresAt: c.plan_expires_at,
-          hasOpenTask,
-          taskTitle: openTaskTitle,
+          const budgetVal =
+            typeof c.budget_value === 'number' ? c.budget_value : Number(c.budget_value) || 0
+
+          return {
+            id: String(c.id),
+            contactId: String(c.id),
+            name: displayName,
+            phone: rawPhone || rawJid,
+            formattedPhone,
+            instanceName: String(c.instance_name || 'Principal'),
+            unidade,
+            stageKey,
+            stageLabel: STAGE_LABELS[stageKey] || stageKey,
+            lastContactAt,
+            lastContactWho,
+            status,
+            statusLabel: cfg.label,
+            priority,
+            priorityScore,
+            suggestedAction,
+            completedToday: isCompletedToday,
+            budget: budgetVal,
+            isPatient: Boolean(c.is_patient),
+            isClubMember: Boolean(c.is_club_member),
+            planExpiresAt: c.plan_expires_at || undefined,
+            hasOpenTask,
+            taskTitle: openTaskTitle,
+          }
+        } catch (itemErr) {
+          console.warn('[FilaDoDia] Contato corrompido neutralizado:', c?.id, itemErr)
+          return null
         }
       })
+      .filter((item): item is FilaItem => item !== null)
   }, [contacts, convByJid, tasksByContactId, doneTodayIds])
 
   // Alterna o status "concluído hoje" para a secretária Fabiana
@@ -536,10 +569,12 @@ export default function FilaDoDia() {
     })
   }
 
-  // Filtragem e Ordenação
+  // Filtragem e Ordenação com proteção total contra nulos
   const filteredItems = useMemo(() => {
+    if (!Array.isArray(queueItems)) return []
     return queueItems
       .filter((item) => {
+        if (!item) return false
         // Filtro de concluídos hoje
         if (showOnlyPendingToday && item.completedToday) return false
 
@@ -547,11 +582,11 @@ export default function FilaDoDia() {
         if (searchTerm.trim()) {
           const q = searchTerm.toLowerCase().trim()
           const cleanQ = q.replace(/\D/g, '')
-          const matchName = item.name.toLowerCase().includes(q)
+          const matchName = (item.name || '').toLowerCase().includes(q)
           const matchPhone =
-            item.phone.toLowerCase().includes(q) ||
-            (cleanQ.length >= 4 && item.phone.includes(cleanQ))
-          const matchAction = item.suggestedAction.toLowerCase().includes(q)
+            (item.phone || '').toLowerCase().includes(q) ||
+            (cleanQ.length >= 4 && (item.phone || '').includes(cleanQ))
+          const matchAction = (item.suggestedAction || '').toLowerCase().includes(q)
           if (!matchName && !matchPhone && !matchAction) return false
         }
 
@@ -567,16 +602,21 @@ export default function FilaDoDia() {
         return true
       })
       .sort((a, b) => {
+        if (!a || !b) return 0
         // Itens não concluídos sempre acima dos concluídos
         if (a.completedToday !== b.completedToday) {
           return a.completedToday ? 1 : -1
         }
 
         if (sortField === 'priority') {
-          return sortAsc ? a.priorityScore - b.priorityScore : b.priorityScore - a.priorityScore
+          return sortAsc
+            ? (a.priorityScore || 0) - (b.priorityScore || 0)
+            : (b.priorityScore || 0) - (a.priorityScore || 0)
         }
         if (sortField === 'name') {
-          return sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
+          return sortAsc
+            ? (a.name || '').localeCompare(b.name || '')
+            : (b.name || '').localeCompare(a.name || '')
         }
         if (sortField === 'lastContact') {
           const tA = a.lastContactAt?.getTime() || 0
