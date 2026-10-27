@@ -374,15 +374,24 @@ export default function Conversas() {
 
   const safeConversations = Array.isArray(conversations) ? conversations : []
 
-  const adaptedChats = React.useMemo(
-    () =>
-      conversationsToChats(safeConversations).map((chat) => {
+  const [conversasProcessError, setConversasProcessError] = useState<string | null>(null)
+
+  const adaptedChats = React.useMemo(() => {
+    try {
+      const mapped = conversationsToChats(safeConversations)
+      if (!Array.isArray(mapped)) return []
+      return mapped.map((chat) => {
         if (!chat) return chat
-        const crmName = chat.remote_jid ? crmNameByJid.get(chat.remote_jid) : undefined
+        const crmName =
+          chat.remote_jid && crmNameByJid ? crmNameByJid.get(chat.remote_jid) : undefined
         return crmName ? { ...chat, name: crmName } : chat
-      }),
-    [safeConversations, crmNameByJid],
-  )
+      })
+    } catch (err) {
+      console.error('[Conversas] Erro ao processar lista de conversas:', err)
+      setConversasProcessError('Não foi possível carregar as conversas.')
+      return []
+    }
+  }, [safeConversations, crmNameByJid])
 
   const activeChatWithMessages = React.useMemo(() => {
     if (!activeConversation) return null
@@ -390,12 +399,14 @@ export default function Conversas() {
       const baseChats = conversationsToChats([activeConversation])
       if (!baseChats || baseChats.length === 0 || !baseChats[0]) return null
       const baseChat = baseChats[0]
-      const crmName = baseChat.remote_jid ? crmNameByJid.get(baseChat.remote_jid) : undefined
+      const crmName =
+        baseChat?.remote_jid && crmNameByJid ? crmNameByJid.get(baseChat.remote_jid) : undefined
       const safeRaw = Array.isArray(rawMessages) ? rawMessages : []
+      const mappedMessages = whatsappMessagesToMessages(safeRaw) ?? []
       return {
         ...baseChat,
         ...(crmName ? { name: crmName } : {}),
-        messages: whatsappMessagesToMessages(safeRaw),
+        messages: mappedMessages,
       }
     } catch (err) {
       console.warn('[Conversas] falha ao montar activeChatWithMessages:', err)
@@ -709,13 +720,29 @@ export default function Conversas() {
             )}
           >
             <div className="flex-1 overflow-hidden relative flex flex-col">
+              {conversasProcessError && (
+                <div className="p-3 m-2 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center justify-between gap-2">
+                  <span>Não foi possível carregar. Tentar de novo</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs px-2"
+                    onClick={() => {
+                      setConversasProcessError(null)
+                      reloadChats()
+                    }}
+                  >
+                    Recarregar
+                  </Button>
+                </div>
+              )}
               <ChatList
-                chats={adaptedChats}
+                chats={adaptedChats ?? []}
                 activeChatId={activeChatId}
                 onSelectChat={handleSelectChat}
                 loading={loadingChats || isConnecting}
                 loadingMore={loadingMoreChats}
-                error={chatsError}
+                error={chatsError || conversasProcessError}
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived((v) => !v)}
                 onRefresh={reloadChats}

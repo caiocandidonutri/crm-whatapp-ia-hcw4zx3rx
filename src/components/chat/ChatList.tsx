@@ -108,201 +108,211 @@ const ChatRow = React.memo(function ChatRow({
   onMarkAsRead,
   onFinalizeChat,
 }: ChatRowProps) {
-  if (!chat) return null
-  const lastMsg = chat.messages?.[(chat.messages?.length || 0) - 1] ?? null
-  const unreadCount = chat.unread || 0
-  const hasAvatar = !!chat.avatar
-  const chatDisplayName = chat?.name || formatPhoneBR(chat?.remote_jid ?? '') || 'Contato'
-  const fallbackInitial = chatDisplayName
-    ? chatDisplayName.trim().charAt(0)?.toUpperCase() || '?'
-    : '?'
+  if (!chat || !chat.id) return null
+  try {
+    const messagesList = Array.isArray(chat?.messages) ? chat.messages : []
+    const lastMsg = messagesList.length > 0 ? (messagesList[messagesList.length - 1] ?? null) : null
+    const unreadCount = Number(chat?.unread) || 0
+    const hasAvatar = Boolean(chat?.avatar)
+    const rawDisplayName = chat?.name || formatPhoneBR(chat?.remote_jid ?? '') || 'Contato'
+    const chatDisplayName =
+      typeof rawDisplayName === 'string' && rawDisplayName.trim()
+        ? rawDisplayName.trim()
+        : 'Contato'
+    const fallbackInitial = chatDisplayName ? chatDisplayName.charAt(0)?.toUpperCase() || '?' : '?'
+    const rawTimestamp = chat?.lastMessage?.timestamp ?? lastMsg?.timestamp
+    const formattedTimestamp = formatChatListTimestamp(rawTimestamp) ?? ''
 
-  return (
-    <div
-      onClick={() => onSelectChat(chat.id)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          onSelectChat(chat.id)
-        }
-      }}
-      className={cn(
-        'group w-full p-4 flex items-center gap-3 transition-colors text-left relative overflow-hidden cursor-pointer select-none',
-        isActive ? 'bg-primary/5' : 'hover:bg-black/5',
-      )}
-    >
-      {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
+    return (
+      <div
+        onClick={() => onSelectChat(chat.id)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            onSelectChat(chat.id)
+          }
+        }}
+        className={cn(
+          'group w-full p-4 flex items-center gap-3 transition-colors text-left relative overflow-hidden cursor-pointer select-none',
+          isActive ? 'bg-primary/5' : 'hover:bg-black/5',
+        )}
+      >
+        {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
 
-      <Avatar className="h-12 w-12 border border-border shrink-0">
-        {hasAvatar ? <AvatarImage src={chat.avatar} /> : null}
-        <AvatarFallback>{fallbackInitial}</AvatarFallback>
-      </Avatar>
+        <Avatar className="h-12 w-12 border border-border shrink-0">
+          {hasAvatar ? <AvatarImage src={chat.avatar} /> : null}
+          <AvatarFallback>{fallbackInitial}</AvatarFallback>
+        </Avatar>
 
-      <div className="flex-1 min-w-0 flex flex-col justify-center">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2 truncate">
-            <span className="font-semibold text-primary truncate">{chatDisplayName}</span>
-            {chat.type === 'group' && (
-              <Badge
-                variant="secondary"
-                className="text-[9px] px-1 py-0 h-4 bg-primary/10 text-primary shrink-0"
-              >
-                GRUPO
-              </Badge>
-            )}
-          </div>
-          <span
-            className={cn(
-              'text-xs whitespace-nowrap ml-2 shrink-0',
-              unreadCount > 0 ? 'text-emerald-600 font-semibold' : 'text-muted-foreground',
-            )}
-          >
-            {formatChatListTimestamp(chat.lastMessage?.timestamp || lastMsg?.timestamp)}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <div
-            className={cn(
-              'text-sm truncate flex items-center gap-1 min-w-0 flex-1',
-              unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground',
-            )}
-          >
-            {messagePreview ? (
-              <span className="contents">
-                <Search className="w-3 h-3 shrink-0 text-primary" />
-                <span className="truncate italic text-primary/70">{messagePreview}</span>
-              </span>
-            ) : (
-              <span className="contents">
-                {(chat.lastMessage?.fromMe || lastMsg?.senderId === 'me') && (
-                  <span className="shrink-0">Você: </span>
-                )}
-
-                {(() => {
-                  const type = chat.lastMessage?.type || lastMsg?.media?.type
-                  const text = chat.lastMessage?.text || lastMsg?.text || ''
-                  const isPhoto = type === 'image' || text === 'Foto'
-                  const isVideo = type === 'video' || text === 'Vídeo'
-                  const isAudio = type === 'audio' || text === 'Áudio'
-                  const isDoc = type === 'document' || text === 'Documento'
-                  const isSticker = type === 'sticker' || text === 'Figurinha'
-
-                  if (isPhoto) return <ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                  if (isVideo) return <Video className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                  if (isAudio) return <Mic className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                  if (isDoc) return <FileText className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                  if (isSticker) return <Sticker className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                  return null
-                })()}
-
-                <span
-                  className={cn(
-                    'truncate',
-                    ['Foto', 'Vídeo', 'Áudio', 'Documento', 'Figurinha'].includes(
-                      chat.lastMessage?.text || '',
-                    ) || lastMsg?.media
-                      ? 'italic opacity-70'
-                      : '',
-                  )}
+        <div className="flex-1 min-w-0 flex flex-col justify-center">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2 truncate">
+              <span className="font-semibold text-primary truncate">{chatDisplayName}</span>
+              {chat?.type === 'group' && (
+                <Badge
+                  variant="secondary"
+                  className="text-[9px] px-1 py-0 h-4 bg-primary/10 text-primary shrink-0"
                 >
-                  {chat.lastMessage?.text || lastMsg?.text || (lastMsg?.media ? 'Mídia' : '')}
-                </span>
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            {/* Botões de Ação Direta no Card: Desktop hover */}
-            <div className="hidden md:flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              {unreadCount > 0 && onMarkAsRead && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 rounded-full"
-                  title="Marcar como lida"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onMarkAsRead(chat.id)
-                  }}
-                >
-                  <CheckCheck className="w-4 h-4" />
-                </Button>
+                  GRUPO
+                </Badge>
               )}
-              {onFinalizeChat && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full"
-                  title="Finalizar conversa (lida + arquivar)"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onFinalizeChat(chat.id)
-                  }}
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                </Button>
+            </div>
+            <span
+              className={cn(
+                'text-xs whitespace-nowrap ml-2 shrink-0',
+                unreadCount > 0 ? 'text-emerald-600 font-semibold' : 'text-muted-foreground',
+              )}
+            >
+              {formattedTimestamp}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <div
+              className={cn(
+                'text-sm truncate flex items-center gap-1 min-w-0 flex-1',
+                unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground',
+              )}
+            >
+              {messagePreview ? (
+                <span className="contents">
+                  <Search className="w-3 h-3 shrink-0 text-primary" />
+                  <span className="truncate italic text-primary/70">{messagePreview}</span>
+                </span>
+              ) : (
+                <span className="contents">
+                  {(chat?.lastMessage?.fromMe || lastMsg?.senderId === 'me') && (
+                    <span className="shrink-0">Você: </span>
+                  )}
+
+                  {(() => {
+                    const type = chat?.lastMessage?.type || lastMsg?.media?.type
+                    const text = chat?.lastMessage?.text || lastMsg?.text || ''
+                    const isPhoto = type === 'image' || text === 'Foto'
+                    const isVideo = type === 'video' || text === 'Vídeo'
+                    const isAudio = type === 'audio' || text === 'Áudio'
+                    const isDoc = type === 'document' || text === 'Documento'
+                    const isSticker = type === 'sticker' || text === 'Figurinha'
+
+                    if (isPhoto) return <ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                    if (isVideo) return <Video className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                    if (isAudio) return <Mic className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                    if (isDoc) return <FileText className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                    if (isSticker) return <Sticker className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                    return null
+                  })()}
+
+                  <span
+                    className={cn(
+                      'truncate',
+                      ['Foto', 'Vídeo', 'Áudio', 'Documento', 'Figurinha'].includes(
+                        chat?.lastMessage?.text || '',
+                      ) || lastMsg?.media
+                        ? 'italic opacity-70'
+                        : '',
+                    )}
+                  >
+                    {chat?.lastMessage?.text || lastMsg?.text || (lastMsg?.media ? 'Mídia' : '')}
+                  </span>
+                </span>
               )}
             </div>
 
-            {/* Mobile: menu de 3 pontinhos acessível por toque */}
-            <div className="md:hidden flex items-center">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Botões de Ação Direta no Card: Desktop hover */}
+              <div className="hidden md:flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                {unreadCount > 0 && onMarkAsRead && (
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-9 w-9 -mr-1 text-muted-foreground hover:text-foreground rounded-full"
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label="Opções da conversa"
+                    className="h-7 w-7 text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 rounded-full"
+                    title="Marcar como lida"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onMarkAsRead(chat.id)
+                    }}
                   >
-                    <MoreVertical className="w-4 h-4" />
+                    <CheckCheck className="w-4 h-4" />
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="w-48"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {onMarkAsRead && (
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onMarkAsRead(chat.id)
-                      }}
-                      className="min-h-[44px] flex items-center gap-2 cursor-pointer"
-                    >
-                      <CheckCheck className="w-4 h-4 text-emerald-600" />
-                      <span>Marcar como lida</span>
-                    </DropdownMenuItem>
-                  )}
-                  {onFinalizeChat && (
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onFinalizeChat(chat.id)
-                      }}
-                      className="min-h-[44px] flex items-center gap-2 cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-4 h-4 text-primary" />
-                      <span>Finalizar conversa</span>
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            {unreadCount > 0 && (
-              <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shrink-0">
-                {unreadCount}
+                )}
+                {onFinalizeChat && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full"
+                    title="Finalizar conversa (lida + arquivar)"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onFinalizeChat(chat.id)
+                    }}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
-            )}
+
+              {/* Mobile: menu de 3 pontinhos acessível por toque */}
+              <div className="md:hidden flex items-center">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 -mr-1 text-muted-foreground hover:text-foreground rounded-full"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="Opções da conversa"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-48"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {onMarkAsRead && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onMarkAsRead(chat.id)
+                        }}
+                        className="min-h-[44px] flex items-center gap-2 cursor-pointer"
+                      >
+                        <CheckCheck className="w-4 h-4 text-emerald-600" />
+                        <span>Marcar como lida</span>
+                      </DropdownMenuItem>
+                    )}
+                    {onFinalizeChat && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onFinalizeChat(chat.id)
+                        }}
+                        className="min-h-[44px] flex items-center gap-2 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-primary" />
+                        <span>Finalizar conversa</span>
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              {unreadCount > 0 && (
+                <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shrink-0">
+                  {unreadCount}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  )
+    )
+  } catch (err) {
+    console.error('[ChatRow] Erro seguro ao renderizar linha de conversa:', err)
+    return null
+  }
 })
 
 export function ChatList({
@@ -338,42 +348,61 @@ export function ChatList({
   const { categories } = useCategories(account?.id)
   const { toast } = useToast()
 
+  const [listProcessingError, setListProcessingError] = useState<string | null>(null)
+
   const groupChats = useMemo(() => {
-    return (safeChats || []).filter((c) => c && c.type === 'group')
+    try {
+      if (!Array.isArray(safeChats)) return []
+      return safeChats.filter((c) => Boolean(c) && c?.type === 'group')
+    } catch {
+      return []
+    }
   }, [safeChats])
 
   const unreadGroupCount = useMemo(() => {
-    return groupChats.reduce((acc, c) => acc + (c?.unread || 0), 0)
+    try {
+      if (!Array.isArray(groupChats)) return 0
+      return groupChats.reduce((acc, c) => acc + (Number(c?.unread) || 0), 0)
+    } catch {
+      return 0
+    }
   }, [groupChats])
 
   const filteredChats = useMemo(() => {
-    let filtered = (safeChats || []).filter((c) => !!c)
+    try {
+      if (!Array.isArray(safeChats)) return []
+      let filtered = safeChats.filter((c) => Boolean(c) && Boolean(c?.id))
 
-    if (chatTypeFilter === 'direct') {
-      filtered = filtered.filter((c) => c && c.type !== 'group')
-    } else if (chatTypeFilter === 'group') {
-      filtered = filtered.filter((c) => c && c.type === 'group')
-    }
+      if (chatTypeFilter === 'direct') {
+        filtered = filtered.filter((c) => c && c.type !== 'group')
+      } else if (chatTypeFilter === 'group') {
+        filtered = filtered.filter((c) => c && c.type === 'group')
+      }
 
-    if (selectedCategory) {
-      filtered = filtered.filter(
-        (c) => Array.isArray(c?.category_ids) && c.category_ids.includes(selectedCategory),
-      )
-    }
-
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase().trim()
-      filtered = filtered.filter((c) => {
-        if (!c) return false
-        const haystack = `${c.name || ''} ${c.phone || ''}`.toLowerCase()
-        return (
-          haystack.includes(q) ||
-          (Boolean(c.remote_jid) && (messageMatchJids?.has(c.remote_jid || '') ?? false))
+      if (selectedCategory) {
+        filtered = filtered.filter(
+          (c) => Array.isArray(c?.category_ids) && c.category_ids.includes(selectedCategory),
         )
-      })
-    }
+      }
 
-    return filtered
+      if (searchTerm?.trim()) {
+        const q = searchTerm.toLowerCase().trim()
+        filtered = filtered.filter((c) => {
+          if (!c) return false
+          const haystack = `${c.name ?? ''} ${c.phone ?? ''}`.toLowerCase()
+          return (
+            haystack.includes(q) ||
+            (Boolean(c.remote_jid) && (messageMatchJids?.has(c.remote_jid ?? '') ?? false))
+          )
+        })
+      }
+
+      return filtered
+    } catch (err) {
+      console.error('[ChatList] Erro seguro ao filtrar conversas:', err)
+      setListProcessingError('Não foi possível carregar as conversas.')
+      return []
+    }
   }, [safeChats, chatTypeFilter, searchTerm, selectedCategory, messageMatchJids])
 
   const handleMarkAsRead = async (chatId: string) => {
@@ -446,12 +475,13 @@ export function ChatList({
   const showSkeleton = loading && safeChats.length === 0
   const showEmpty = !loading && safeChats.length === 0
   const showNoMatches = !loading && safeChats.length > 0 && filteredChats.length === 0
-  const isCurrentlyLoadingMore = loadingMore || globalLoadingMore
-  const canLoadMore = hasMore || globalHasMore
+  const isCurrentlyLoadingMore = Boolean(loadingMore || globalLoadingMore)
+  const canLoadMore = Boolean(hasMore || globalHasMore)
 
   const hasOwnerActions = !!(onReimportHistory || onDiagnose || onDisconnect || onFactoryReset)
 
   const isReconnecting = realtimeStatus === 'connecting' || realtimeStatus === 'reconnecting'
+  const displayError = error || listProcessingError
 
   return (
     <div className={cn('flex flex-col h-full bg-white border-r border-border', className)}>
@@ -459,6 +489,25 @@ export function ChatList({
         <div className="bg-amber-500/15 border-b border-amber-300 text-amber-900 px-3 py-1.5 text-xs flex items-center justify-center gap-2 font-medium animate-pulse shrink-0">
           <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700" />
           <span>Sincronizando novas mensagens...</span>
+        </div>
+      )}
+
+      {displayError && safeChats.length > 0 && (
+        <div className="bg-destructive/10 border-b border-destructive/20 text-destructive px-3 py-2 text-xs flex items-center justify-between gap-2 shrink-0">
+          <span>Não foi possível carregar todas as conversas.</span>
+          {onRefresh && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setListProcessingError(null)
+                onRefresh()
+              }}
+              className="h-6 text-xs px-2 text-destructive hover:bg-destructive/10"
+            >
+              Tentar de novo
+            </Button>
+          )}
         </div>
       )}
 
@@ -667,20 +716,23 @@ export function ChatList({
               <ChatRowSkeleton key={i} />
             ))}
           </div>
-        ) : error && safeChats.length === 0 ? (
+        ) : displayError && safeChats.length === 0 ? (
           <div className="p-6 m-4 border border-rose-200 bg-rose-50/40 rounded-xl text-center flex flex-col items-center justify-center space-y-3">
             <AlertTriangle className="w-10 h-10 text-rose-600" />
             <h4 className="font-serif font-bold text-sm text-rose-900">
               Não foi possível carregar. Tentar de novo
             </h4>
             <p className="text-xs text-rose-700 max-w-xs">
-              {error || 'Houve uma falha ao conectar ao banco de dados.'}
+              {displayError || 'Houve uma falha ao processar os dados das conversas.'}
             </p>
             {onRefresh && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={onRefresh}
+                onClick={() => {
+                  setListProcessingError(null)
+                  onRefresh()
+                }}
                 className="h-8 text-xs border-rose-300 text-rose-800 hover:bg-rose-100"
               >
                 <RefreshCw className="w-3.5 h-3.5 mr-1.5" />

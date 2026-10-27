@@ -1568,19 +1568,19 @@ export function ChatArea({
       <ForwardDialog
         open={forwardModalOpen}
         onOpenChange={setForwardModalOpen}
-        instanceName={chat.instance_name}
+        instanceName={chat?.instance_name ?? ''}
         messageId={forwardingMessageId}
-        conversations={conversations}
+        conversations={conversations ?? []}
       />
 
       {/* Painel Lateral de Contexto do Paciente */}
       <PatientContextPanel
         open={patientPanelOpen}
         onClose={() => setPatientPanelOpen(false)}
-        remoteJid={chat.remote_jid}
-        conversationId={chat.id}
-        contactName={chat.name}
-        instanceName={chat.instance_name}
+        remoteJid={chat?.remote_jid ?? ''}
+        conversationId={chat?.id ?? ''}
+        contactName={chat?.name ?? ''}
+        instanceName={chat?.instance_name ?? ''}
         onOpenAddToCrm={handleOpenAddToCrm}
         onOpenSchedule={() => {
           navigate('/agenda')
