@@ -1,10 +1,10 @@
 import { ClientResponseError } from 'pocketbase'
 
-export type FieldErrors = Record<string, string>
-
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
-  if (error instanceof ClientResponseError && error.status === 0) return true
+  if (error instanceof ClientResponseError) {
+    if (error.status === 0) return true
+  }
   if (error instanceof Error) {
     const msg = error.message.toLowerCase()
     if (
@@ -12,8 +12,9 @@ export function isNetworkError(error: unknown): boolean {
       msg.includes('networkerror') ||
       msg.includes('network error') ||
       msg.includes('aborterror') ||
-      msg.includes('aborted') ||
-      msg.includes('connection refused')
+      msg.includes('signal is aborted') ||
+      msg.includes('load failed') ||
+      msg.includes('offline')
     ) {
       return true
     }
@@ -23,30 +24,36 @@ export function isNetworkError(error: unknown): boolean {
 
 export function isRateLimitError(error: unknown): boolean {
   if (!error) return false
-  if (typeof error === 'object' && error !== null) {
-    const status = (error as { status?: number }).status
-    if (status === 429) return true
+  if (typeof error === 'object' && 'status' in (error as Record<string, unknown>)) {
+    if ((error as { status: unknown }).status === 429) return true
   }
-  if (error instanceof Error && error.message.includes('429')) return true
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+    if (msg.includes('429') || msg.includes('too many requests')) return true
+  }
   return false
 }
 
-export function parseRetryAfterMs(error: unknown, fallbackMs = 1500): number {
-  const minMs = 500
-  const maxMs = 30000
-
-  if (typeof error === 'object' && error !== null) {
-    const res = (error as { response?: { headers?: Record<string, string> } }).response
-    const headerVal = res?.headers?.['retry-after'] || res?.headers?.['Retry-After']
-    if (headerVal) {
-      const parsedSec = parseFloat(headerVal)
-      if (!isNaN(parsedSec) && parsedSec > 0) {
-        return Math.max(minMs, Math.min(maxMs, Math.round(parsedSec * 1000)))
-      }
+export function parseRetryAfterMs(error: unknown, defaultMs = 1000): number {
+  if (!error || typeof error !== 'object') return defaultMs
+  const anyErr = error as Record<string, unknown>
+  const response = anyErr.response as Record<string, unknown> | undefined
+  const headers = (response?.headers || anyErr.headers) as Record<string, string> | undefined
+  let headerVal: string | undefined
+  if (headers && typeof headers === 'object') {
+    headerVal = headers['retry-after'] || headers['Retry-After']
+  }
+  if (headerVal) {
+    const parsedSec = Number.parseFloat(headerVal)
+    if (!Number.isNaN(parsedSec) && parsedSec > 0) {
+      const ms = Math.round(parsedSec * 1000)
+      return Math.min(Math.max(ms, 500), 30000)
     }
   }
-  return Math.max(minMs, Math.min(maxMs, fallbackMs))
+  return Math.min(Math.max(defaultMs, 500), 30000)
 }
+
+export type FieldErrors = Record<string, string>
 
 export function extractFieldErrors(error: unknown): FieldErrors {
   if (!(error instanceof ClientResponseError)) return {}
