@@ -5,26 +5,22 @@ export type FieldErrors = Record<string, string>
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
   if (error instanceof ClientResponseError) {
-    if (error.status === 0) return true
-    const msg = (error.message || '').toLowerCase()
-    if (msg.includes('abort') || msg.includes('network') || msg.includes('failed to fetch')) {
-      return true
-    }
+    return error.status === 0
   }
-  if (error instanceof Error) {
-    const name = error.name.toLowerCase()
-    const msg = error.message.toLowerCase()
-    if (
-      name.includes('abort') ||
-      msg.includes('abort') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('network error')
-    ) {
-      return true
-    }
+  if (typeof error === 'object' && 'status' in (error as Record<string, unknown>)) {
+    if ((error as { status?: unknown }).status === 0) return true
   }
-  return false
+  const msg = error instanceof Error ? error.message : String(error)
+  const lower = msg.toLowerCase()
+  return (
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network error') ||
+    lower.includes('aborterror') ||
+    lower.includes('aborted') ||
+    lower.includes('load failed') ||
+    lower.includes('timeout')
+  )
 }
 
 export function isRateLimitError(error: unknown): boolean {
@@ -32,42 +28,30 @@ export function isRateLimitError(error: unknown): boolean {
   if (error instanceof ClientResponseError) {
     return error.status === 429
   }
-  if (typeof error === 'object' && 'status' in (error as any)) {
-    return (error as any).status === 429
+  if (typeof error === 'object' && 'status' in (error as Record<string, unknown>)) {
+    if ((error as { status?: unknown }).status === 429) return true
   }
-  if (error instanceof Error) {
-    return (
-      error.message.includes('429') ||
-      error.message.toLowerCase().includes('too many requests') ||
-      error.message.toLowerCase().includes('rate limit')
-    )
-  }
-  return false
+  const msg = error instanceof Error ? error.message : String(error)
+  return msg.includes('429') || msg.toLowerCase().includes('too many requests')
 }
 
-export function parseRetryAfterMs(error: unknown, fallbackMs = 1500): number {
+export function parseRetryAfterMs(error: unknown, fallbackMs = 1200): number {
   if (!error || typeof error !== 'object') return fallbackMs
-  const resp = (error as any).response
-  const headers = resp?.headers
-  let headerVal: string | undefined
-
-  if (headers) {
-    if (typeof headers.get === 'function') {
-      headerVal = headers.get('retry-after') || headers.get('Retry-After')
-    } else if (typeof headers === 'object') {
-      headerVal = headers['retry-after'] || headers['Retry-After']
-    }
+  let rawHeader: unknown = undefined
+  const resp = (error as { response?: { headers?: Record<string, unknown> } }).response
+  if (resp && resp.headers) {
+    rawHeader = resp.headers['retry-after'] || resp.headers['Retry-After']
   }
-
-  if (headerVal) {
-    const sec = parseFloat(headerVal)
-    if (!isNaN(sec) && sec > 0) {
-      const ms = Math.round(sec * 1000)
-      return Math.min(Math.max(ms, 500), 30000)
-    }
+  if (rawHeader === undefined || rawHeader === null) {
+    return fallbackMs
   }
-
-  return fallbackMs
+  const parsedSeconds = Number(rawHeader)
+  if (!Number.isFinite(parsedSeconds) || parsedSeconds <= 0) {
+    return fallbackMs
+  }
+  const ms = Math.round(parsedSeconds * 1000)
+  // Clamp between 500ms and 30000ms as per tests and spec
+  return Math.min(Math.max(ms, 500), 30000)
 }
 
 export function extractFieldErrors(error: unknown): FieldErrors {

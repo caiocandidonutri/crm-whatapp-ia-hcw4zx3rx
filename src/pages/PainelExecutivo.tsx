@@ -133,7 +133,8 @@ export function PainelExecutivo() {
               {renderValue(safeMetrics.noShowPercent, '%')}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {safeMetrics.totalFaltas ?? 0} falta(s) em {safeMetrics.totalConsultasAvaliadas ?? 0} consulta(s)
+              {safeMetrics.totalFaltas ?? 0} falta(s) em {safeMetrics.totalConsultasAvaliadas ?? 0}{' '}
+              consulta(s)
             </p>
             <div className="pt-2 flex items-center text-[11px] font-medium text-primary gap-1 group-hover:translate-x-0.5 transition-transform">
               <span>Abrir Agenda</span>
@@ -160,7 +161,8 @@ export function PainelExecutivo() {
               {renderValue(safeMetrics.leadConversionRate, '%')}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {safeMetrics.totalConvertidos ?? 0} convertido(s) de {safeMetrics.totalLeads ?? 0} contatos
+              {safeMetrics.totalConvertidos ?? 0} convertido(s) de {safeMetrics.totalLeads ?? 0}{' '}
+              contatos
             </p>
             <div className="pt-2 flex items-center text-[11px] font-medium text-primary gap-1 group-hover:translate-x-0.5 transition-transform">
               <span>Abrir CRM</span>
@@ -236,7 +238,8 @@ export function PainelExecutivo() {
                     <HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-pointer" />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs text-xs">
-                    {safeMetrics.iaAcceptanceTooltip || DEFAULT_EXECUTIVE_METRICS.iaAcceptanceTooltip}
+                    {safeMetrics.iaAcceptanceTooltip ||
+                      DEFAULT_EXECUTIVE_METRICS.iaAcceptanceTooltip}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

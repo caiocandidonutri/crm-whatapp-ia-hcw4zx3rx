@@ -8,15 +8,18 @@ export function useCurrentAccount() {
   const [role, setRole] = useState<'owner' | 'member' | null>(null)
   const [membershipId, setMembershipId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<unknown | null>(null)
 
   const fetchAccount = useCallback(async () => {
     if (!user) {
       setAccountId(null)
       setRole(null)
       setMembershipId(null)
+      setError(null)
       setLoading(false)
       return
     }
+    setError(null)
     try {
       const record = await pb
         .collection('account_members')
@@ -26,11 +29,14 @@ export function useCurrentAccount() {
       setAccountId(record.account_id)
       setRole(record.role as 'owner' | 'member')
       setMembershipId(record.id)
+      setError(null)
     } catch (err: any) {
       if (err?.isAbort) return
+      console.warn('Falha ao buscar conta em account_members:', err)
       setAccountId(null)
       setRole(null)
       setMembershipId(null)
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -46,5 +52,14 @@ export function useCurrentAccount() {
   const account = accountId ? { id: accountId } : null
   const currentAccount = account
 
-  return { accountId, account, currentAccount, role, membershipId, loading, refetch: fetchAccount }
+  return {
+    accountId,
+    account,
+    currentAccount,
+    role,
+    membershipId,
+    loading,
+    error,
+    refetch: fetchAccount,
+  }
 }

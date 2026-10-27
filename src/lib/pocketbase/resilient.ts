@@ -91,15 +91,26 @@ export interface SafeFullListOptions<T> {
   maxRetries?: number
   signal?: AbortSignal
   label?: string
+  pageTimeoutMs?: number
+  throwOnError?: boolean
+}
+
+export interface SafeFullListResult<T> {
+  items: T[]
+  failed: boolean
+  error?: unknown
 }
 
 /**
- * Wrapper resiliente para carregar listas completas (ou paginadas escalonadas) de uma coleção:
- * - Reduz o perPage padrão para 200 (em vez de rajadas de 1000).
- * - Aplica timeout, retry para 429 e fallback silencioso (lista vazia []).
- * - NUNCA lança rejeição.
+ * Carrega todos os registros de uma coleção com paginação iterativa:
+ * - Aplica timeout POR PÁGINA (padrão: 8000ms por página).
+ * - Aplica retry com respeito ao cabeçalho Retry-After em HTTP 429 por página.
+ * - Retorna { items, failed, error? } indicando explicitamente se a busca falhou
+ *   (ex: 403, 429 persistente, timeout, erro de rede).
  */
-export async function safePbFullList<T>(options: SafeFullListOptions<T>): Promise<T[]> {
+export async function safePbFullListWithStatus<T>(
+  options: SafeFullListOptions<T>,
+): Promise<SafeFullListResult<T>> {
   const {
     collection,
     filter,
@@ -108,32 +119,109 @@ export async function safePbFullList<T>(options: SafeFullListOptions<T>): Promis
     expand,
     perPage = 200,
     timeoutMs = 8000,
+    pageTimeoutMs,
     maxRetries = 1,
     signal,
     label = `fullList(${collection})`,
   } = options
 
-  return safePbQuery<T[]>(
-    async () => {
-      if (signal?.aborted) return []
-      const res = await pb.collection(collection).getFullList<T>({
-        batch: perPage,
-        filter: filter || undefined,
-        sort: sort || undefined,
-        fields: fields || undefined,
-        expand: expand || undefined,
-        requestKey: null,
-      })
-      return Array.isArray(res) ? res : []
-    },
-    {
-      label,
-      fallback: [],
-      timeoutMs,
-      maxRetries,
-      signal,
-    },
-  )
+  const effectivePageTimeout = pageTimeoutMs || timeoutMs
+  const allItems: T[] = []
+  let page = 1
+  let totalPages = 1
+
+  if (signal?.aborted) {
+    return { items: [], failed: false }
+  }
+
+  try {
+    do {
+      if (signal?.aborted) {
+        return { items: allItems, failed: false }
+      }
+
+      const fetchPageWithRetry = async (): Promise<{ items: T[]; totalPages: number }> => {
+        let attempt = 0
+        while (attempt <= maxRetries) {
+          if (signal?.aborted) return { items: [], totalPages: 0 }
+
+          let timer: ReturnType<typeof setTimeout> | null = null
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              reject(new Error(`Timeout na página ${page} de ${label} (${effectivePageTimeout}ms)`))
+            }, effectivePageTimeout)
+          })
+
+          try {
+            const pagePromise = pb.collection(collection).getList<T>(page, perPage, {
+              filter: filter || undefined,
+              sort: sort || undefined,
+              fields: fields || undefined,
+              expand: expand || undefined,
+              requestKey: null,
+            })
+
+            const res = await Promise.race([pagePromise, timeoutPromise])
+            if (timer) clearTimeout(timer)
+            return {
+              items: Array.isArray(res?.items) ? res.items : [],
+              totalPages: Number.isFinite(res?.totalPages) ? res.totalPages : 1,
+            }
+          } catch (err: unknown) {
+            if (timer) clearTimeout(timer)
+            attempt++
+            const is429 = isRateLimitError(err)
+
+            if (is429 && attempt <= maxRetries && !signal?.aborted) {
+              const waitMs = parseRetryAfterMs(err, 1200)
+              if (import.meta.env.DEV) {
+                console.warn(
+                  `[safePbFullList] HTTP 429 na página ${page} de "${label}". Aguardando ${waitMs}ms (${attempt}/${maxRetries})...`,
+                )
+              }
+              await new Promise((resolve) => setTimeout(resolve, waitMs))
+              continue
+            }
+
+            // Erro final para esta página (não-429 ou retries esgotados)
+            throw err
+          }
+        }
+        throw new Error(`Falha após ${maxRetries} tentativas na página ${page} de ${label}`)
+      }
+
+      const pageRes = await fetchPageWithRetry()
+      allItems.push(...pageRes.items)
+      totalPages = pageRes.totalPages
+      page++
+    } while (page <= totalPages)
+
+    return { items: allItems, failed: false }
+  } catch (err: unknown) {
+    if (signal?.aborted) {
+      return { items: allItems, failed: false }
+    }
+    if (import.meta.env.DEV) {
+      console.warn(`[safePbFullList] Falha na busca de "${label}":`, (err as any)?.message || err)
+    }
+    return { items: allItems, failed: true, error: err }
+  }
+}
+
+/**
+ * Wrapper resiliente para carregar listas completas:
+ * - Aplica timeout POR PÁGINA e retry em HTTP 429.
+ * - Suporta `throwOnError: true` para lançar erro em vez de engolir falha.
+ * - Mantém compatibilidade com chamadores antigos retornando array T[].
+ */
+export async function safePbFullList<T>(options: SafeFullListOptions<T>): Promise<T[]> {
+  const result = await safePbFullListWithStatus<T>(options)
+  if (result.failed && options.throwOnError) {
+    const errorToThrow =
+      result.error || new Error(`Falha ao carregar ${options.label || options.collection}`)
+    throw errorToThrow
+  }
+  return result.items
 }
 
 /**
