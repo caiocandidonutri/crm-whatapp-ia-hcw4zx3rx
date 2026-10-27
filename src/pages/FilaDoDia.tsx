@@ -372,183 +372,181 @@ export default function FilaDoDia() {
   const queueItems: FilaItem[] = useMemo(() => {
     if (!Array.isArray(contacts)) return []
 
-    return contacts
-      .filter((c): c is CrmContact => Boolean(c && typeof c === 'object' && c.id))
-      .map((c) => {
-        try {
-          const rawJid = String(c.jid || '').trim()
-          const rawPhone = String(c.phone || '').trim()
-          const cleanPhone = (rawPhone || rawJid).replace(/\D/g, '')
-          const conv =
-            (rawJid ? convByJid.get(rawJid) : undefined) ||
-            (cleanPhone ? convByJid.get(cleanPhone) : undefined)
-          const contactTasks = (c.id ? tasksByContactId.get(c.id) : undefined) || []
-          const hasOpenTask = contactTasks.length > 0
-          const openTaskTitle = contactTasks[0]?.title ? String(contactTasks[0].title) : ''
+    const list: FilaItem[] = []
+    for (const c of contacts) {
+      if (!c || typeof c !== 'object' || !c.id) continue
+      try {
+        const rawJid = String(c.jid || '').trim()
+        const rawPhone = String(c.phone || '').trim()
+        const cleanPhone = (rawPhone || rawJid).replace(/\D/g, '')
+        const conv =
+          (rawJid ? convByJid.get(rawJid) : undefined) ||
+          (cleanPhone ? convByJid.get(cleanPhone) : undefined)
+        const contactTasks = (c.id ? tasksByContactId.get(c.id) : undefined) || []
+        const hasOpenTask = contactTasks.length > 0
+        const openTaskTitle = contactTasks[0]?.title ? String(contactTasks[0].title) : ''
 
-          // Identificação da última mensagem / contato de forma blindada
-          let lastContactAt: Date | null = null
-          let lastContactWho: 'cliente' | 'equipe' | 'desconhecido' = 'desconhecido'
+        // Identificação da última mensagem / contato de forma blindada
+        let lastContactAt: Date | null = null
+        let lastContactWho: 'cliente' | 'equipe' | 'desconhecido' = 'desconhecido'
 
-          if (conv?.last_message_timestamp) {
-            const ts = Number(conv.last_message_timestamp)
-            if (!isNaN(ts) && ts > 0) {
-              const ms = ts > 1e12 ? ts : ts * 1000
-              const parsed = new Date(ms)
-              if (!isNaN(parsed.getTime())) {
-                lastContactAt = parsed
-              }
+        if (conv?.last_message_timestamp) {
+          const ts = Number(conv.last_message_timestamp)
+          if (!isNaN(ts) && ts > 0) {
+            const ms = ts > 1e12 ? ts : ts * 1000
+            const parsed = new Date(ms)
+            if (!isNaN(parsed.getTime())) {
+              lastContactAt = parsed
             }
           }
-          if (!lastContactAt && c.last_synced_at) {
-            lastContactAt = parseToDate(c.last_synced_at)
-          }
-          if (!lastContactAt && c.updated) {
-            lastContactAt = parseToDate(c.updated)
-          }
-
-          // Se temos unread_count > 0, o cliente mandou mensagem e aguarda retorno
-          const unreadCount = Number(conv?.unread_count) || 0
-          const hasUnreadFromClient = unreadCount > 0
-          if (hasUnreadFromClient) {
-            lastContactWho = 'cliente'
-          }
-
-          // Cálculo de Status da Fila usando care_state único da clínica
-          // REGRA DO USUÁRIO: só "responder" gera alerta. "atendido_a_fechar" nunca é alerta.
-          let status: FilaStatus = 'NAO_PRECISA'
-          let suggestedAction =
-            String(c.ai_suggested_action || c.care_state_reason || '').trim() ||
-            'Manter contato ativo conforme necessidade clínica.'
-
-          const stageKey = String(c.stage || 'lead')
-            .trim()
-            .toLowerCase()
-          const careState = String(c.care_state || '')
-            .trim()
-            .toLowerCase()
-          const isAlertActive = c.alert_active === true || careState === 'responder'
-
-          if (isAlertActive || careState === 'responder') {
-            status = 'ALERTA'
-            suggestedAction =
-              c.care_state_reason ||
-              'Mensagem do paciente sem resposta — responder com acolhimento.'
-          } else if (careState === 'atendido_a_fechar') {
-            // "atendido_a_fechar" nunca é alerta: consulta do dia com horário passado aguardando fechamento humano
-            status = 'AGUARDANDO_RESPOSTA'
-            suggestedAction =
-              c.care_state_reason || 'Consulta realizada hoje — aguardando fechamento na recepção.'
-          } else if (careState === 'confirmacao_enviada') {
-            status = 'AGUARDANDO_RESPOSTA'
-            suggestedAction = c.care_state_reason || 'Confirmação/lembrete enviado nas últimas 48h.'
-          } else if (careState === 'agendado') {
-            status = 'NAO_PRECISA'
-            suggestedAction = c.care_state_reason || 'Consulta futura confirmada/agendada.'
-          } else if (careState === 'retorno_a_oferecer') {
-            status = 'PRECISA_DE_MENSAGEM'
-            suggestedAction =
-              c.care_state_reason || 'Paciente sem novo agendamento — oferecer retorno/consulta.'
-          } else if (careState === 'inativo') {
-            status = 'NAO_PRECISA'
-            suggestedAction = c.care_state_reason || 'Lead sem resposta há mais de 30 dias.'
-          } else if (careState === 'contatado') {
-            status = 'AGUARDANDO_RESPOSTA'
-            suggestedAction = c.care_state_reason || 'Clínica respondeu recentemente.'
-          } else if (stageKey === 'orcamento_enviado') {
-            status = 'EM_NEGOCIACAO'
-            suggestedAction = 'Acompanhar proposta enviada.'
-          } else if (hasUnreadFromClient) {
-            status = 'ALERTA'
-            suggestedAction = 'Mensagem nova não respondida — responder e acolher.'
-          }
-
-          // Prioridade numérica (para ordenação)
-          let priorityScore = 100
-          let priority: 'baixa' | 'media' | 'alta' | 'urgente' = 'media'
-
-          const aiPriorityNum = Number(c.ai_priority)
-          if (!isNaN(aiPriorityNum) && aiPriorityNum > 0) {
-            priorityScore += aiPriorityNum * 10
-          }
-
-          if (status === 'ALERTA') {
-            priorityScore += 300
-            priority = 'urgente'
-          } else if (status === 'PRECISA_DE_MENSAGEM') {
-            priorityScore += 200
-            priority = 'alta'
-          } else if (status === 'EM_NEGOCIACAO') {
-            priorityScore += 150
-            priority = 'alta'
-          } else if (status === 'AGUARDANDO_RESPOSTA') {
-            priorityScore += 80
-            priority = 'media'
-          } else {
-            priorityScore += 20
-            priority = 'baixa'
-          }
-
-          // Se tem tarefa de alta prioridade aberta
-          if (
-            hasOpenTask &&
-            contactTasks.some((t) => t?.priority === 'alta' || t?.priority === 'urgente')
-          ) {
-            priorityScore += 100
-            priority = 'urgente'
-          }
-
-          const isCompletedToday = Boolean(c.id && doneTodayIds.has(c.id))
-
-          // Identificação da Unidade
-          const notesStr = String(c.notes || '').toLowerCase()
-          let unidade = 'Carmo do Rio Claro'
-          if (notesStr.includes('alfenas')) unidade = 'Alfenas'
-          else if (notesStr.includes('monte belo')) unidade = 'Monte Belo'
-          else if (notesStr.includes('online')) unidade = 'Online'
-
-          const displayName =
-            (typeof c.contact_name === 'string' && c.contact_name.trim()) ||
-            (typeof c.push_name === 'string' && c.push_name.trim()) ||
-            (rawPhone ? formatPhoneBR(rawPhone) : 'Sem Nome')
-          const formattedPhone = formatPhoneBR(rawPhone || rawJid) || rawPhone || rawJid
-
-          const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.NAO_PRECISA
-
-          const budgetVal =
-            typeof c.budget_value === 'number' ? c.budget_value : Number(c.budget_value) || 0
-
-          return {
-            id: String(c.id),
-            contactId: String(c.id),
-            name: displayName,
-            phone: rawPhone || rawJid,
-            formattedPhone,
-            instanceName: String(c.instance_name || 'Principal'),
-            unidade,
-            stageKey,
-            stageLabel: STAGE_LABELS[stageKey] || stageKey,
-            lastContactAt,
-            lastContactWho,
-            status,
-            statusLabel: cfg.label,
-            priority,
-            priorityScore,
-            suggestedAction,
-            completedToday: isCompletedToday,
-            budget: budgetVal,
-            isPatient: Boolean(c.is_patient),
-            isClubMember: Boolean(c.is_club_member),
-            planExpiresAt: c.plan_expires_at || undefined,
-            hasOpenTask,
-            taskTitle: openTaskTitle,
-          }
-        } catch (itemErr) {
-          console.warn('[FilaDoDia] Contato corrompido neutralizado:', c?.id, itemErr)
-          return null
         }
-      })
-      .filter((item): item is FilaItem => item !== null)
+        if (!lastContactAt && c.last_synced_at) {
+          lastContactAt = parseToDate(c.last_synced_at)
+        }
+        if (!lastContactAt && c.updated) {
+          lastContactAt = parseToDate(c.updated)
+        }
+
+        // Se temos unread_count > 0, o cliente mandou mensagem e aguarda retorno
+        const unreadCount = Number(conv?.unread_count) || 0
+        const hasUnreadFromClient = unreadCount > 0
+        if (hasUnreadFromClient) {
+          lastContactWho = 'cliente'
+        }
+
+        // Cálculo de Status da Fila usando care_state único da clínica
+        // REGRA DO USUÁRIO: só "responder" gera alerta. "atendido_a_fechar" nunca é alerta.
+        let status: FilaStatus = 'NAO_PRECISA'
+        let suggestedAction =
+          String(c.ai_suggested_action || c.care_state_reason || '').trim() ||
+          'Manter contato ativo conforme necessidade clínica.'
+
+        const stageKey = String(c.stage || 'lead')
+          .trim()
+          .toLowerCase()
+        const careState = String(c.care_state || '')
+          .trim()
+          .toLowerCase()
+        const isAlertActive = c.alert_active === true || careState === 'responder'
+
+        if (isAlertActive || careState === 'responder') {
+          status = 'ALERTA'
+          suggestedAction =
+            c.care_state_reason || 'Mensagem do paciente sem resposta — responder com acolhimento.'
+        } else if (careState === 'atendido_a_fechar') {
+          // "atendido_a_fechar" nunca é alerta: consulta do dia com horário passado aguardando fechamento humano
+          status = 'AGUARDANDO_RESPOSTA'
+          suggestedAction =
+            c.care_state_reason || 'Consulta realizada hoje — aguardando fechamento na recepção.'
+        } else if (careState === 'confirmacao_enviada') {
+          status = 'AGUARDANDO_RESPOSTA'
+          suggestedAction = c.care_state_reason || 'Confirmação/lembrete enviado nas últimas 48h.'
+        } else if (careState === 'agendado') {
+          status = 'NAO_PRECISA'
+          suggestedAction = c.care_state_reason || 'Consulta futura confirmada/agendada.'
+        } else if (careState === 'retorno_a_oferecer') {
+          status = 'PRECISA_DE_MENSAGEM'
+          suggestedAction =
+            c.care_state_reason || 'Paciente sem novo agendamento — oferecer retorno/consulta.'
+        } else if (careState === 'inativo') {
+          status = 'NAO_PRECISA'
+          suggestedAction = c.care_state_reason || 'Lead sem resposta há mais de 30 dias.'
+        } else if (careState === 'contatado') {
+          status = 'AGUARDANDO_RESPOSTA'
+          suggestedAction = c.care_state_reason || 'Clínica respondeu recentemente.'
+        } else if (stageKey === 'orcamento_enviado') {
+          status = 'EM_NEGOCIACAO'
+          suggestedAction = 'Acompanhar proposta enviada.'
+        } else if (hasUnreadFromClient) {
+          status = 'ALERTA'
+          suggestedAction = 'Mensagem nova não respondida — responder e acolher.'
+        }
+
+        // Prioridade numérica (para ordenação)
+        let priorityScore = 100
+        let priority: 'baixa' | 'media' | 'alta' | 'urgente' = 'media'
+
+        const aiPriorityNum = Number(c.ai_priority)
+        if (!isNaN(aiPriorityNum) && aiPriorityNum > 0) {
+          priorityScore += aiPriorityNum * 10
+        }
+
+        if (status === 'ALERTA') {
+          priorityScore += 300
+          priority = 'urgente'
+        } else if (status === 'PRECISA_DE_MENSAGEM') {
+          priorityScore += 200
+          priority = 'alta'
+        } else if (status === 'EM_NEGOCIACAO') {
+          priorityScore += 150
+          priority = 'alta'
+        } else if (status === 'AGUARDANDO_RESPOSTA') {
+          priorityScore += 80
+          priority = 'media'
+        } else {
+          priorityScore += 20
+          priority = 'baixa'
+        }
+
+        // Se tem tarefa de alta prioridade aberta
+        if (
+          hasOpenTask &&
+          contactTasks.some((t) => t?.priority === 'alta' || t?.priority === 'urgente')
+        ) {
+          priorityScore += 100
+          priority = 'urgente'
+        }
+
+        const isCompletedToday = Boolean(c.id && doneTodayIds.has(c.id))
+
+        // Identificação da Unidade
+        const notesStr = String(c.notes || '').toLowerCase()
+        let unidade = 'Carmo do Rio Claro'
+        if (notesStr.includes('alfenas')) unidade = 'Alfenas'
+        else if (notesStr.includes('monte belo')) unidade = 'Monte Belo'
+        else if (notesStr.includes('online')) unidade = 'Online'
+
+        const displayName =
+          (typeof c.contact_name === 'string' && c.contact_name.trim()) ||
+          (typeof c.push_name === 'string' && c.push_name.trim()) ||
+          (rawPhone ? formatPhoneBR(rawPhone) : 'Sem Nome')
+        const formattedPhone = formatPhoneBR(rawPhone || rawJid) || rawPhone || rawJid
+
+        const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.NAO_PRECISA
+
+        const budgetVal =
+          typeof c.budget_value === 'number' ? c.budget_value : Number(c.budget_value) || 0
+
+        list.push({
+          id: String(c.id),
+          contactId: String(c.id),
+          name: displayName,
+          phone: rawPhone || rawJid,
+          formattedPhone,
+          instanceName: String(c.instance_name || 'Principal'),
+          unidade,
+          stageKey,
+          stageLabel: STAGE_LABELS[stageKey] || stageKey,
+          lastContactAt,
+          lastContactWho,
+          status,
+          statusLabel: cfg.label,
+          priority,
+          priorityScore,
+          suggestedAction,
+          completedToday: isCompletedToday,
+          budget: budgetVal,
+          isPatient: Boolean(c.is_patient),
+          isClubMember: Boolean(c.is_club_member),
+          planExpiresAt: c.plan_expires_at || undefined,
+          hasOpenTask,
+          taskTitle: openTaskTitle,
+        })
+      } catch (itemErr) {
+        console.warn('[FilaDoDia] Contato corrompido neutralizado:', c?.id, itemErr)
+      }
+    }
+    return list
   }, [contacts, convByJid, tasksByContactId, doneTodayIds])
 
   // Alterna o status "concluído hoje" para a secretária Fabiana
