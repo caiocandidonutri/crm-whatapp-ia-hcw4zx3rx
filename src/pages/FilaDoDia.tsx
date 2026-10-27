@@ -39,6 +39,7 @@ import { formatPhoneBR } from '@/lib/phone'
 import { safePbFullList } from '@/lib/pocketbase/resilient'
 import { isNetworkError, isRateLimitError } from '@/lib/pocketbase/errors'
 import { getCareAlertSettings, setPlantaoFimDeSemana } from '@/services/care_alerts_service'
+import { fetchHomeMetrics, type HomeMetricsData } from '@/services/home_metrics'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
@@ -241,40 +242,75 @@ export default function FilaDoDia() {
     setLoading(true)
     setLoadError(null)
 
+    let contactsFailed = false
+    let tasksFailed = false
+
     try {
-      // Consultas escalonadas com perPage=200 em vez de 1000 para não estourar o rate limit
-      const contactsRes = await safePbFullList<CrmContact>({
-        collection: 'crm_contacts',
-        filter: `account_id = "${accountId}" && archived != true`,
-        sort: '-updated',
-        perPage: 200,
-        label: 'FilaDoDia:contacts',
-      }).catch(() => [] as CrmContact[])
+      // 1. Contatos CRM (payload leve, sem expand)
+      let contactsRes: CrmContact[] = []
+      try {
+        contactsRes = await safePbFullList<CrmContact>({
+          collection: 'crm_contacts',
+          filter: `account_id = "${accountId}" && archived != true`,
+          sort: '-updated',
+          perPage: 200,
+          label: 'FilaDoDia:contacts',
+        })
+      } catch (err) {
+        console.warn('[FilaDoDia] Falha ao carregar contatos:', err)
+        contactsFailed = true
+      }
 
-      await new Promise((r) => setTimeout(r, 80))
+      await new Promise((r) => setTimeout(r, 60))
 
-      const convsRes = await safePbFullList<Conversation>({
-        collection: 'conversations',
-        filter: `account_id = "${accountId}" && archived != true`,
-        sort: '-last_message_timestamp',
-        perPage: 200,
-        label: 'FilaDoDia:conversations',
-      }).catch(() => [] as Conversation[])
+      // 2. Conversas ativas
+      let convsRes: Conversation[] = []
+      try {
+        convsRes = await safePbFullList<Conversation>({
+          collection: 'conversations',
+          filter: `account_id = "${accountId}" && archived != true`,
+          sort: '-last_message_timestamp',
+          perPage: 200,
+          label: 'FilaDoDia:conversations',
+        })
+      } catch (err) {
+        console.warn('[FilaDoDia] Falha ao carregar conversas:', err)
+        // conversas são enriquecimento secundário
+      }
 
-      await new Promise((r) => setTimeout(r, 80))
+      await new Promise((r) => setTimeout(r, 60))
 
-      const tasksRes = await safePbFullList<Task>({
-        collection: 'tasks',
-        filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
-        sort: '-created',
-        perPage: 200,
-        label: 'FilaDoDia:tasks',
-      }).catch(() => [] as Task[])
+      // 3. Tarefas abertas (sem expand para evitar broken pipe de 10.7s)
+      let tasksRes: Task[] = []
+      try {
+        tasksRes = await safePbFullList<Task>({
+          collection: 'tasks',
+          filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
+          sort: '-created',
+          perPage: 200,
+          label: 'FilaDoDia:tasks',
+        })
+      } catch (err) {
+        console.warn('[FilaDoDia] Falha ao carregar tarefas:', err)
+        tasksFailed = true
+      }
 
-      setContacts(Array.isArray(contactsRes) ? contactsRes : [])
+      if (contactsFailed && tasksFailed) {
+        setLoadError('Não foi possível carregar os contatos e pendências da Fila do Dia.')
+        return
+      }
+
+      if (contactsFailed) {
+        setLoadError(
+          'Não foi possível carregar os contatos do CRM. As pendências podem estar incompletas.',
+        )
+      } else {
+        setContacts(Array.isArray(contactsRes) ? contactsRes : [])
+      }
+
       setConversations(Array.isArray(convsRes) ? convsRes : [])
       setTasks(Array.isArray(tasksRes) ? tasksRes : [])
-      setTasksDegraded(false)
+      setTasksDegraded(tasksFailed)
 
       // Carrega métricas agregadas de SLA e faixas sem resposta
       try {
@@ -285,10 +321,12 @@ export default function FilaDoDia() {
       }
     } catch (err) {
       if (isNetworkError(err) || isRateLimitError(err)) {
-        setLoadError('Instabilidade de conexão momentânea. Exibindo dados em cache.')
+        setLoadError(
+          'Instabilidade de conexão momentânea. Não foi possível carregar os contatos e pendências.',
+        )
       } else {
         console.warn('[FilaDoDia] Erro ao carregar dados:', err)
-        setLoadError('Não foi possível carregar alguns contatos agora.')
+        setLoadError('Não foi possível carregar os contatos e pendências.')
       }
     } finally {
       setLoading(false)
@@ -1194,6 +1232,25 @@ export default function FilaDoDia() {
             </Card>
           ))}
         </div>
+      ) : loadError && queueItems.length === 0 ? (
+        <Card className="border-rose-200 bg-rose-50/40 p-8 text-center">
+          <CardContent className="flex flex-col items-center justify-center p-0 space-y-3">
+            <AlertTriangle className="w-10 h-10 text-rose-600" />
+            <h3 className="font-serif font-bold text-base text-rose-900">
+              Não foi possível carregar os contatos e pendências
+            </h3>
+            <p className="text-xs text-rose-700 max-w-md">{loadError}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadData}
+              className="h-8 text-xs mt-2 border-rose-300 text-rose-800 hover:bg-rose-100"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+              Tentar de novo
+            </Button>
+          </CardContent>
+        </Card>
       ) : filteredItems.length === 0 ? (
         <Card className="border-dashed border-border/70 p-12 text-center">
           <CardContent className="flex flex-col items-center justify-center p-0 space-y-3">
