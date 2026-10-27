@@ -25,46 +25,5 @@ export function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'An unexpected error occurred.'
   }
   const msgs = Object.values(extractFieldErrors(error))
-  return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
-}
-
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof ClientResponseError && error.status === 0) return true
-  const msg = error instanceof Error ? error.message : String(error)
-  const lower = msg.toLowerCase()
-  return (
-    lower.includes('failed to fetch') ||
-    lower.includes('networkerror') ||
-    lower.includes('network error') ||
-    lower.includes('aborterror') ||
-    lower.includes('aborted')
-  )
-}
-
-export function isRateLimitError(error: unknown): boolean {
-  if (!error) return false
-  if (
-    typeof error === 'object' &&
-    'status' in error &&
-    (error as { status?: unknown }).status === 429
-  )
-    return true
-  const msg = error instanceof Error ? error.message : String(error)
-  return msg.includes('429') || msg.toLowerCase().includes('too many requests')
-}
-
-export function parseRetryAfterMs(error: unknown, fallbackMs = 1200): number {
-  if (error && typeof error === 'object' && 'response' in error) {
-    const res = (error as { response?: { headers?: Record<string, string> } }).response
-    const raw = res?.headers?.['retry-after']
-    if (raw) {
-      const parsed = parseFloat(raw)
-      if (!Number.isNaN(parsed)) {
-        const ms = parsed * 1000
-        return Math.min(Math.max(ms, 500), 30000)
-      }
-    }
-  }
-  return fallbackMs
+  return msgs.length > 0 ? msgs.join(' ') : (error.message || 'An unexpected error occurred.')
 }
