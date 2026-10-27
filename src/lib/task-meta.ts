@@ -41,6 +41,14 @@ export const TASK_STATUSES = [
     icon: XCircle,
     dot: 'bg-slate-400',
   },
+  {
+    id: 'resolvida_auto',
+    label: 'Resolvida Auto',
+    pluralLabel: 'resolvidas auto',
+    color: 'bg-teal-100 text-teal-700 border-teal-200',
+    icon: CheckCircle2,
+    dot: 'bg-teal-500',
+  },
 ] as const
 
 export const TASK_PRIORITIES = [

@@ -197,6 +197,44 @@ routerAdd(
     }
     $app.save(msgRecord)
 
+    // Fechar pendências abertas do contato/conversa como resolvida_auto
+    try {
+      const conv = $app.findFirstRecordByFilter(
+        'conversations',
+        'instance_name = {:instanceName} && remote_jid = {:remoteJid}',
+        { instanceName, remoteJid },
+      )
+      let cContact = null
+      try {
+        cContact = $app.findFirstRecordByFilter(
+          'crm_contacts',
+          'instance_name = {:instanceName} && jid = {:remoteJid}',
+          { instanceName, remoteJid },
+        )
+      } catch (_) {}
+
+      const filterT = cContact
+        ? "(crm_contact_id = {:cid} || conversation_id = {:convId}) && (status = 'pendente' || status = 'em_andamento')"
+        : "conversation_id = {:convId} && (status = 'pendente' || status = 'em_andamento')"
+      const openT = $app.findRecordsByFilter('tasks', filterT, '-created', 100, 0, {
+        cid: cContact ? cContact.id : '',
+        convId: conv ? conv.id : '',
+      })
+      if (openT && openT.length > 0) {
+        const cReason = 'mensagem humana enviada às ' + new Date().toISOString()
+        for (let ti = 0; ti < openT.length; ti++) {
+          const tRecord = openT[ti]
+          tRecord.set('status', 'resolvida_auto')
+          const pDesc = tRecord.getString('description') || ''
+          tRecord.set('description', pDesc ? pDesc + '\n[' + cReason + ']' : '[' + cReason + ']')
+          tRecord.set('completed_at', new Date().toISOString())
+          try {
+            $app.saveNoValidate(tRecord)
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+
     const nowTs = Math.floor(Date.now() / 1000)
     try {
       const conv = $app.findFirstRecordByFilter(

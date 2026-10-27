@@ -224,6 +224,56 @@ onRecordAfterCreateSuccess((e) => {
         $app.logger().error('whatsapp_touch_crm_contact: create failed', 'error', String(createErr))
       }
     }
+
+    // RESOLUÇÃO DE PENDÊNCIAS POR MENSAGEM HUMANA:
+    // Quando a mensagem tem origin 'humano_celular' ou 'humano_crm',
+    // fechar as pendências abertas do contato com status "resolvida_auto"
+    // (motivo: "mensagem humana enviada", com hora) — NUNCA "concluida".
+    var msgOrigin = msg.getString('origin') || ''
+    if (fromMe && (msgOrigin === 'humano_celular' || msgOrigin === 'humano_crm')) {
+      try {
+        var targetContactId = contact ? contact.id : ''
+        var filterTasks = targetContactId
+          ? "(crm_contact_id = {:cid} || conversation_id = {:convId}) && (status = 'pendente' || status = 'em_andamento')"
+          : "conversation_id = {:convId} && (status = 'pendente' || status = 'em_andamento')"
+        var openTasks = $app.findRecordsByFilter('tasks', filterTasks, '-created', 100, 0, {
+          cid: targetContactId,
+          convId: convRec ? convRec.id : '',
+        })
+        if (openTasks && openTasks.length > 0) {
+          var closeReason = 'mensagem humana enviada às ' + new Date().toISOString()
+          for (var ti = 0; ti < openTasks.length; ti++) {
+            var tRec = openTasks[ti]
+            tRec.set('status', 'resolvida_auto')
+            var prevDesc = tRec.getString('description') || ''
+            var newDesc = prevDesc ? prevDesc + '\n[' + closeReason + ']' : '[' + closeReason + ']'
+            tRec.set('description', newDesc)
+            tRec.set('completed_at', new Date().toISOString())
+            try {
+              $app.saveNoValidate(tRec)
+            } catch (tSaveErr) {
+              $app
+                .logger()
+                .warn(
+                  'whatsapp_touch_crm_contact: task close failed',
+                  'tid',
+                  tRec.id,
+                  'err',
+                  String(tSaveErr),
+                )
+            }
+          }
+        }
+      } catch (tasksResolveErr) {
+        $app
+          .logger()
+          .warn(
+            'whatsapp_touch_crm_contact: resolve open tasks error',
+            'err',
+            String(tasksResolveErr),
+          )
+      }
+    }
   } catch (err) {
     $app.logger().error('whatsapp_touch_crm_contact: unexpected error', 'error', String(err))
   }
