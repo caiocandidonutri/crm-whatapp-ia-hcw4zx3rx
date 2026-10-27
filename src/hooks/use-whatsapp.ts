@@ -204,6 +204,7 @@ export function useConversas(
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [error, setError] = useState<string | null>(null)
   const backfillTriedRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -211,8 +212,10 @@ export function useConversas(
     if (!user || !accountId || !instanceName) {
       setConversations([])
       setLoading(false)
+      setError(null)
       return
     }
+    setError(null)
 
     abortRef.current?.abort()
     const ctrl = new AbortController()
@@ -245,6 +248,7 @@ export function useConversas(
       setConversations(sortedFirst)
       setCurrentPage(1)
       setHasMore((firstPage?.totalPages || 0) > 1)
+      setError(null)
       setLoading(false) // user já pode interagir com as 50 mais recentes
 
       const missingTs = sortedFirst.filter(
@@ -269,6 +273,7 @@ export function useConversas(
       if (isAbort(e)) return
       console.warn('[useConversas] falha resiliente ao carregar conversas:', e)
       setConversations((prev) => prev || [])
+      setError('Não foi possível carregar as conversas.')
       setLoading(false)
       setLoadingMore(false)
     }
@@ -473,7 +478,7 @@ export function useConversas(
     }
   }, [accountId, instanceName, reload])
 
-  return { conversations, setConversations, loading, loadingMore, hasMore, loadMore, reload }
+  return { conversations, setConversations, loading, loadingMore, error, hasMore, loadMore, reload }
 }
 
 // Tamanho da página na carga inicial de mensagens. Antes usávamos

@@ -57,7 +57,7 @@ import { useAuth } from '@/hooks/use-auth'
 
 export default function Tarefas() {
   const { user } = useAuth()
-  const { tasks, loading, loadTasks } = useTasks()
+  const { tasks, loading, error: tasksLoadError, loadTasks } = useTasks()
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('todas')
   const [filterMine, setFilterMine] = useState(false)
@@ -587,179 +587,204 @@ export default function Tarefas() {
         })}
       </div>
 
-      {/* Kanban: Desktop (scroll horizontal) vs Mobile (visão empilhada por coluna selecionada) */}
-      <div className="overflow-x-auto pb-4">
-        <div className="flex md:flex-row flex-col gap-6 md:min-w-max items-stretch">
-          {TASK_STATUSES.map((status) => {
-            const statusTasks = filteredTasks.filter((t) => t.status === status.id)
-            const colSearch = columnSearches[status.id] || ''
-            const colPrioritySet = columnPriorities[status.id]
-            const afterPriority =
-              colPrioritySet && colPrioritySet.size > 0
-                ? statusTasks.filter((t) => colPrioritySet.has(t.priority))
-                : statusTasks
-            const columnTasks = colSearch
-              ? afterPriority.filter((t) => {
-                  const contact = t.expand?.crm_contact_id
-                  const name = resolveDisplayName(
-                    contact?.contact_name,
-                    contact?.jid || contact?.phone,
-                    contact?.push_name || t.title,
-                  ).toLowerCase()
-                  const phone = (contact?.phone || contact?.jid?.split('@')[0] || '').toLowerCase()
-                  const q = colSearch.toLowerCase()
-                  return name.includes(q) || phone.includes(q)
+      {tasksLoadError && tasks.length === 0 ? (
+        <Card className="border-amber-200/80 bg-amber-50/40 dark:bg-amber-950/20 p-10 text-center max-w-lg mx-auto my-8">
+          <AlertCircle className="w-10 h-10 text-amber-600 mx-auto mb-3" />
+          <h3 className="text-base font-semibold text-foreground">
+            Não foi possível carregar as tarefas
+          </h3>
+          <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1 mb-6">
+            Houve uma falha ao sincronizar o quadro de tarefas com o servidor. Verifique sua conexão
+            e tente novamente.
+          </p>
+          <Button onClick={() => loadTasks()} disabled={loading} className="gap-2 mx-auto">
+            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+            <span>Tentar de novo</span>
+          </Button>
+        </Card>
+      ) : (
+        /* Kanban: Desktop (scroll horizontal) vs Mobile (visão empilhada por coluna selecionada) */
+        <div className="overflow-x-auto pb-4">
+          <div className="flex md:flex-row flex-col gap-6 md:min-w-max items-stretch">
+            {TASK_STATUSES.map((status) => {
+              const statusTasks = filteredTasks.filter((t) => t.status === status.id)
+              const colSearch = columnSearches[status.id] || ''
+              const colPrioritySet = columnPriorities[status.id]
+              const afterPriority =
+                colPrioritySet && colPrioritySet.size > 0
+                  ? statusTasks.filter((t) => colPrioritySet.has(t.priority))
+                  : statusTasks
+              const columnTasks = colSearch
+                ? afterPriority.filter((t) => {
+                    const contact = t.expand?.crm_contact_id
+                    const name = resolveDisplayName(
+                      contact?.contact_name,
+                      contact?.jid || contact?.phone,
+                      contact?.push_name || t.title,
+                    ).toLowerCase()
+                    const phone = (
+                      contact?.phone ||
+                      contact?.jid?.split('@')[0] ||
+                      ''
+                    ).toLowerCase()
+                    const q = colSearch.toLowerCase()
+                    return name.includes(q) || phone.includes(q)
+                  })
+                : afterPriority
+              const isDragOver = dragOverColumn === status.id
+
+              const toggleColPriority = (pid: string) => {
+                setColumnPriorities((prev) => {
+                  const next = { ...prev }
+                  const set = new Set(next[status.id] || [])
+                  if (set.has(pid)) set.delete(pid)
+                  else set.add(pid)
+                  next[status.id] = set
+                  return next
                 })
-              : afterPriority
-            const isDragOver = dragOverColumn === status.id
+              }
 
-            const toggleColPriority = (pid: string) => {
-              setColumnPriorities((prev) => {
-                const next = { ...prev }
-                const set = new Set(next[status.id] || [])
-                if (set.has(pid)) set.delete(pid)
-                else set.add(pid)
-                next[status.id] = set
-                return next
-              })
-            }
+              const isMobileHidden = mobileSelectedStatus !== status.id
 
-            const isMobileHidden = mobileSelectedStatus !== status.id
-
-            return (
-              <div
-                key={status.id}
-                className={cn(
-                  'w-full md:w-80 shrink-0 flex flex-col rounded-xl bg-muted/30 border h-[calc(100vh-20rem)] min-h-[460px] transition-all duration-200',
-                  isMobileHidden ? 'hidden md:flex' : 'flex',
-                  isDragOver ? 'border-primary bg-primary/5 scale-[1.02]' : 'border-transparent',
-                )}
-                onDragOver={(e) => handleDragOver(e, status.id)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, status.id)}
-              >
-                <div className="p-3 border-b bg-white/50 backdrop-blur-sm rounded-t-xl shrink-0 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 font-semibold text-sm">
-                      <span className={cn('w-2 h-2 rounded-full', status.dot)} />
-                      <span>
-                        {columnTasks.length}{' '}
-                        {columnTasks.length === 1 ? status.label.toLowerCase() : status.pluralLabel}
+              return (
+                <div
+                  key={status.id}
+                  className={cn(
+                    'w-full md:w-80 shrink-0 flex flex-col rounded-xl bg-muted/30 border h-[calc(100vh-20rem)] min-h-[460px] transition-all duration-200',
+                    isMobileHidden ? 'hidden md:flex' : 'flex',
+                    isDragOver ? 'border-primary bg-primary/5 scale-[1.02]' : 'border-transparent',
+                  )}
+                  onDragOver={(e) => handleDragOver(e, status.id)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, status.id)}
+                >
+                  <div className="p-3 border-b bg-white/50 backdrop-blur-sm rounded-t-xl shrink-0 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 font-semibold text-sm">
+                        <span className={cn('w-2 h-2 rounded-full', status.dot)} />
+                        <span>
+                          {columnTasks.length}{' '}
+                          {columnTasks.length === 1
+                            ? status.label.toLowerCase()
+                            : status.pluralLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                      <Input
+                        placeholder="Buscar paciente..."
+                        value={colSearch}
+                        onChange={(e) =>
+                          setColumnSearches((prev) => ({
+                            ...prev,
+                            [status.id]: e.target.value,
+                          }))
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-9 pl-8 pr-8 text-xs bg-background"
+                      />
+                      {colSearch && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setColumnSearches((prev) => ({ ...prev, [status.id]: '' }))
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                          aria-label="Limpar busca"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    {/* Filtro por prioridade — independente por coluna.
+                      Botões de toggle (multiseleção). Vazio = Todas. */}
+                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      <span className="text-[10px] text-muted-foreground/70 mr-0.5">
+                        Prioridade:
                       </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setColumnPriorities((prev) => ({
+                            ...prev,
+                            [status.id]: new Set(),
+                          }))
+                        }
+                        className={cn(
+                          'px-2 py-1 min-h-[30px] rounded text-[11px] font-medium transition-colors border',
+                          !colPrioritySet || colPrioritySet.size === 0
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-background text-muted-foreground border-border hover:bg-muted',
+                        )}
+                      >
+                        Todas
+                      </button>
+                      {TASK_PRIORITIES.slice()
+                        .reverse()
+                        .map((p) => {
+                          const active = colPrioritySet?.has(p.id)
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => toggleColPriority(p.id)}
+                              className={cn(
+                                'px-2 py-1 min-h-[30px] rounded text-[11px] font-medium transition-colors border',
+                                active
+                                  ? p.color
+                                  : 'bg-background text-muted-foreground border-border hover:bg-muted',
+                              )}
+                            >
+                              {p.label}
+                            </button>
+                          )
+                        })}
                     </div>
                   </div>
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                    <Input
-                      placeholder="Buscar paciente..."
-                      value={colSearch}
-                      onChange={(e) =>
-                        setColumnSearches((prev) => ({
-                          ...prev,
-                          [status.id]: e.target.value,
-                        }))
-                      }
-                      onClick={(e) => e.stopPropagation()}
-                      className="h-9 pl-8 pr-8 text-xs bg-background"
-                    />
-                    {colSearch && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setColumnSearches((prev) => ({ ...prev, [status.id]: '' }))
-                        }}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
-                        aria-label="Limpar busca"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+
+                  <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1">
+                    {columnTasks.length === 0 ? (
+                      <div className="h-32 border-2 border-dashed rounded-xl flex items-center justify-center text-muted-foreground text-sm flex-col gap-2 opacity-50">
+                        <status.icon className="w-5 h-5" />
+                        {colSearch || (colPrioritySet && colPrioritySet.size > 0)
+                          ? 'Nenhum paciente encontrado'
+                          : 'Nenhuma tarefa'}
+                      </div>
+                    ) : (
+                      columnTasks.map((task) => (
+                        <CareTaskCard
+                          key={task.id}
+                          task={task}
+                          isDragging={draggedTaskId === task.id}
+                          onDragStart={handleDragStart}
+                          onClick={() => {
+                            setSelectedTask(task)
+                            setDialogOpen(true)
+                          }}
+                          onDelete={async () => {
+                            await deleteTask(task.id)
+                          }}
+                          onComplete={async () => {
+                            await updateTask(task.id, {
+                              status: 'concluida',
+                              completed_at: new Date().toISOString(),
+                            })
+                          }}
+                          onOpenSecretary={() => openSecretary(task)}
+                          selected={selectedIds.has(task.id)}
+                          onToggleSelect={toggleSelect}
+                          selectionMode={selectionMode}
+                        />
+                      ))
                     )}
                   </div>
-                  {/* Filtro por prioridade — independente por coluna.
-                      Botões de toggle (multiseleção). Vazio = Todas. */}
-                  <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                    <span className="text-[10px] text-muted-foreground/70 mr-0.5">Prioridade:</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setColumnPriorities((prev) => ({
-                          ...prev,
-                          [status.id]: new Set(),
-                        }))
-                      }
-                      className={cn(
-                        'px-2 py-1 min-h-[30px] rounded text-[11px] font-medium transition-colors border',
-                        !colPrioritySet || colPrioritySet.size === 0
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-background text-muted-foreground border-border hover:bg-muted',
-                      )}
-                    >
-                      Todas
-                    </button>
-                    {TASK_PRIORITIES.slice()
-                      .reverse()
-                      .map((p) => {
-                        const active = colPrioritySet?.has(p.id)
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => toggleColPriority(p.id)}
-                            className={cn(
-                              'px-2 py-1 min-h-[30px] rounded text-[11px] font-medium transition-colors border',
-                              active
-                                ? p.color
-                                : 'bg-background text-muted-foreground border-border hover:bg-muted',
-                            )}
-                          >
-                            {p.label}
-                          </button>
-                        )
-                      })}
-                  </div>
                 </div>
-
-                <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1">
-                  {columnTasks.length === 0 ? (
-                    <div className="h-32 border-2 border-dashed rounded-xl flex items-center justify-center text-muted-foreground text-sm flex-col gap-2 opacity-50">
-                      <status.icon className="w-5 h-5" />
-                      {colSearch || (colPrioritySet && colPrioritySet.size > 0)
-                        ? 'Nenhum paciente encontrado'
-                        : 'Nenhuma tarefa'}
-                    </div>
-                  ) : (
-                    columnTasks.map((task) => (
-                      <CareTaskCard
-                        key={task.id}
-                        task={task}
-                        isDragging={draggedTaskId === task.id}
-                        onDragStart={handleDragStart}
-                        onClick={() => {
-                          setSelectedTask(task)
-                          setDialogOpen(true)
-                        }}
-                        onDelete={async () => {
-                          await deleteTask(task.id)
-                        }}
-                        onComplete={async () => {
-                          await updateTask(task.id, {
-                            status: 'concluida',
-                            completed_at: new Date().toISOString(),
-                          })
-                        }}
-                        onOpenSecretary={() => openSecretary(task)}
-                        selected={selectedIds.has(task.id)}
-                        onToggleSelect={toggleSelect}
-                        selectionMode={selectionMode}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       <TaskViewDialog open={dialogOpen} onOpenChange={setDialogOpen} task={selectedTask} />
       <CareSecretarySheet

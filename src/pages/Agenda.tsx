@@ -202,6 +202,7 @@ export default function Agenda() {
   const [allAppointments, setAllAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
   const [isRateLimited, setIsRateLimited] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [syncStatus, setSyncStatus] = useState<AgendaSyncStatus | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
 
@@ -382,6 +383,7 @@ export default function Agenda() {
       try {
         setLoading(true)
         setIsRateLimited(false)
+        setLoadError(null)
 
         const past90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
         const future90d = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
@@ -394,12 +396,15 @@ export default function Agenda() {
         setAllAppointments(Array.isArray(list) ? list : [])
         lastFetchedTimeRef.current = Date.now()
         setIsRateLimited(false)
+        setLoadError(null)
       } catch (err) {
         setAllAppointments((prev) => (Array.isArray(prev) ? prev : []))
         const is429 = isAppointmentRateLimited(err)
         if (is429) {
           setIsRateLimited(true)
+          setLoadError('Aguardando reconexão com o servidor (limite de requisições excedido).')
         } else {
+          setLoadError('Não foi possível carregar as consultas da agenda.')
           toast({
             title: 'Erro ao carregar agendamentos',
             description: err instanceof Error ? err.message : 'Falha ao buscar dados da agenda.',
@@ -1497,6 +1502,24 @@ export default function Agenda() {
             <RefreshCw className="w-8 h-8 animate-spin text-primary" />
             <p className="text-sm">Carregando consultas da agenda...</p>
           </div>
+        ) : loadError && allAppointments.length === 0 ? (
+          <Card className="border-amber-200/80 bg-amber-50/40 dark:bg-amber-950/20 p-10 text-center max-w-lg mx-auto my-8">
+            <AlertCircle className="w-10 h-10 text-amber-600 mx-auto mb-3" />
+            <h3 className="text-base font-semibold text-foreground">
+              Não foi possível carregar os agendamentos
+            </h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1 mb-6">
+              {loadError} Verifique sua conexão e tente novamente.
+            </p>
+            <Button
+              onClick={() => loadAppointments(true)}
+              disabled={loading}
+              className="gap-2 mx-auto"
+            >
+              <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+              <span>Tentar de novo</span>
+            </Button>
+          </Card>
         ) : filteredAppointments.length === 0 ? (
           <Card className="border-dashed border-2 p-12 text-center bg-card/50">
             <CalendarDays className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />

@@ -280,14 +280,14 @@ export default function FilaDoDia() {
 
       await new Promise((r) => setTimeout(r, 60))
 
-      // 3. Tarefas abertas (sem expand para evitar broken pipe de 10.7s)
+      // 3. Tarefas abertas (sem expand para evitar broken pipe de 10.7s; reduzido perPage para 100)
       let tasksRes: Task[] = []
       try {
         tasksRes = await safePbFullList<Task>({
           collection: 'tasks',
           filter: `account_id = "${accountId}" && status != "concluida" && status != "cancelada"`,
           sort: '-created',
-          perPage: 200,
+          perPage: 100,
           label: 'FilaDoDia:tasks',
         })
       } catch (err) {

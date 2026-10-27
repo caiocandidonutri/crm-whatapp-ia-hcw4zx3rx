@@ -72,6 +72,7 @@ export default function Conversas() {
     setConversations,
     loading: loadingChats,
     loadingMore: loadingMoreChats,
+    error: chatsError,
     reload: reloadChats,
   } = useConversas(
     instance?.status === 'connected' ? instance.instance_name : undefined,
@@ -718,6 +719,7 @@ export default function Conversas() {
                 onSelectChat={handleSelectChat}
                 loading={loadingChats || isConnecting}
                 loadingMore={loadingMoreChats}
+                error={chatsError}
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived((v) => !v)}
                 onRefresh={reloadChats}

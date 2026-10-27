@@ -15,6 +15,7 @@ import {
   Smartphone,
   Send,
   CheckCircle2,
+  AlertCircle,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -39,6 +40,7 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { useCurrentAccount } from '@/hooks/use-current-account'
 import { isNetworkError } from '@/lib/pocketbase/errors'
+import { cn } from '@/lib/utils'
 import {
   listPayments,
   fetchFinancialSummary,
@@ -57,6 +59,7 @@ export function Financeiro() {
   const [loading, setLoading] = useState(true)
   const [payments, setPayments] = useState<Payment[]>([])
   const [summary, setSummary] = useState<PaymentSummary | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Filtros
   const [selectedUnidade, setSelectedUnidade] = useState<string>('all')
@@ -76,28 +79,23 @@ export function Financeiro() {
   const loadData = useCallback(async () => {
     if (!accountId) return
     setLoading(true)
+    setLoadError(null)
     try {
       const [sumRes, payList] = await Promise.all([
-        fetchFinancialSummary(accountId).catch((err) => {
-          if (!isNetworkError(err)) console.warn('[Financeiro] Erro no sumário:', err)
-          return null
-        }),
+        fetchFinancialSummary(accountId),
         listPayments({
           accountId,
           forma: selectedForma as any,
           unidade: selectedUnidade,
-        }).catch((err) => {
-          if (!isNetworkError(err)) console.warn('[Financeiro] Erro na lista:', err)
-          return [] as Payment[]
         }),
       ])
 
       setSummary(sumRes)
       setPayments(payList || [])
+      setLoadError(null)
     } catch (err) {
-      if (!isNetworkError(err)) {
-        console.warn('[Financeiro] Erro geral ao carregar dados:', err)
-      }
+      console.warn('[Financeiro] Erro geral ao carregar dados:', err)
+      setLoadError('Não foi possível carregar os dados financeiros.')
     } finally {
       setLoading(false)
     }
@@ -447,6 +445,26 @@ export function Financeiro() {
           {loading ? (
             <div className="p-8 text-center text-xs text-muted-foreground">
               Carregando lançamentos financeiros...
+            </div>
+          ) : loadError && payments.length === 0 ? (
+            <div className="p-8 text-center space-y-3">
+              <AlertCircle className="w-8 h-8 text-amber-600 mx-auto" />
+              <p className="text-sm font-semibold text-foreground">
+                Não foi possível carregar os dados financeiros
+              </p>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                {loadError} Verifique sua conexão e tente novamente.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadData}
+                disabled={loading}
+                className="gap-2 mx-auto"
+              >
+                <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+                <span>Tentar de novo</span>
+              </Button>
             </div>
           ) : filteredPayments.length === 0 ? (
             <div className="p-12 text-center space-y-2">

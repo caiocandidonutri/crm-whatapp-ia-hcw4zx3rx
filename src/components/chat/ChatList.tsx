@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   Users,
   User,
+  AlertCircle,
 } from 'lucide-react'
 import {
   marcarConversaComoLida,
@@ -53,6 +54,7 @@ type ChatListProps = {
   onSelectChat: (id: string) => void
   className?: string
   loading?: boolean
+  error?: string | null
   pendingCount?: number
   loadingMore?: boolean
   showArchived?: boolean
@@ -305,6 +307,7 @@ export function ChatList({
   onSelectChat,
   className,
   loading = false,
+  error = null,
   pendingCount = 0,
   loadingMore = false,
   showArchived = false,
@@ -649,6 +652,22 @@ export function ChatList({
             {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
               <ChatRowSkeleton key={i} />
             ))}
+          </div>
+        ) : error && safeChats.length === 0 ? (
+          <div className="p-6 text-center text-muted-foreground flex flex-col items-center">
+            <AlertCircle className="w-10 h-10 text-amber-600 mb-3" />
+            <h4 className="text-sm font-semibold text-foreground">
+              Não foi possível carregar as conversas
+            </h4>
+            <p className="text-xs text-muted-foreground mt-1 mb-4 max-w-xs">
+              {error} Verifique sua conexão e tente novamente.
+            </p>
+            {onRefresh && (
+              <Button variant="outline" size="sm" onClick={onRefresh} className="gap-2">
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Tentar de novo</span>
+              </Button>
+            )}
           </div>
         ) : showEmpty ? (
           <div className="p-8 text-center text-muted-foreground flex flex-col items-center">
