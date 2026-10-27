@@ -33,6 +33,14 @@ export const TASK_STATUSES = [
     icon: XCircle,
     dot: 'bg-rose-500',
   },
+  {
+    id: 'arquivada_baseline',
+    label: 'Arquivada Baseline',
+    pluralLabel: 'arquivadas baseline',
+    color: 'bg-slate-100 text-slate-500 border-slate-200',
+    icon: XCircle,
+    dot: 'bg-slate-400',
+  },
 ] as const
 
 export const TASK_PRIORITIES = [

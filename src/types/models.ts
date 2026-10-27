@@ -204,7 +204,7 @@ export interface Task extends RecordModel {
   user_id: string
   title: string
   description?: string
-  status: 'pendente' | 'em_andamento' | 'concluida' | 'cancelada'
+  status: 'pendente' | 'em_andamento' | 'concluida' | 'cancelada' | 'arquivada_baseline'
   priority: 'baixa' | 'media' | 'alta' | 'urgente'
   due_date?: string
   crm_contact_id?: string

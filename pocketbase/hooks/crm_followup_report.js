@@ -188,7 +188,9 @@ routerAdd(
           ruleStats[targetRuleId].created_pending++
         }
 
-        var isDone = t.getString('status') === 'concluida'
+        var tStatus = t.getString('status')
+        // Contam apenas concluídas reais. 'arquivada_baseline' NUNCA conta como recuperada/concluída.
+        var isDone = tStatus === 'concluida'
         if (isDone) {
           if (targetRuleId && ruleStats[targetRuleId]) {
             ruleStats[targetRuleId].recovered_count++

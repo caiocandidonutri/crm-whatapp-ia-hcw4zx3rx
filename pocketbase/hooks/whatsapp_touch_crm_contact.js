@@ -133,6 +133,28 @@ onRecordAfterCreateSuccess((e) => {
           convRec.set('contact_name', candidateName)
           convDirty = true
         }
+        // REGRA PERMANENTE: mensagem from_me humana registrada -> zerar unread_count da conversa
+        // se não houver mensagem do paciente mais nova. Sem nenhuma chamada à Evolution.
+        if (fromMe) {
+          var msgTs = msg.getInt('timestamp') || 0
+          var hasNewerInbound = false
+          try {
+            var newerInbound = $app.findFirstRecordByFilter(
+              'whatsapp_messages',
+              'instance_name = {:inst} && remote_jid = {:jid} && from_me = 0 && timestamp > {:ts}',
+              { inst: instanceName, jid: remoteJid, ts: msgTs },
+            )
+            if (newerInbound) {
+              hasNewerInbound = true
+            }
+          } catch (_) {}
+
+          if (!hasNewerInbound && (convRec.getInt('unread_count') || 0) > 0) {
+            convRec.set('unread_count', 0)
+            convDirty = true
+          }
+        }
+
         if (convDirty) {
           try {
             $app.save(convRec)
