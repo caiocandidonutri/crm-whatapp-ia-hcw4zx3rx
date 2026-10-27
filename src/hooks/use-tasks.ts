@@ -39,7 +39,9 @@ export function useTasks() {
     setLoading(true)
 
     try {
-      const filter = accountId ? `account_id = "${accountId}"` : undefined
+      // Carrega apenas tarefas ativas/pendentes (ou limite razoável) para não puxar milhares de arquivadas em 65 páginas
+      const baseFilter = '(status = "pendente" || status = "em_andamento")'
+      const filter = accountId ? `account_id = "${accountId}" && ${baseFilter}` : baseFilter
       const res = await safePbFullListWithStatus<Task>({
         collection: 'tasks',
         filter,
