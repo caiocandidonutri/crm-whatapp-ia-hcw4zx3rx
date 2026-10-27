@@ -23,7 +23,9 @@
     "tsconfig.json",
     "tsconfig.node.json",
     "vite.config.ts",
-    "vite-plugin-react-uid.js"
+    "vite-plugin-react-uid.js",
+    "src/lib/pocketbase/errors.ts",
+    "src/lib/pocketbase/resilient.ts"
   ],
   "excludeFromContext": [
     "src/components/ui/**/*",
