@@ -21,6 +21,7 @@ import {
   Users,
   User,
   AlertCircle,
+  AlertTriangle,
 } from 'lucide-react'
 import {
   marcarConversaComoLida,
@@ -654,18 +655,23 @@ export function ChatList({
             ))}
           </div>
         ) : error && safeChats.length === 0 ? (
-          <div className="p-6 text-center text-muted-foreground flex flex-col items-center">
-            <AlertCircle className="w-10 h-10 text-amber-600 mb-3" />
-            <h4 className="text-sm font-semibold text-foreground">
-              Não foi possível carregar as conversas
+          <div className="p-6 m-4 border border-rose-200 bg-rose-50/40 rounded-xl text-center flex flex-col items-center justify-center space-y-3">
+            <AlertTriangle className="w-10 h-10 text-rose-600" />
+            <h4 className="font-serif font-bold text-sm text-rose-900">
+              Não foi possível carregar. Tentar de novo
             </h4>
-            <p className="text-xs text-muted-foreground mt-1 mb-4 max-w-xs">
-              {error} Verifique sua conexão e tente novamente.
+            <p className="text-xs text-rose-700 max-w-xs">
+              {error || 'Houve uma falha ao conectar ao banco de dados.'}
             </p>
             {onRefresh && (
-              <Button variant="outline" size="sm" onClick={onRefresh} className="gap-2">
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Tentar de novo</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRefresh}
+                className="h-8 text-xs border-rose-300 text-rose-800 hover:bg-rose-100"
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                Tentar de novo
               </Button>
             )}
           </div>

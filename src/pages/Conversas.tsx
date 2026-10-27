@@ -74,11 +74,7 @@ export default function Conversas() {
     loadingMore: loadingMoreChats,
     error: chatsError,
     reload: reloadChats,
-  } = useConversas(
-    instance?.status === 'connected' ? instance.instance_name : undefined,
-    isImportingHistory,
-    showArchived,
-  )
+  } = useConversas(instance?.instance_name, isImportingHistory, showArchived)
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const clearingUnreadRef = useRef<Set<string>>(new Set())
 

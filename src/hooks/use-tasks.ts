@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Task } from '@/types/models'
-import { getTasks, isAnyAbortError } from '@/services/tasks'
+import { isAnyAbortError } from '@/services/tasks'
+import { safePbFullListWithStatus } from '@/lib/pocketbase/resilient'
+import { getErrorMessage } from '@/lib/pocketbase/errors'
 import { useRealtime } from '@/hooks/use-realtime'
 import { useAuth } from '@/hooks/use-auth'
 import { useCurrentAccount } from '@/hooks/use-current-account'
@@ -34,27 +36,35 @@ export function useTasks() {
     }
     const controller = new AbortController()
     activeControllerRef.current = controller
+    setLoading(true)
 
     try {
-      const data = await getTasks({
-        accountId: accountId || undefined,
+      const filter = accountId ? `account_id = "${accountId}"` : undefined
+      const res = await safePbFullListWithStatus<Task>({
+        collection: 'tasks',
+        filter,
+        sort: '-created',
+        expand: 'assigned_to,crm_contact_id',
+        perPage: 100,
         signal: controller.signal,
-        limit: 300,
-      }).catch((tasksErr) => {
-        // Proteção extra: nenhum erro/rejeição deve escapar de getTasks
-        if (isAnyAbortError(tasksErr) || controller.signal.aborted) {
-          return []
-        }
-        if (import.meta.env.DEV) {
-          console.debug('[useTasks] getTasks rejection swallowed:', tasksErr?.message || tasksErr)
-        }
-        return []
+        label: 'useTasks',
       })
 
       if (controller.signal.aborted || !isMountedRef.current) return
 
-      const safeList = Array.isArray(data) ? data : []
-      setTasks(safeList)
+      if (res.failed) {
+        const msg = res.error
+          ? getErrorMessage(res.error)
+          : 'Houve uma falha ao conectar ao banco de dados.'
+        setError(msg)
+        // NUNCA sobreescreve com vazio se já tínhamos dados, ou mantém vazio com error
+        if (isMountedRef.current) {
+          setTasks((prev) => (Array.isArray(prev) ? prev : []))
+        }
+        return
+      }
+
+      setTasks(res.items)
       setError(null)
     } catch (err: any) {
       if (controller.signal.aborted || !isMountedRef.current || isAnyAbortError(err)) {
@@ -64,10 +74,8 @@ export function useTasks() {
       if (import.meta.env.DEV) {
         console.debug('[useTasks] Não foi possível carregar tarefas:', err?.message || err)
       }
-      // Degradação graciosa: lista vazia e nunca quebra a tela
       if (isMountedRef.current) {
-        setTasks((prev) => (Array.isArray(prev) ? prev : []))
-        setError('Não foi possível carregar as tarefas')
+        setError(getErrorMessage(err))
       }
     } finally {
       if (!controller.signal.aborted && isMountedRef.current) {

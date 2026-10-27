@@ -138,7 +138,7 @@ export function FollowupRecoveryReport({ className }: Props) {
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl sm:text-3xl font-bold text-foreground">
-                {report?.summary.total_recovered ?? 0}
+                {report?.summary?.total_recovered ?? 0}
               </span>
               <span className="text-[11px] text-muted-foreground">pacientes</span>
             </div>
@@ -151,7 +151,7 @@ export function FollowupRecoveryReport({ className }: Props) {
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl sm:text-3xl font-bold text-foreground">
-                {report?.summary.total_pending ?? 0}
+                {report?.summary?.total_pending ?? 0}
               </span>
               <span className="text-[11px] text-muted-foreground">no período</span>
             </div>
@@ -164,7 +164,10 @@ export function FollowupRecoveryReport({ className }: Props) {
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl sm:text-3xl font-bold text-emerald-600 dark:text-emerald-400">
-                {report?.summary.recovery_rate ?? 0}%
+                {report?.summary?.recovery_rate !== undefined &&
+                report?.summary?.recovery_rate !== null
+                  ? `${report.summary.recovery_rate}%`
+                  : '—'}
               </span>
               <span className="text-[11px] text-muted-foreground">eficiência</span>
             </div>

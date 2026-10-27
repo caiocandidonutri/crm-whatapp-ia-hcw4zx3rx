@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRealtime } from '@/hooks/use-realtime'
 import pb from '@/lib/pocketbase/client'
+import { safePbFullListWithStatus } from '@/lib/pocketbase/resilient'
+import { getErrorMessage } from '@/lib/pocketbase/errors'
 import { WhatsappInstance, Conversation, WhatsappMessage } from '@/types/models'
 import { useAuth } from '@/hooks/use-auth'
 import { useCurrentAccount } from '@/hooks/use-current-account'
@@ -229,10 +231,32 @@ export function useConversas(
     const filter = `account_id = "${accountId}" && instance_name = "${instanceName}" && ${archivedClause}`
 
     try {
-      // Página 1 (50 mais recentes). Sort server-side por
-      // `-last_message_timestamp,-created`: o primeiro garante a ordem real
-      // do WhatsApp; o segundo é fallback estável (não muda em saves) para
-      // convs ainda sem ts real (pré-backfill).
+      // Carregamento resiliente com safePbFullListWithStatus
+      const res = await safePbFullListWithStatus<Conversation>({
+        collection: 'conversations',
+        filter,
+        sort: '-last_message_timestamp,-created',
+        perPage: CONVERSATION_PAGE_SIZE,
+        signal: ctrl.signal,
+        label: 'useConversas',
+      })
+
+      if (ctrl.signal.aborted) return
+
+      if (res.failed) {
+        const msg = res.error
+          ? getErrorMessage(res.error)
+          : 'Não foi possível carregar as conversas.'
+        setError(msg)
+        setLoading(false)
+        setLoadingMore(false)
+        return
+      }
+
+      const items = Array.isArray(res.items) ? res.items : []
+      const sortedFirst = sortByLastMessageTs(items)
+      setConversations(sortedFirst)
+      setCurrentPage(1)
       const firstPage = await pb
         .collection('conversations')
         .getList<Conversation>(1, CONVERSATION_PAGE_SIZE, {
@@ -240,13 +264,7 @@ export function useConversas(
           sort: '-last_message_timestamp,-created',
           signal: ctrl.signal,
         })
-
-      if (ctrl.signal.aborted) return
-
-      const items = Array.isArray(firstPage?.items) ? firstPage.items : []
-      const sortedFirst = sortByLastMessageTs(items)
-      setConversations(sortedFirst)
-      setCurrentPage(1)
+        .catch(() => null)
       setHasMore((firstPage?.totalPages || 0) > 1)
       setError(null)
       setLoading(false) // user já pode interagir com as 50 mais recentes
@@ -272,8 +290,7 @@ export function useConversas(
     } catch (e) {
       if (isAbort(e)) return
       console.warn('[useConversas] falha resiliente ao carregar conversas:', e)
-      setConversations((prev) => prev || [])
-      setError('Não foi possível carregar as conversas.')
+      setError(getErrorMessage(e))
       setLoading(false)
       setLoadingMore(false)
     }

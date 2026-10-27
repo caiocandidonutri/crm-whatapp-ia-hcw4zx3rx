@@ -169,8 +169,12 @@ function HomeContent() {
   const { toast } = useToast()
   const { accountId } = useCurrentAccount()
   const { instance } = useInstanciaAtiva()
-  const { conversations } = useConversas(instance?.instance_name)
-  const { tasks, error: tasksError } = useTasks()
+  const {
+    conversations,
+    error: conversationsError,
+    reload: reloadConversations,
+  } = useConversas(instance?.instance_name)
+  const { tasks, error: tasksError, loadTasks } = useTasks()
 
   const [metrics, setMetrics] = useState<HomeMetricsData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1230,17 +1234,21 @@ function HomeContent() {
               </button>
             </span>
             <span className="flex items-center gap-1.5">
-              {commandCenter.automations.globalPaused ? (
+              {(commandCenter?.automations?.globalPaused ??
+              DEFAULT_COMMAND_CENTER_METRICS.automations.globalPaused) ? (
                 <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
-              ) : commandCenter.automations.globalPaused === false ? (
+              ) : (commandCenter?.automations?.globalPaused ??
+                  DEFAULT_COMMAND_CENTER_METRICS.automations.globalPaused) === false ? (
                 <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
               ) : (
                 <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" />
               )}
               <span className="font-medium text-foreground/80">
-                {commandCenter.automations.globalPaused
+                {(commandCenter?.automations?.globalPaused ??
+                DEFAULT_COMMAND_CENTER_METRICS.automations.globalPaused)
                   ? 'Pausadas globalmente (nada envia mensagem)'
-                  : commandCenter.automations.globalPaused === false
+                  : (commandCenter?.automations?.globalPaused ??
+                        DEFAULT_COMMAND_CENTER_METRICS.automations.globalPaused) === false
                     ? 'Ativas globalmente'
                     : 'Estado desconhecido'}
               </span>
@@ -1249,21 +1257,35 @@ function HomeContent() {
               <span
                 className={cn(
                   'w-2 h-2 rounded-full shrink-0',
-                  commandCenter.automations.nightShield ? 'bg-indigo-500' : 'bg-gray-300',
+                  (commandCenter?.automations?.nightShield ??
+                    DEFAULT_COMMAND_CENTER_METRICS.automations.nightShield)
+                    ? 'bg-indigo-500'
+                    : 'bg-gray-300',
                 )}
               />
               <span className="font-medium text-foreground/80">
                 Night Shield{' '}
-                {commandCenter.automations.nightShield ? 'ativo (21h–07h)' : '(21h–07h)'}
+                {(commandCenter?.automations?.nightShield ??
+                DEFAULT_COMMAND_CENTER_METRICS.automations.nightShield)
+                  ? 'ativo (21h–07h)'
+                  : '(21h–07h)'}
               </span>
             </span>
             <span className="flex items-center gap-1.5 text-muted-foreground font-medium">
               <Clock className="w-3.5 h-3.5" />
-              {commandCenter.automations.lastSyncAt ? (
+              {(commandCenter?.automations?.lastSyncAt ??
+              DEFAULT_COMMAND_CENTER_METRICS.automations.lastSyncAt) ? (
                 <>
-                  Última sincronia: {formatRecentActivityDate(commandCenter.automations.lastSyncAt)}
+                  Última sincronia:{' '}
+                  {formatRecentActivityDate(
+                    (commandCenter?.automations?.lastSyncAt ??
+                      DEFAULT_COMMAND_CENTER_METRICS.automations.lastSyncAt)!,
+                  )}
                   {' · '}
-                  {formatTimeSaoPaulo(commandCenter.automations.lastSyncAt)}
+                  {formatTimeSaoPaulo(
+                    (commandCenter?.automations?.lastSyncAt ??
+                      DEFAULT_COMMAND_CENTER_METRICS.automations.lastSyncAt)!,
+                  )}
                 </>
               ) : (
                 'Última sincronia: sem registro'
@@ -2176,14 +2198,26 @@ function HomeContent() {
             </CardHeader>
             <CardContent className="px-5 pb-5 flex flex-col gap-3">
               {tasksError && myUrgentTasks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-4 text-center text-muted-foreground">
-                  <AlertCircle className="w-6 h-6 mb-1 text-amber-500/70" />
-                  <span className="text-xs font-medium text-amber-800">
-                    Não foi possível carregar as tarefas
-                  </span>
-                  <span className="text-[11px] text-muted-foreground mt-0.5">
-                    As demais seções continuam funcionando normalmente.
-                  </span>
+                <div className="border border-rose-200 bg-rose-50/40 rounded-xl p-4 text-center flex flex-col items-center justify-center space-y-2">
+                  <AlertTriangle className="w-6 h-6 text-rose-600" />
+                  <h4 className="font-serif font-bold text-xs text-rose-900">
+                    Não foi possível carregar. Tentar de novo
+                  </h4>
+                  <p className="text-[11px] text-rose-700 max-w-xs">
+                    {tasksError || 'Houve uma falha ao conectar ao banco de dados.'}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      loadTasks()
+                      loadMetrics(true)
+                    }}
+                    className="h-7 text-xs border-rose-300 text-rose-800 hover:bg-rose-100"
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1" />
+                    Tentar de novo
+                  </Button>
                 </div>
               ) : myUrgentTasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-6 text-center text-muted-foreground">
@@ -2311,6 +2345,28 @@ function HomeContent() {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : conversationsError && recentChats.length === 0 ? (
+            <div className="p-8 text-center flex flex-col items-center justify-center space-y-3 bg-rose-50/40">
+              <AlertTriangle className="w-10 h-10 text-rose-600" />
+              <h3 className="font-serif font-bold text-base text-rose-900">
+                Não foi possível carregar. Tentar de novo
+              </h3>
+              <p className="text-xs text-rose-700 max-w-md">
+                {conversationsError || 'Houve uma falha ao conectar ao banco de dados.'}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  reloadConversations()
+                  loadMetrics(true)
+                }}
+                className="h-8 text-xs mt-2 border-rose-300 text-rose-800 hover:bg-rose-100"
+              >
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                Tentar de novo
+              </Button>
             </div>
           ) : recentChats.length === 0 ? (
             <div className="p-10 flex flex-col items-center justify-center text-center">
