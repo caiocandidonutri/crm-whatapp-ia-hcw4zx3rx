@@ -2,62 +2,6 @@ import { ClientResponseError } from 'pocketbase'
 
 export type FieldErrors = Record<string, string>
 
-export function isNetworkError(error: unknown): boolean {
-  if (!error) return false
-  if (error instanceof ClientResponseError) {
-    return error.status === 0
-  }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    return (
-      msg.includes('network') ||
-      msg.includes('failed to fetch') ||
-      msg.includes('aborterror') ||
-      msg.includes('signal is aborted') ||
-      msg.includes('connection refused')
-    )
-  }
-  return false
-}
-
-export function isRateLimitError(error: unknown): boolean {
-  if (!error) return false
-  if (
-    typeof error === 'object' &&
-    'status' in error &&
-    (error as { status: unknown }).status === 429
-  ) {
-    return true
-  }
-  if (error instanceof Error && error.message.includes('429')) {
-    return true
-  }
-  return false
-}
-
-export function parseRetryAfterMs(error: unknown, fallbackMs = 1500): number {
-  if (
-    error &&
-    typeof error === 'object' &&
-    'response' in error &&
-    (error as any).response?.headers
-  ) {
-    const headers = (error as any).response.headers
-    const headerVal =
-      typeof headers.get === 'function'
-        ? headers.get('retry-after')
-        : headers['retry-after'] || headers['Retry-After']
-    if (headerVal) {
-      const parsedSec = parseFloat(headerVal)
-      if (!isNaN(parsedSec)) {
-        const ms = parsedSec * 1000
-        return Math.max(500, Math.min(30000, ms))
-      }
-    }
-  }
-  return Math.max(500, Math.min(30000, fallbackMs))
-}
-
 export function extractFieldErrors(error: unknown): FieldErrors {
   if (!(error instanceof ClientResponseError)) return {}
   const data = error.response?.data
@@ -82,4 +26,69 @@ export function getErrorMessage(error: unknown): string {
   }
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
+}
+
+export function isNetworkError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError && error.status === 0) return true
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    (error as any).status === 0
+  ) {
+    return true
+  }
+  const msg = error instanceof Error ? error.message : String(error)
+  const lower = msg.toLowerCase()
+  return (
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network request failed') ||
+    lower.includes('aborterror') ||
+    lower.includes('abort') ||
+    lower.includes('connection refused') ||
+    lower.includes('timeout')
+  )
+}
+
+export function isRateLimitError(error: unknown): boolean {
+  if (!error) return false
+  if (error instanceof ClientResponseError && error.status === 429) return true
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    (error as any).status === 429
+  ) {
+    return true
+  }
+  const msg = error instanceof Error ? error.message : String(error)
+  return msg.includes('429') || msg.toLowerCase().includes('too many requests')
+}
+
+export function parseRetryAfterMs(error: unknown, fallbackMs = 1200): number {
+  if (!error || typeof error !== 'object') return fallbackMs
+  const response = (error as any).response
+  const headers = response?.headers
+  let headerVal: any = null
+
+  if (headers) {
+    if (typeof headers.get === 'function') {
+      headerVal = headers.get('retry-after')
+    } else if (typeof headers === 'object') {
+      headerVal = headers['retry-after'] || headers['Retry-After']
+    }
+  }
+
+  if (headerVal !== null && headerVal !== undefined) {
+    const parsed = parseFloat(String(headerVal))
+    if (!isNaN(parsed) && parsed >= 0) {
+      // Valor em segundos conforme especificação HTTP
+      const ms = Math.round(parsed * 1000)
+      return Math.min(Math.max(ms, 500), 30000)
+    }
+  }
+
+  return fallbackMs
 }
