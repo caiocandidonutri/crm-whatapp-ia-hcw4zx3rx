@@ -301,16 +301,26 @@ export default function Tarefas() {
   }
 
   const handleBatchCareStatus = async (careStatus: string) => {
-    // care_status vive em crm_contacts, não em tasks. Para alterar o
+    // care_state / care_status vive em crm_contacts, não em tasks. Para alterar o
     // status de cuidado dos selecionados, atualizamos o crm_contact_id
-    // vinculado a cada tarefa selecionada. O hook
-    // crm_care_reclassify_tasks então reclassifica as tarefas
-    // automaticamente.
+    // vinculado a cada tarefa selecionada.
+    // REGRA DO SISTEMA: "atendido_a_fechar" nunca é alerta. Apenas "responder" gera alerta.
     if (selectedTasks.length === 0) return
     setBatchBusy(true)
     let ok = 0
     let fail = 0
     let skip = 0
+
+    // Mapeamento compatível para care_state único
+    const stateMap: Record<string, string> = {
+      nao_respondeu: 'responder',
+      precisa_retorno: 'retorno_a_oferecer',
+      precisa_consulta: 'retorno_a_oferecer',
+      precisa_atencao: 'responder',
+      em_dia: 'contatado',
+    }
+    const targetCareState = stateMap[careStatus] || careStatus
+
     await Promise.all(
       selectedTasks.map(async (t) => {
         const contactId = t.crm_contact_id
@@ -319,7 +329,11 @@ export default function Tarefas() {
           return
         }
         try {
-          await pb.collection('crm_contacts').update(contactId, { care_status: careStatus })
+          await pb.collection('crm_contacts').update(contactId, {
+            care_status: careStatus,
+            care_state: targetCareState,
+            alert_active: targetCareState === 'responder',
+          })
           ok++
         } catch {
           fail++

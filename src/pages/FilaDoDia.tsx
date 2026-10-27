@@ -567,61 +567,85 @@ export default function FilaDoDia() {
     })
   }
 
-  // Filtragem e Ordenação com proteção total contra nulos
+  // Filtragem e Ordenação com proteção total contra nulos e falhas de runtime
   const filteredItems = useMemo(() => {
     if (!Array.isArray(queueItems)) return []
     return queueItems
       .filter((item) => {
         if (!item) return false
-        // Filtro de concluídos hoje
-        if (showOnlyPendingToday && item.completedToday) return false
+        try {
+          // Filtro de concluídos hoje
+          if (showOnlyPendingToday && item.completedToday) return false
 
-        // Filtro de texto
-        if (searchTerm.trim()) {
-          const q = searchTerm.toLowerCase().trim()
-          const cleanQ = q.replace(/\D/g, '')
-          const matchName = (item.name || '').toLowerCase().includes(q)
-          const matchPhone =
-            (item.phone || '').toLowerCase().includes(q) ||
-            (cleanQ.length >= 4 && (item.phone || '').includes(cleanQ))
-          const matchAction = (item.suggestedAction || '').toLowerCase().includes(q)
-          if (!matchName && !matchPhone && !matchAction) return false
+          // Filtro de texto seguro
+          const rawSearch = typeof searchTerm === 'string' ? searchTerm.trim() : ''
+          if (rawSearch) {
+            const q = rawSearch.toLowerCase()
+            const cleanQ = q.replace(/\D/g, '')
+            const nameStr = String(item.name || '').toLowerCase()
+            const phoneStr = String(item.phone || '').toLowerCase()
+            const actionStr = String(item.suggestedAction || '').toLowerCase()
+            const matchName = nameStr.includes(q)
+            const matchPhone =
+              phoneStr.includes(q) || (cleanQ.length >= 4 && phoneStr.includes(cleanQ))
+            const matchAction = actionStr.includes(q)
+            if (!matchName && !matchPhone && !matchAction) return false
+          }
+
+          // Filtro de Status
+          if (statusFilter !== 'all' && item.status !== statusFilter) return false
+
+          // Filtro de Etapa
+          if (stageFilter !== 'all' && item.stageKey !== stageFilter) return false
+
+          // Filtro de Unidade
+          if (unidadeFilter !== 'all' && item.unidade !== unidadeFilter) return false
+
+          return true
+        } catch (filterErr) {
+          console.warn('[FilaDoDia] Item ignorado no filtro por erro:', filterErr)
+          return false
         }
-
-        // Filtro de Status
-        if (statusFilter !== 'all' && item.status !== statusFilter) return false
-
-        // Filtro de Etapa
-        if (stageFilter !== 'all' && item.stageKey !== stageFilter) return false
-
-        // Filtro de Unidade
-        if (unidadeFilter !== 'all' && item.unidade !== unidadeFilter) return false
-
-        return true
       })
       .sort((a, b) => {
-        if (!a || !b) return 0
-        // Itens não concluídos sempre acima dos concluídos
-        if (a.completedToday !== b.completedToday) {
-          return a.completedToday ? 1 : -1
-        }
+        try {
+          if (!a && !b) return 0
+          if (!a) return 1
+          if (!b) return -1
 
-        if (sortField === 'priority') {
-          return sortAsc
-            ? (a.priorityScore || 0) - (b.priorityScore || 0)
-            : (b.priorityScore || 0) - (a.priorityScore || 0)
+          // Itens não concluídos sempre acima dos concluídos
+          const aDone = Boolean(a.completedToday)
+          const bDone = Boolean(b.completedToday)
+          if (aDone !== bDone) {
+            return aDone ? 1 : -1
+          }
+
+          if (sortField === 'priority') {
+            const pA =
+              typeof a.priorityScore === 'number' && !isNaN(a.priorityScore) ? a.priorityScore : 0
+            const pB =
+              typeof b.priorityScore === 'number' && !isNaN(b.priorityScore) ? b.priorityScore : 0
+            return sortAsc ? pA - pB : pB - pA
+          }
+          if (sortField === 'name') {
+            const nA = String(a.name || '')
+            const nB = String(b.name || '')
+            return sortAsc ? nA.localeCompare(nB) : nB.localeCompare(nA)
+          }
+          if (sortField === 'lastContact') {
+            const getTimeSafe = (val: any) => {
+              if (val instanceof Date) return isNaN(val.getTime()) ? 0 : val.getTime()
+              const parsed = parseToDate(val)
+              return parsed && !isNaN(parsed.getTime()) ? parsed.getTime() : 0
+            }
+            const tA = getTimeSafe(a.lastContactAt)
+            const tB = getTimeSafe(b.lastContactAt)
+            return sortAsc ? tA - tB : tB - tA
+          }
+          return 0
+        } catch {
+          return 0
         }
-        if (sortField === 'name') {
-          return sortAsc
-            ? (a.name || '').localeCompare(b.name || '')
-            : (b.name || '').localeCompare(a.name || '')
-        }
-        if (sortField === 'lastContact') {
-          const tA = a.lastContactAt?.getTime() || 0
-          const tB = b.lastContactAt?.getTime() || 0
-          return sortAsc ? tA - tB : tB - tA
-        }
-        return 0
       })
   }, [
     queueItems,
@@ -634,7 +658,7 @@ export default function FilaDoDia() {
     sortAsc,
   ])
 
-  // Contadores para os Cards de Resumo
+  // Contadores para os Cards de Resumo com blindagem total
   const counts = useMemo(() => {
     let precisa = 0
     let alerta = 0
@@ -642,22 +666,30 @@ export default function FilaDoDia() {
     let aguardando = 0
     let concluidos = 0
 
-    for (const item of queueItems) {
-      if (item.completedToday) concluidos++
-      if (item.status === 'PRECISA_DE_MENSAGEM') precisa++
-      if (item.status === 'ALERTA') alerta++
-      if (item.status === 'EM_NEGOCIACAO') negociacao++
-      if (item.status === 'AGUARDANDO_RESPOSTA') aguardando++
+    if (Array.isArray(queueItems)) {
+      for (const item of queueItems) {
+        if (!item) continue
+        try {
+          if (item.completedToday) concluidos++
+          if (item.status === 'PRECISA_DE_MENSAGEM') precisa++
+          if (item.status === 'ALERTA') alerta++
+          if (item.status === 'EM_NEGOCIACAO') negociacao++
+          if (item.status === 'AGUARDANDO_RESPOSTA') aguardando++
+        } catch {
+          /* ignora item malformado */
+        }
+      }
     }
 
+    const total = Array.isArray(queueItems) ? queueItems.length : 0
     return {
-      total: queueItems.length,
+      total,
       precisa,
       alerta,
       negociacao,
       aguardando,
       concluidos,
-      pendentesHoje: queueItems.length - concluidos,
+      pendentesHoje: Math.max(0, total - concluidos),
     }
   }, [queueItems])
 
@@ -830,13 +862,18 @@ export default function FilaDoDia() {
                   Tentar de novo
                 </Button>
               </div>
-            ) : tasks.filter(
-                (t) =>
-                  t.category === 'plantao' ||
-                  t.title?.toLowerCase().includes('plantão') ||
-                  t.description?.toLowerCase().includes('plantão') ||
-                  t.description?.toLowerCase().includes('fim de semana'),
-              ).length === 0 ? (
+            ) : tasks.filter((t) => {
+                if (!t) return false
+                const cat = String(t.category || '').toLowerCase()
+                const tit = String(t.title || '').toLowerCase()
+                const desc = String(t.description || '').toLowerCase()
+                return (
+                  cat === 'plantao' ||
+                  tit.includes('plantão') ||
+                  desc.includes('plantão') ||
+                  desc.includes('fim de semana')
+                )
+              }).length === 0 ? (
               <p className="text-xs text-muted-foreground py-2 italic">
                 Nenhuma tarefa pendente marcada especificamente pelo Plantão no momento. Os
                 atendimentos normais da fila abaixo já cobrem todos os pacientes com mensagens
@@ -845,31 +882,44 @@ export default function FilaDoDia() {
             ) : (
               <div className="space-y-2">
                 {tasks
-                  .filter(
-                    (t) =>
-                      t.category === 'plantao' ||
-                      t.title?.toLowerCase().includes('plantão') ||
-                      t.description?.toLowerCase().includes('plantão') ||
-                      t.description?.toLowerCase().includes('fim de semana'),
-                  )
-                  .map((t) => (
-                    <div
-                      key={t.id}
-                      className="p-3 rounded-xl bg-white border border-indigo-200/80 flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div>
-                        <span className="font-semibold text-foreground">{t.title}</span>
-                        {t.description && (
-                          <p className="text-muted-foreground text-[11px] mt-0.5">
-                            {t.description}
-                          </p>
-                        )}
+                  .filter((t) => {
+                    if (!t) return false
+                    const cat = String(t.category || '').toLowerCase()
+                    const tit = String(t.title || '').toLowerCase()
+                    const desc = String(t.description || '').toLowerCase()
+                    return (
+                      cat === 'plantao' ||
+                      tit.includes('plantão') ||
+                      desc.includes('plantão') ||
+                      desc.includes('fim de semana')
+                    )
+                  })
+                  .map((t) => {
+                    if (!t || !t.id) return null
+                    return (
+                      <div
+                        key={t.id}
+                        className="p-3 rounded-xl bg-white border border-indigo-200/80 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div>
+                          <span className="font-semibold text-foreground">
+                            {t.title || 'Tarefa do Plantão'}
+                          </span>
+                          {t.description && (
+                            <p className="text-muted-foreground text-[11px] mt-0.5">
+                              {t.description}
+                            </p>
+                          )}
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] bg-indigo-50 text-indigo-700"
+                        >
+                          {t.status || 'aberta'}
+                        </Badge>
                       </div>
-                      <Badge variant="outline" className="text-[10px] bg-indigo-50 text-indigo-700">
-                        {t.status}
-                      </Badge>
-                    </div>
-                  ))}
+                    )
+                  })}
               </div>
             )}
           </CardContent>
@@ -1287,8 +1337,22 @@ export default function FilaDoDia() {
       ) : (
         <div className="space-y-2">
           {filteredItems.map((item) => {
+            if (!item || !item.id) return null
             const statusCfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.NAO_PRECISA
-            const isDone = item.completedToday
+            const isDone = Boolean(item.completedToday)
+
+            let formattedDateStr = 'Sem registro'
+            try {
+              const d =
+                item.lastContactAt instanceof Date
+                  ? item.lastContactAt
+                  : parseToDate(item.lastContactAt)
+              if (d && !isNaN(d.getTime())) {
+                formattedDateStr = `${formatBrazilianDate(d)} ${formatTimeSaoPaulo(d)}`
+              }
+            } catch {
+              formattedDateStr = 'Sem registro'
+            }
 
             return (
               <Card
@@ -1332,13 +1396,13 @@ export default function FilaDoDia() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Link
-                          to={`/crm?contact=${item.contactId}`}
+                          to={`/crm?contact=${encodeURIComponent(item.contactId || '')}`}
                           className={cn(
                             'font-semibold text-sm hover:underline hover:text-primary transition-colors truncate',
                             isDone && 'line-through text-muted-foreground',
                           )}
                         >
-                          {item.name}
+                          {item.name || 'Sem Nome'}
                         </Link>
 
                         {item.isPatient && (
@@ -1368,11 +1432,11 @@ export default function FilaDoDia() {
                         <span>·</span>
                         <span className="flex items-center gap-1">
                           <Building2 className="w-3 h-3 text-muted-foreground/70" />
-                          {item.unidade}
+                          {item.unidade || 'Carmo do Rio Claro'}
                         </span>
                         <span>·</span>
                         <span className="text-[11px] text-muted-foreground">
-                          Conta: <strong>{item.instanceName}</strong>
+                          Conta: <strong>{item.instanceName || 'Principal'}</strong>
                         </span>
                       </div>
                     </div>
@@ -1395,25 +1459,13 @@ export default function FilaDoDia() {
                       </Badge>
 
                       <Badge variant="secondary" className="text-[10px] py-0.5">
-                        {item.stageLabel}
+                        {item.stageLabel || item.stageKey || 'Lead'}
                       </Badge>
                     </div>
 
                     <div className="text-xs text-muted-foreground flex items-center gap-1.5">
                       <Clock className="w-3 h-3" />
-                      <span>
-                        Último contato:{' '}
-                        {item.lastContactAt && !isNaN(item.lastContactAt.getTime()) ? (
-                          <>
-                            {formatBrazilianDate(item.lastContactAt)}{' '}
-                            <span className="font-mono text-[11px]">
-                              {formatTimeSaoPaulo(item.lastContactAt)}
-                            </span>
-                          </>
-                        ) : (
-                          'Sem registro'
-                        )}
-                      </span>
+                      <span>Último contato: {formattedDateStr}</span>
                     </div>
                   </div>
 
@@ -1425,7 +1477,8 @@ export default function FilaDoDia() {
                         Próxima Ação Sugerida
                       </div>
                       <p className="text-muted-foreground line-clamp-2 leading-relaxed">
-                        {item.suggestedAction}
+                        {item.suggestedAction ||
+                          'Manter contato ativo conforme necessidade clínica.'}
                       </p>
                     </div>
                   </div>
@@ -1450,7 +1503,9 @@ export default function FilaDoDia() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => navigate(`/conversas?phone=${item.phone}`)}
+                      onClick={() =>
+                        navigate(`/conversas?phone=${encodeURIComponent(item.phone || '')}`)
+                      }
                       className="h-8 text-xs gap-1.5"
                     >
                       <MessageSquare className="w-3.5 h-3.5 text-primary" />
@@ -1460,7 +1515,9 @@ export default function FilaDoDia() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => navigate(`/crm?contact=${item.contactId}`)}
+                      onClick={() =>
+                        navigate(`/crm?contact=${encodeURIComponent(item.contactId || '')}`)
+                      }
                       className="h-8 w-8 p-0"
                       title="Ver ficha no CRM"
                     >

@@ -298,14 +298,37 @@ export function calculateRevendaItem(
     }
   }
 
-  // Gatilho: Alerta clínico ou cuidado especial
-  const careStatus = contact?.care_status
-  if (careStatus === 'precisa_atencao' || careStatus === 'alta_demanda') {
+  // Gatilho: Alerta clínico ou cuidado especial derivado do care_state unificado
+  // REGRA: Apenas "responder" gera alerta clínico. "atendido_a_fechar" nunca é alerta.
+  // "resolvida_auto" e "arquivada_baseline" não contam como pendências nem nas métricas de recuperação.
+  const careState = String(contact?.care_state || '')
+    .trim()
+    .toLowerCase()
+  const isAlertActive = contact?.alert_active === true || careState === 'responder'
+
+  if (careState === 'responder' || isAlertActive) {
     gatilhosScore += 3
-    triggerReasons.push('Alerta de cuidado clínico ativo')
-  } else if (careStatus === 'precisa_retorno') {
+    const reasonText =
+      contact?.care_state_reason || 'Mensagem do paciente aguardando resposta da clínica'
+    triggerReasons.push(reasonText)
+  } else if (careState === 'retorno_a_oferecer') {
     gatilhosScore += 3
-    triggerReasons.push('Paciente precisa de retorno programado')
+    triggerReasons.push('Paciente com janela para retorno/consulta')
+  } else if (careState === 'confirmacao_enviada') {
+    gatilhosScore += 2
+    triggerReasons.push('Confirmação de consulta enviada')
+  } else if (careState === 'atendido_a_fechar') {
+    // "atendido_a_fechar" NUNCA é alerta — apenas fechamento na recepção
+    gatilhosScore += 1
+  } else if (careState === 'resolvida_auto' || careState === 'arquivada_baseline') {
+    // Sem gatilho para estados neutros/arquivados
+  } else {
+    // Fallback retrocompatível seguro para bases legadas
+    const legacyCareStatus = String(contact?.care_status || '')
+    if (legacyCareStatus === 'precisa_retorno') {
+      gatilhosScore += 2
+      triggerReasons.push('Paciente com retorno indicado')
+    }
   }
 
   // Gatilho: Inatividade prolongada de paciente (retorno de rotina ~30-45 dias)

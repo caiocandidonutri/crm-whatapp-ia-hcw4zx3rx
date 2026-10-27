@@ -181,12 +181,19 @@ export default function Revenda() {
   }, [tasks])
 
   // Processamento e Score de todos os contatos com blindagem total contra exceções
+  // REGRA: "resolvida_auto" e "arquivada_baseline" não contam nas métricas de recuperação
   const revendaItems: RevendaContactItem[] = useMemo(() => {
     if (!Array.isArray(contacts)) return []
 
-    const validContacts = contacts.filter((c): c is CrmContact =>
-      Boolean(c && typeof c === 'object' && c.id),
-    )
+    const validContacts = contacts.filter((c): c is CrmContact => {
+      if (!c || typeof c !== 'object' || !c.id) return false
+      const cs = String(c.care_state || '')
+        .trim()
+        .toLowerCase()
+      // "resolvida_auto" e "arquivada_baseline" não contam como pendências nem na recuperação
+      if (cs === 'resolvida_auto' || cs === 'arquivada_baseline') return false
+      return true
+    })
 
     const items: RevendaContactItem[] = []
     for (const c of validContacts) {

@@ -670,7 +670,9 @@ function HomeContent() {
     }
   }, [funnelStages])
 
-  // Total de pendências de cuidado (blindagem profunda com fallback seguro)
+  // Total de pendências de cuidado baseadas no care_state único (com blindagem defensiva)
+  // REGRA: Apenas "responder" gera alerta. "atendido_a_fechar" nunca é alerta.
+  // "resolvida_auto" e "arquivada_baseline" não contam como pendências.
   const careCategoryCounts = useMemo(() => {
     const raw = metrics?.careTasksByCategory
     const safeObj: Record<string, number> = {
@@ -681,11 +683,15 @@ function HomeContent() {
       alta_demanda: 0,
       followup_10_15: 0,
     }
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      for (const k of Object.keys(safeObj)) {
-        const val = (raw as Record<string, any>)[k]
-        safeObj[k] = typeof val === 'number' && !isNaN(val) ? val : 0
+    try {
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        for (const k of Object.keys(safeObj)) {
+          const val = (raw as Record<string, any>)[k]
+          safeObj[k] = typeof val === 'number' && !isNaN(val) ? val : 0
+        }
       }
+    } catch {
+      /* ignora erro de contagem */
     }
     return safeObj
   }, [metrics?.careTasksByCategory])
