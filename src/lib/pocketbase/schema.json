@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-27T02:19:15.572Z",
+  "generatedAt": "2026-10-27T02:43:36.951Z",
   "collections": [
     {
       "name": "users",
@@ -3081,6 +3081,68 @@
         "CREATE INDEX idx_queue_status_retry ON whatsapp_send_queue (status, next_retry_at)",
         "CREATE INDEX idx_queue_message_id ON whatsapp_send_queue (message_id)",
         "CREATE INDEX idx_queue_account ON whatsapp_send_queue (account_id)"
+      ]
+    },
+    {
+      "name": "ops_access_log",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "route",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "patient_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ip",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_code",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "query_params",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ops_access_log_created ON ops_access_log (created DESC)",
+        "CREATE INDEX idx_ops_access_log_route ON ops_access_log (route)",
+        "CREATE INDEX idx_ops_access_log_code ON ops_access_log (patient_code)"
       ]
     }
   ]

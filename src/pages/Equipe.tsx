@@ -41,6 +41,11 @@ import {
   EyeOff,
   Copy,
   Check,
+  ShieldCheck,
+  Search,
+  Phone,
+  MessageSquare,
+  Activity,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
 import { useNavigate } from 'react-router-dom'
@@ -66,6 +71,57 @@ export default function Equipe() {
   const [successOpen, setSuccessOpen] = useState(false)
   const [createdCreds, setCreatedCreds] = useState({ name: '', email: '', password: '' })
   const [copiedField, setCopiedField] = useState<string | null>(null)
+
+  // Sub-aba e estados para Auditoria OPS e Busca de Código P-xxxx
+  const [opsAuditLogs, setOpsAuditLogs] = useState<any[]>([])
+  const [loadingAudit, setLoadingAudit] = useState(false)
+  const [lookupCode, setLookupCode] = useState('')
+  const [lookupResult, setLookupResult] = useState<any | null>(null)
+  const [lookupLoading, setLookupLoading] = useState(false)
+  const [lookupError, setLookupError] = useState<string | null>(null)
+
+  const loadAuditLogs = async () => {
+    setLoadingAudit(true)
+    try {
+      const records = await pb.collection('ops_access_log').getList(1, 50, {
+        sort: '-created',
+        requestKey: null,
+      })
+      setOpsAuditLogs(records.items)
+    } catch (err) {
+      console.warn('Erro ao carregar auditoria ops:', err)
+    } finally {
+      setLoadingAudit(false)
+    }
+  }
+
+  const handleLookupPatient = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!lookupCode.trim()) return
+    setLookupLoading(true)
+    setLookupError(null)
+    setLookupResult(null)
+    try {
+      const clean = lookupCode.trim().toUpperCase()
+      const res = await pb.send<{ schema: string; contact: any }>(
+        `/backend/v1/ops/lookup/${clean}`,
+        {
+          method: 'GET',
+        },
+      )
+      setLookupResult(res.contact)
+    } catch (err: any) {
+      setLookupError('Código não encontrado ou sem contato correspondente.')
+    } finally {
+      setLookupLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (role === 'owner') {
+      loadAuditLogs()
+    }
+  }, [role])
 
   // Confirmação de remoção de membro
   const [memberToRemove, setMemberToRemove] = useState<string | null>(null)
@@ -264,6 +320,169 @@ export default function Equipe() {
             )}
           </div>
         </div>
+
+        {/* Bloco Admin: Identificação Interna de Código P-xxxx e Log de Auditoria OPS */}
+        {role === 'owner' && (
+          <div className="space-y-6">
+            {/* 1. Busca interna de código pseudônimo */}
+            <div className="bg-card rounded-xl border shadow-sm overflow-hidden">
+              <div className="p-4 border-b bg-muted/20 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Search className="w-5 h-5 text-primary" />
+                  <h3 className="font-medium">Identificar Código do Paciente (P-xxxx)</h3>
+                </div>
+                <span className="text-xs bg-primary/10 text-primary px-2.5 py-0.5 rounded-full font-medium">
+                  Acesso Restrito ao Admin
+                </span>
+              </div>
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Permite ao Dr. Caio e à Fabiana consultar o código pseudonimizado (ex:{' '}
+                  <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">P-XXXX</code>) e
+                  descobrir qual contato real do CRM está associado, sem expor dados para fora da
+                  clínica.
+                </p>
+                <form onSubmit={handleLookupPatient} className="flex gap-2 max-w-md">
+                  <Input
+                    placeholder="Ex: P-9A4B"
+                    value={lookupCode}
+                    onChange={(e) => setLookupCode(e.target.value)}
+                    className="font-mono uppercase tracking-wider"
+                  />
+                  <Button type="submit" disabled={lookupLoading}>
+                    {lookupLoading ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Search className="w-4 h-4 mr-2" />
+                    )}
+                    Pesquisar
+                  </Button>
+                </form>
+
+                {lookupError && (
+                  <div className="p-3 bg-destructive/10 border border-destructive/20 text-destructive text-sm rounded-lg">
+                    {lookupError}
+                  </div>
+                )}
+
+                {lookupResult && (
+                  <div className="p-4 bg-muted/40 border rounded-lg space-y-2 mt-4 animate-fade-in-up">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold text-foreground flex items-center gap-2">
+                        {lookupResult.contact_name}
+                        {lookupResult.is_patient && (
+                          <span className="text-xs bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded">
+                            Paciente Ativo
+                          </span>
+                        )}
+                      </h4>
+                      <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded border">
+                        {lookupResult.patient_code}
+                      </span>
+                    </div>
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <p className="flex items-center gap-2">
+                        <Phone className="w-4 h-4 text-muted-foreground" />
+                        <span>Telefone: {lookupResult.phone || '—'}</span>
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <MessageSquare className="w-4 h-4 text-muted-foreground" />
+                        <span>JID: {lookupResult.jid || '—'}</span>
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-muted-foreground" />
+                        <span>
+                          Estágio no Funil:{' '}
+                          <span className="capitalize font-medium text-foreground">
+                            {lookupResult.stage || 'lead'}
+                          </span>
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Log de Auditoria da API OPS (ops_access_log) */}
+            <div className="bg-card rounded-xl border shadow-sm overflow-hidden">
+              <div className="p-4 border-b bg-muted/20 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                  <h3 className="font-medium">
+                    Auditoria de Acesso à API de Acompanhamento (ops-v1)
+                  </h3>
+                </div>
+                <Button variant="outline" size="sm" onClick={loadAuditLogs} disabled={loadingAudit}>
+                  {loadingAudit ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  Atualizar
+                </Button>
+              </div>
+              <div className="p-0">
+                {opsAuditLogs.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">
+                    Nenhum acesso registrado até o momento.
+                  </div>
+                ) : (
+                  <div className="divide-y overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-muted/40 text-xs text-muted-foreground uppercase">
+                        <tr>
+                          <th className="px-4 py-3">Horário</th>
+                          <th className="px-4 py-3">Rota</th>
+                          <th className="px-4 py-3">Paciente / Código</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3">IP</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {opsAuditLogs.map((log) => (
+                          <tr key={log.id} className="hover:bg-muted/20 transition-colors">
+                            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                              {new Date(log.created).toLocaleString('pt-BR')}
+                            </td>
+                            <td className="px-4 py-3 font-mono text-xs font-medium">{log.route}</td>
+                            <td className="px-4 py-3 font-mono text-xs">
+                              {log.patient_code ? (
+                                <span className="bg-muted px-1.5 py-0.5 rounded border">
+                                  {log.patient_code}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                  log.status_code === 200
+                                    ? 'bg-emerald-500/10 text-emerald-600'
+                                    : log.status_code === 401
+                                      ? 'bg-rose-500/10 text-rose-600'
+                                      : log.status_code === 429
+                                        ? 'bg-amber-500/10 text-amber-600'
+                                        : 'bg-muted text-muted-foreground'
+                                }`}
+                              >
+                                {log.status_code || 200}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground font-mono">
+                              {log.ip || '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Confirmação: remover membro */}

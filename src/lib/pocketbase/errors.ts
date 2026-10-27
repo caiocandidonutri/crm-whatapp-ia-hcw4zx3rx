@@ -31,51 +31,43 @@ export function getErrorMessage(error: unknown): string {
 export function isNetworkError(error: unknown): boolean {
   if (!error) return false
   if (error instanceof ClientResponseError) {
-    return error.status === 0
+    if (error.status === 0) return true
   }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    return (
-      msg.includes('failed to fetch') ||
-      msg.includes('networkerror') ||
-      msg.includes('aborterror') ||
-      msg.includes('signal is aborted') ||
-      msg.includes('timeout')
-    )
+  const err = error as any
+  if (err.status === 0) return true
+  const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  if (
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network request failed') ||
+    msg.includes('aborterror') ||
+    msg.includes('signal is aborted') ||
+    msg.includes('connection refused')
+  ) {
+    return true
   }
   return false
 }
 
 export function isRateLimitError(error: unknown): boolean {
   if (!error) return false
-  if (typeof error === 'object' && error !== null) {
-    const status = (error as { status?: number }).status
-    if (status === 429) return true
-  }
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase()
-    return msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit')
-  }
-  return false
+  const err = error as any
+  if (err.status === 429) return true
+  const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit')
 }
 
-export function parseRetryAfterMs(error: unknown, defaultMs = 1200): number {
-  if (!error || typeof error !== 'object') return defaultMs
-  try {
-    const headers = (error as any)?.response?.headers
-    const headerVal =
-      headers?.['retry-after'] ||
-      headers?.['Retry-After'] ||
-      (typeof headers?.get === 'function' ? headers.get('retry-after') : null)
-    if (headerVal) {
-      const parsedSeconds = parseFloat(headerVal)
-      if (!isNaN(parsedSeconds) && parsedSeconds > 0) {
-        const ms = parsedSeconds * 1000
-        return Math.min(Math.max(ms, 500), 30000)
-      }
+export function parseRetryAfterMs(error: unknown, fallbackMs = 2000): number {
+  if (!error) return fallbackMs
+  const err = error as any
+  const headers = err?.response?.headers || err?.headers
+  const rawHeader = headers?.['retry-after'] || headers?.get?.('retry-after')
+  if (rawHeader) {
+    const parsedSec = parseFloat(rawHeader)
+    if (!isNaN(parsedSec) && parsedSec > 0) {
+      const ms = parsedSec * 1000
+      return Math.max(500, Math.min(30000, Math.round(ms)))
     }
-  } catch {
-    // fallback
   }
-  return defaultMs
+  return fallbackMs
 }
