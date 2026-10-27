@@ -165,17 +165,30 @@ export const sincronizarConversa = async (
  * do user logado (SQL direto). Usado quando detectamos convs sem o
  * timestamp real do Baileys populado.
  */
-export const fazerBackfillTimestamps = async () => {
-  return pb.send<{
-    success: boolean
-    updated: number
-    pending_before: number
-    pending_after: number
-  }>('/backend/v1/whatsapp/backfill-timestamps', {
-    method: 'POST',
-    body: JSON.stringify({}),
-    headers: { 'Content-Type': 'application/json' },
-  })
+export const fazerBackfillTimestamps = async (): Promise<{
+  success: boolean
+  updated: number
+  pending_before: number
+  pending_after: number
+} | null> => {
+  try {
+    return await pb.send<{
+      success: boolean
+      updated: number
+      pending_before: number
+      pending_after: number
+    }>('/backend/v1/whatsapp/backfill-timestamps', {
+      method: 'POST',
+      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' },
+    })
+  } catch (err) {
+    console.warn(
+      '[whatsapp_service] falha ao fazer backfill de timestamps (ignorado com segurança):',
+      err,
+    )
+    return null
+  }
 }
 
 /**

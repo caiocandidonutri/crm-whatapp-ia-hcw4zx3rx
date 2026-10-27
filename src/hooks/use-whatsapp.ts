@@ -208,6 +208,8 @@ export function useConversas(
   const [currentPage, setCurrentPage] = useState(1)
   const [error, setError] = useState<string | null>(null)
   const backfillTriedRef = useRef(false)
+  const backfillRetryCountRef = useRef(0)
+  const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const load = useCallback(async () => {
@@ -273,17 +275,34 @@ export function useConversas(
         (r) => !r.last_message_timestamp || r.last_message_timestamp === 0,
       ).length
 
-      // Auto-backfill: 1x por sessão, e SÓ fora de import. Em erro, não
-      // retentamos — o cron `backfill_conv_timestamps` do PocketBase resolve
-      // sem precisar do front.
+      // Auto-backfill: disparado sob demanda com segurança no mount/load quando há
+      // conversas sem timestamp. Protegido contra tempestades de requisições:
+      // máximo 1 retry com backoff (1500ms), try/catch de segurança e nunca propaga exceção.
       if (missingTs > 0 && !backfillTriedRef.current && !isImporting) {
         backfillTriedRef.current = true
-        fazerBackfillTimestamps()
-          .then(() => {
-            // Não dispara load() automaticamente — realtime já vai entregar
-            // os updates via applyConversationEvent.
-          })
-          .catch(() => {})
+
+        const triggerBackfillSafe = async () => {
+          try {
+            const res = await fazerBackfillTimestamps()
+            // Se o retorno for nulo (falha) e ainda não tentamos nenhum retry,
+            // agenda NO MÁXIMO 1 retry com backoff para resiliência transitória de rede.
+            if (!res && backfillRetryCountRef.current < 1) {
+              backfillRetryCountRef.current += 1
+              if (backfillTimeoutRef.current) clearTimeout(backfillTimeoutRef.current)
+              backfillTimeoutRef.current = setTimeout(async () => {
+                try {
+                  await fazerBackfillTimestamps()
+                } catch (retryErr) {
+                  console.warn('[useConversas] retry de backfill ignorado:', retryErr)
+                }
+              }, 1500)
+            }
+          } catch (err) {
+            console.warn('[useConversas] erro inesperado capturado ao acionar backfill:', err)
+          }
+        }
+
+        void triggerBackfillSafe()
       }
 
       setLoadingMore(false)
@@ -339,6 +358,11 @@ export function useConversas(
 
   const reload = useCallback(() => {
     backfillTriedRef.current = false
+    backfillRetryCountRef.current = 0
+    if (backfillTimeoutRef.current) {
+      clearTimeout(backfillTimeoutRef.current)
+      backfillTimeoutRef.current = null
+    }
     return load()
   }, [load])
 
@@ -349,6 +373,13 @@ export function useConversas(
 
   useEffect(() => {
     backfillTriedRef.current = false
+    backfillRetryCountRef.current = 0
+    return () => {
+      if (backfillTimeoutRef.current) {
+        clearTimeout(backfillTimeoutRef.current)
+        backfillTimeoutRef.current = null
+      }
+    }
   }, [user?.id, accountId, instanceName, showArchived])
 
   // Realtime entrega o record completo no evento. Coalesce adaptativo:
