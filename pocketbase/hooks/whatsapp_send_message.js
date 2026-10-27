@@ -187,6 +187,9 @@ routerAdd(
     msgRecord.set('message_type', 'conversation')
     msgRecord.set('status', 'pending')
     msgRecord.set('timestamp', Math.floor(Date.now() / 1000))
+    if (msgCol.fields.getByName('origin')) {
+      msgRecord.set('origin', 'humano_crm')
+    }
 
     const parsedRes = res.json || {}
     if (parsedRes.key?.id) {

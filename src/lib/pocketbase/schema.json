@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-27T17:32:32.027Z",
+  "generatedAt": "2026-10-27T17:52:08.052Z",
   "collections": [
     {
       "name": "users",
@@ -591,6 +591,13 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "origin",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["humano_celular", "humano_crm", "ia", "automacao", "desconhecido"]
         }
       ],
       "indexes": [
@@ -888,6 +895,36 @@
           "type": "bool",
           "required": false,
           "system": false
+        },
+        {
+          "name": "care_state",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "care_state_reason",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_human_contact_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_reconciled_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "alert_active",
+          "type": "bool",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -1086,7 +1123,8 @@
             "em_andamento",
             "concluida",
             "cancelada",
-            "arquivada_baseline"
+            "arquivada_baseline",
+            "resolvida_auto"
           ]
         },
         {
@@ -1664,6 +1702,18 @@
         {
           "name": "plantao_fim_de_semana",
           "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "authorized_senders",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "alert_drift_fixes",
+          "type": "number",
           "required": false,
           "system": false
         }

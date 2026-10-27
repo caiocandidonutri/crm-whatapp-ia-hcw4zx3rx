@@ -362,6 +362,25 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       }
     }
 
+    // Carrega remetentes autorizados de care_alert_settings para identificar humano_celular
+    let authorizedSendersList = []
+    try {
+      const sRec = accountId
+        ? $app.findFirstRecordByFilter('care_alert_settings', 'account_id = {:aid}', {
+            aid: accountId,
+          })
+        : $app.findFirstRecordByFilter('care_alert_settings', '')
+      if (sRec) {
+        const rawAuth = sRec.getString('authorized_senders') || ''
+        if (rawAuth) {
+          authorizedSendersList = rawAuth
+            .split(',')
+            .map((s) => s.trim().toLowerCase())
+            .filter(Boolean)
+        }
+      }
+    } catch (_) {}
+
     const processMessage = (msg) => {
       if (!msg || !msg.key || !msg.message) return
 
@@ -582,6 +601,39 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         }
       }
 
+      // Determinar origin da mensagem
+      // humano_celular | humano_crm | ia | automacao | desconhecido
+      let detectedOrigin = 'desconhecido'
+      if (fromMe) {
+        const isAiMarked =
+          pendingAiResponse ||
+          pushName.indexOf('Assistente') !== -1 ||
+          pushName.indexOf('IA') !== -1 ||
+          content.indexOf('[IA]') !== -1
+        if (isAiMarked) {
+          detectedOrigin = 'ia'
+        } else {
+          // Checa se o remetente participante ou da mensagem bate com authorizedSendersList
+          const pJidNorm = (participantJid || '').toLowerCase()
+          const pDigits = pJidNorm.split('@')[0].replace(/\D/g, '')
+          const isSenderAuthorized = authorizedSendersList.some((auth) => {
+            const cleanAuth = auth.replace(/\D/g, '')
+            return (
+              pJidNorm === auth ||
+              pJidNorm.indexOf(auth) !== -1 ||
+              (cleanAuth && pDigits && pDigits.endsWith(cleanAuth))
+            )
+          })
+          if (isSenderAuthorized || authorizedSendersList.length === 0) {
+            detectedOrigin = 'humano_celular'
+          } else {
+            detectedOrigin = 'humano_celular'
+          }
+        }
+      } else {
+        detectedOrigin = 'desconhecido'
+      }
+
       const msgCol = $app.findCollectionByNameOrId('whatsapp_messages')
       const newMsg = new Record(msgCol)
       newMsg.set('user_id', userId)
@@ -598,6 +650,9 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       newMsg.set('message_type', msgType)
       newMsg.set('status', fromMe ? 'pending' : 'received')
       newMsg.set('timestamp', normalizedTs > 0 ? normalizedTs : currentTs)
+      if (msgCol.fields.getByName('origin')) {
+        newMsg.set('origin', detectedOrigin)
+      }
 
       if (msgCol.fields.getByName('participant_jid')) {
         newMsg.set('participant_jid', participantJid)
