@@ -760,7 +760,7 @@ export default function CRM() {
                           <div
                             className={cn(
                               'w-2 h-2 rounded-full mr-2 shrink-0',
-                              CATEGORY_COLOR_MAP[cat.color],
+                              cat.color ? CATEGORY_COLOR_MAP[cat.color] : 'bg-slate-400',
                             )}
                           />
                           <span className="flex-1 truncate">{cat.name}</span>
@@ -880,7 +880,10 @@ export default function CRM() {
                     className="rounded-md font-normal pr-1.5 bg-white border border-border/40 text-foreground flex items-center gap-1.5 h-7"
                   >
                     <div
-                      className={cn('w-2 h-2 rounded-full shrink-0', CATEGORY_COLOR_MAP[cat.color])}
+                      className={cn(
+                        'w-2 h-2 rounded-full shrink-0',
+                        cat.color ? CATEGORY_COLOR_MAP[cat.color] : 'bg-slate-400',
+                      )}
                     />
                     <span className="truncate max-w-[150px]">{cat.name}</span>
                     <button
@@ -1001,7 +1004,7 @@ export default function CRM() {
               {filteredContacts.map((contact) => {
                 const st = stageByKey.get(contact.stage)
                 const stLabel = st?.label || contact.stage
-                const stBadge = stageStyle(st?.color).badge
+                const stBadge = stageStyle(st?.color || 'slate').badge
 
                 return (
                   <div
@@ -1080,7 +1083,7 @@ export default function CRM() {
                                     variant="secondary"
                                     className={cn(
                                       'text-[10px] px-1.5 py-0 border-0 text-white font-medium leading-tight h-4',
-                                      CATEGORY_COLOR_MAP[cat.color],
+                                      cat.color ? CATEGORY_COLOR_MAP[cat.color] : undefined,
                                     )}
                                   >
                                     {cat.name}
@@ -1225,7 +1228,7 @@ export default function CRM() {
                                 <span
                                   className={cn(
                                     'w-2 h-2 rounded-full mr-2',
-                                    stageStyle(s.color).dot,
+                                    stageStyle(s.color || 'slate').dot,
                                   )}
                                 />
                                 {s.label}
