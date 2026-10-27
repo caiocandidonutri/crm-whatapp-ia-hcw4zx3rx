@@ -33,16 +33,17 @@ export function isNetworkError(error: unknown): boolean {
   if (error instanceof ClientResponseError) {
     if (error.status === 0) return true
   }
-  const err = error as any
+  const err = error as { status?: number; name?: string; message?: string }
   if (err.status === 0) return true
-  const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  const msg = (err.message || '').toLowerCase()
+  const name = (err.name || '').toLowerCase()
   if (
+    msg.includes('network') ||
     msg.includes('failed to fetch') ||
-    msg.includes('networkerror') ||
-    msg.includes('network request failed') ||
+    msg.includes('load failed') ||
     msg.includes('aborterror') ||
     msg.includes('signal is aborted') ||
-    msg.includes('connection refused')
+    name === 'aborterror'
   ) {
     return true
   }
@@ -51,23 +52,22 @@ export function isNetworkError(error: unknown): boolean {
 
 export function isRateLimitError(error: unknown): boolean {
   if (!error) return false
-  const err = error as any
+  const err = error as { status?: number; message?: string }
   if (err.status === 429) return true
-  const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
-  return msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit')
+  const msg = (err.message || '').toLowerCase()
+  return msg.includes('429') || msg.includes('too many requests')
 }
 
-export function parseRetryAfterMs(error: unknown, fallbackMs = 2000): number {
-  if (!error) return fallbackMs
-  const err = error as any
-  const headers = err?.response?.headers || err?.headers
-  const rawHeader = headers?.['retry-after'] || headers?.get?.('retry-after')
-  if (rawHeader) {
-    const parsedSec = parseFloat(rawHeader)
-    if (!isNaN(parsedSec) && parsedSec > 0) {
-      const ms = parsedSec * 1000
-      return Math.max(500, Math.min(30000, Math.round(ms)))
-    }
-  }
-  return fallbackMs
+export function parseRetryAfterMs(error: unknown, fallbackMs = 1500): number {
+  if (!error || typeof error !== 'object') return fallbackMs
+  const err = error as { response?: { headers?: Record<string, string> } }
+  const headers = err.response?.headers
+  if (!headers) return fallbackMs
+  const raw =
+    headers['retry-after'] || headers['Retry-After'] || (headers as any).get?.('retry-after')
+  if (!raw) return fallbackMs
+  const seconds = parseFloat(raw)
+  if (Number.isNaN(seconds) || seconds <= 0) return fallbackMs
+  const ms = Math.round(seconds * 1000)
+  return Math.min(Math.max(ms, 500), 30000)
 }

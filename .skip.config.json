@@ -23,9 +23,7 @@
     "tsconfig.json",
     "tsconfig.node.json",
     "vite.config.ts",
-    "vite-plugin-react-uid.js",
-    "src/lib/pocketbase/errors.ts",
-    "src/lib/pocketbase/resilient.ts"
+    "vite-plugin-react-uid.js"
   ],
   "excludeFromContext": [
     "src/components/ui/**/*",
@@ -34,9 +32,9 @@
     "README.md"
   ],
   "deployment": {
-    "lastDevBuildRef": "f1341b9",
-    "lastProdBuildRef": "2e0a687",
-    "publishedAt": "2026-10-27T02:39:12.400Z",
-    "lastPublishedRef": "b2c9175"
+    "lastDevBuildRef": "41efe45",
+    "lastProdBuildRef": "44548a5",
+    "publishedAt": "2026-10-27T03:10:17.273Z",
+    "lastPublishedRef": "f1341b9"
   }
 }
