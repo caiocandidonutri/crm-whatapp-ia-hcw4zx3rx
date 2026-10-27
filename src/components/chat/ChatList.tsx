@@ -48,6 +48,7 @@ import {
 import { useCategories } from '@/hooks/use-categories'
 import { useCurrentAccount } from '@/hooks/use-current-account'
 import { CATEGORY_COLOR_MAP } from '@/lib/colors'
+import { CategoryColor } from '@/types/models'
 
 type ChatListProps = {
   chats: Chat[]
@@ -111,6 +112,10 @@ const ChatRow = React.memo(function ChatRow({
   const lastMsg = chat.messages?.[(chat.messages?.length || 0) - 1] ?? null
   const unreadCount = chat.unread || 0
   const hasAvatar = !!chat.avatar
+  const chatDisplayName = chat?.name || formatPhoneBR(chat?.remote_jid ?? '') || 'Contato'
+  const fallbackInitial = chatDisplayName
+    ? chatDisplayName.trim().charAt(0)?.toUpperCase() || '?'
+    : '?'
 
   return (
     <div
@@ -131,15 +136,13 @@ const ChatRow = React.memo(function ChatRow({
 
       <Avatar className="h-12 w-12 border border-border shrink-0">
         {hasAvatar ? <AvatarImage src={chat.avatar} /> : null}
-        <AvatarFallback>{chat.name?.charAt(0)?.toUpperCase() || '?'}</AvatarFallback>
+        <AvatarFallback>{fallbackInitial}</AvatarFallback>
       </Avatar>
 
       <div className="flex-1 min-w-0 flex flex-col justify-center">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2 truncate">
-            <span className="font-semibold text-primary truncate">
-              {chat.name || formatPhoneBR(chat.remote_jid) || 'Contato WhatsApp'}
-            </span>
+            <span className="font-semibold text-primary truncate">{chatDisplayName}</span>
             {chat.type === 'group' && (
               <Badge
                 variant="secondary"
@@ -633,12 +636,22 @@ export function ChatList({
                 className={cn(
                   'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap shrink-0 border',
                   selectedCategory === cat.id
-                    ? cn('border-transparent text-white shadow-sm', CATEGORY_COLOR_MAP[cat.color])
+                    ? cn(
+                        'border-transparent text-white shadow-sm',
+                        (cat.color && CATEGORY_COLOR_MAP[cat.color as CategoryColor]) ||
+                          'bg-slate-500',
+                      )
                     : 'bg-white border-border text-foreground hover:bg-black/5',
                 )}
               >
                 {!selectedCategory || selectedCategory !== cat.id ? (
-                  <div className={cn('w-1.5 h-1.5 rounded-full', CATEGORY_COLOR_MAP[cat.color])} />
+                  <div
+                    className={cn(
+                      'w-1.5 h-1.5 rounded-full',
+                      (cat.color && CATEGORY_COLOR_MAP[cat.color as CategoryColor]) ||
+                        'bg-slate-500',
+                    )}
+                  />
                 ) : null}
                 {cat.name}
               </button>
@@ -699,7 +712,11 @@ export function ChatList({
                 onSelectChat={onSelectChat}
                 onMarkAsRead={handleMarkAsRead}
                 onFinalizeChat={handleFinalizeChat}
-                messagePreview={messageMatchPreviews?.get(chat.remote_jid || '')}
+                messagePreview={
+                  chat?.remote_jid && messageMatchPreviews
+                    ? messageMatchPreviews.get(chat.remote_jid)
+                    : undefined
+                }
               />
             ))}
           </div>
