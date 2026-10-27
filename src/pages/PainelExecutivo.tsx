@@ -28,18 +28,22 @@ import {
 
 export function PainelExecutivo() {
   const navigate = useNavigate()
-  const { currentAccount } = useCurrentAccount()
+  const { currentAccount, loading: accountLoading } = useCurrentAccount()
   const accountId = currentAccount?.id || ''
 
   const [loading, setLoading] = useState(true)
   const [metrics, setMetrics] = useState<ExecutiveMetrics>(DEFAULT_EXECUTIVE_METRICS)
 
   const loadData = useCallback(async () => {
-    if (!accountId) return
+    if (!accountId) {
+      // Se não há conta ou ainda está carregando a conta, mantemos estado seguro
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
       const data = await fetchExecutiveMetrics(accountId)
-      setMetrics(data)
+      setMetrics(data || DEFAULT_EXECUTIVE_METRICS)
     } catch (err) {
       if (!isNetworkError(err)) {
         console.warn('[PainelExecutivo] Erro silencioso ao carregar métricas:', err)
@@ -51,11 +55,15 @@ export function PainelExecutivo() {
   }, [accountId])
 
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    if (!accountLoading) {
+      loadData()
+    }
+  }, [loadData, accountLoading])
 
-  const renderValue = (val: number | null, suffix = '') => {
-    if (loading) return '—'
+  const safeMetrics = metrics || DEFAULT_EXECUTIVE_METRICS
+
+  const renderValue = (val: number | null | undefined, suffix = '') => {
+    if (loading || accountLoading) return '—'
     if (val === null || val === undefined || isNaN(val)) return '—'
     return `${val}${suffix}`
   }
@@ -122,10 +130,10 @@ export function PainelExecutivo() {
           </CardHeader>
           <CardContent className="p-4 pt-1">
             <div className="text-2xl font-bold font-serif text-foreground">
-              {renderValue(metrics.noShowPercent, '%')}
+              {renderValue(safeMetrics.noShowPercent, '%')}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {metrics.totalFaltas} falta(s) em {metrics.totalConsultasAvaliadas} consulta(s)
+              {safeMetrics.totalFaltas ?? 0} falta(s) em {safeMetrics.totalConsultasAvaliadas ?? 0} consulta(s)
             </p>
             <div className="pt-2 flex items-center text-[11px] font-medium text-primary gap-1 group-hover:translate-x-0.5 transition-transform">
               <span>Abrir Agenda</span>
@@ -149,10 +157,10 @@ export function PainelExecutivo() {
           </CardHeader>
           <CardContent className="p-4 pt-1">
             <div className="text-2xl font-bold font-serif text-foreground">
-              {renderValue(metrics.leadConversionRate, '%')}
+              {renderValue(safeMetrics.leadConversionRate, '%')}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {metrics.totalConvertidos} convertido(s) de {metrics.totalLeads} contatos
+              {safeMetrics.totalConvertidos ?? 0} convertido(s) de {safeMetrics.totalLeads ?? 0} contatos
             </p>
             <div className="pt-2 flex items-center text-[11px] font-medium text-primary gap-1 group-hover:translate-x-0.5 transition-transform">
               <span>Abrir CRM</span>
@@ -176,7 +184,7 @@ export function PainelExecutivo() {
           </CardHeader>
           <CardContent className="p-4 pt-1">
             <div className="text-2xl font-bold font-serif text-foreground">
-              {renderValue(metrics.retornos30a45DiasQtd)}
+              {renderValue(safeMetrics.retornos30a45DiasQtd)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Pacientes na janela ideal de recall e retorno
@@ -203,7 +211,7 @@ export function PainelExecutivo() {
           </CardHeader>
           <CardContent className="p-4 pt-1">
             <div className="text-2xl font-bold font-serif text-foreground">
-              {renderValue(metrics.clubeAtivoQtd)}
+              {renderValue(safeMetrics.clubeAtivoQtd)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Assinantes e membros ativos no Clube
@@ -228,7 +236,7 @@ export function PainelExecutivo() {
                     <HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-pointer" />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs text-xs">
-                    {metrics.iaAcceptanceTooltip}
+                    {safeMetrics.iaAcceptanceTooltip || DEFAULT_EXECUTIVE_METRICS.iaAcceptanceTooltip}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -239,7 +247,7 @@ export function PainelExecutivo() {
           </CardHeader>
           <CardContent className="p-4 pt-1">
             <div className="text-2xl font-bold font-serif text-foreground">
-              {renderValue(metrics.iaAcceptanceRate, '%')}
+              {renderValue(safeMetrics.iaAcceptanceRate, '%')}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Rascunhos aceitos da voz da secretária
