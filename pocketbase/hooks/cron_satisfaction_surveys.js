@@ -174,6 +174,14 @@ cronAdd('cron_satisfaction_surveys', '41 14 * * *', () => {
               outMsgId = sendRes.json && sendRes.json.key && sendRes.json.key.id
             } catch (_) {}
 
+            // Gravação local imediata em outbox_marks antes do webhook chegar
+            try {
+              var outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+              outboxMarksHelper.recordOutboxMark($app, outMsgId, 'automacao')
+            } catch (markErr) {
+              $app.logger().warn('cron_survey: outbox mark error', 'err', String(markErr))
+            }
+
             var msgRec = new Record($app.findCollectionByNameOrId('whatsapp_messages'))
             msgRec.set('user_id', userId)
             msgRec.set('account_id', accountId)

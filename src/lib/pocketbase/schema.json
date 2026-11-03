@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-03T03:14:47.946Z",
+  "generatedAt": "2026-11-03T03:45:03.882Z",
   "collections": [
     {
       "name": "users",
@@ -3269,6 +3269,33 @@
         "CREATE INDEX idx_baseline_snapshots_rec ON baseline_snapshots (collection_name, record_id)",
         "CREATE INDEX idx_baseline_snapshots_acc ON baseline_snapshots (account_id)"
       ]
+    },
+    {
+      "name": "outbox_marks",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": null
+      },
+      "fields": [
+        {
+          "name": "message_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "origin",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ia", "automacao"]
+        }
+      ],
+      "indexes": []
     }
   ]
 }

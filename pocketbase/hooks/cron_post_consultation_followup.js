@@ -414,6 +414,15 @@ cronAdd('post_consultation_followup', '43 12 * * *', () => {
                       timeout: 5,
                     })
                     aStatus = aRes.statusCode === 200 || aRes.statusCode === 201 ? 'sent' : 'failed'
+                    if (aStatus === 'sent') {
+                      try {
+                        var aResKeyId = aRes.json && aRes.json.key && aRes.json.key.id
+                        if (aResKeyId) {
+                          var outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+                          outboxMarksHelper.recordOutboxMark($app, aResKeyId, 'automacao')
+                        }
+                      } catch (_) {}
+                    }
                   } catch (_) {}
                 }
                 aRec.set('status', aStatus)

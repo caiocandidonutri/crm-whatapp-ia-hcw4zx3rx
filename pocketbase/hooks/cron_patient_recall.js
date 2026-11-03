@@ -159,6 +159,14 @@ cronAdd('daily_patient_recall', '15 3 * * *', () => {
         } catch (_) {}
         if (!sentMsgId) sentMsgId = 'rec_' + $security.randomString(16)
 
+        // Gravação local imediata em outbox_marks antes do webhook chegar
+        try {
+          var outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+          outboxMarksHelper.recordOutboxMark($app, sentMsgId, 'automacao')
+        } catch (markErr) {
+          $app.logger().warn('cron_recall: outbox mark error', 'err', String(markErr))
+        }
+
         try {
           var msgCol = $app.findCollectionByNameOrId('whatsapp_messages')
           var newMsg = new Record(msgCol)

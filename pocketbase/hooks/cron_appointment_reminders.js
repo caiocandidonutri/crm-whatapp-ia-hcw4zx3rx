@@ -201,6 +201,14 @@ cronAdd('appointment_reminders_and_followup', '18 * * * *', () => {
           } catch (_) {}
           if (!sentMsgId) sentMsgId = 'rem_' + $security.randomString(16)
 
+          // Gravação local imediata em outbox_marks antes do webhook chegar
+          try {
+            var outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+            outboxMarksHelper.recordOutboxMark($app, sentMsgId, 'automacao')
+          } catch (markErr) {
+            $app.logger().warn('cron_reminders: outbox mark error', 'err', String(markErr))
+          }
+
           try {
             var msgCol = $app.findCollectionByNameOrId('whatsapp_messages')
             var newMsg = new Record(msgCol)

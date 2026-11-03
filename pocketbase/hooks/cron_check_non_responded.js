@@ -227,6 +227,15 @@ cronAdd('check_non_responded', '49 * * * *', () => {
                       })
                       bStatus =
                         bRes.statusCode === 200 || bRes.statusCode === 201 ? 'sent' : 'failed'
+                      if (bStatus === 'sent') {
+                        try {
+                          var bResKeyId = bRes.json && bRes.json.key && bRes.json.key.id
+                          if (bResKeyId) {
+                            var outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+                            outboxMarksHelper.recordOutboxMark($app, bResKeyId, 'automacao')
+                          }
+                        } catch (_) {}
+                      }
                     } catch (_) {}
                   }
                   bRec.set('status', bStatus)

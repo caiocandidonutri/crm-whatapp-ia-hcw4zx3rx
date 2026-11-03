@@ -605,46 +605,47 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         }
       }
 
-      // FIX 4: Reestruturar a origem de from_me com os 4 ramos SEM ramos idênticos:
-      // 'ia': só quando a mensagem tem flag/id de envio da IA do CRM (nunca heurística de pushName)
-      // 'automacao': lembretes, follow-ups, recall, aniversários, NPS enviados pelo CRM
-      // 'humano_crm': digitada na tela do CRM (enviada por whatsapp_send_message.js)
-      // 'humano_celular': DEFAULT para from_me sem marca de sistema
+      // CLASSIFICAÇÃO DE ORIGEM POR MARCA EXPLÍCITA (outbox_marks):
+      // A classificação de origem por prefixo de message_id não funciona porque o id é o da Evolution.
+      // Para from_me: busca message_id em outbox_marks com espera de até 2s (1 retry).
+      // Achou -> usa a origin marcada ("ia" ou "automacao").
+      // Não achou -> "humano_celular".
+      // Se não for from_me -> "desconhecido".
       let detectedOrigin = 'desconhecido'
       if (fromMe) {
-        var mIdLower = (messageId || '').toLowerCase()
+        let foundMarkOrigin = ''
+        if (messageId) {
+          // Tentativa 1 imediata
+          try {
+            const markRec1 = $app.findFirstRecordByFilter('outbox_marks', 'message_id = {:mid}', {
+              mid: messageId,
+            })
+            if (markRec1) {
+              foundMarkOrigin = markRec1.getString('origin')
+            }
+          } catch (_) {}
 
-        // 1. IA: Somente com flag/id explícito de envio da IA do CRM (nunca heurística de pushName)
-        var isAiOrigin =
-          mIdLower.indexOf('ai_') === 0 ||
-          mIdLower.indexOf('ai_delayed') !== -1 ||
-          mIdLower.indexOf('ai_resp') !== -1 ||
-          mIdLower.indexOf('ai_ori_') === 0
+          // Se não encontrou na 1ª tentativa, espera de até 2s (1 retry)
+          if (!foundMarkOrigin) {
+            const startWait = Date.now()
+            while (Date.now() - startWait < 2000) {
+              // Pausa síncrona breve de até 2s para chegada/gravação do mark
+            }
+            try {
+              const markRec2 = $app.findFirstRecordByFilter('outbox_marks', 'message_id = {:mid}', {
+                mid: messageId,
+              })
+              if (markRec2) {
+                foundMarkOrigin = markRec2.getString('origin')
+              }
+            } catch (_) {}
+          }
+        }
 
-        // 2. Automação: lembretes, follow-ups, recall, pós-consulta, NPS, fora do expediente enviados pelo CRM
-        var isAutomationOrigin =
-          mIdLower.indexOf('rem_') === 0 ||
-          mIdLower.indexOf('recall_') === 0 ||
-          mIdLower.indexOf('follow_') === 0 ||
-          mIdLower.indexOf('survey_') === 0 ||
-          mIdLower.indexOf('ah_') === 0 ||
-          mIdLower.indexOf('auto_') === 0 ||
-          mIdLower.indexOf('crm_auto') !== -1
-
-        // 3. Humano CRM: enviado manualmente pela tela do CRM
-        var isHumanoCrm =
-          mIdLower.indexOf('crm_') === 0 ||
-          mIdLower.indexOf('crm_send_') === 0 ||
-          mIdLower.indexOf('manual_') === 0
-
-        if (isAiOrigin) {
-          detectedOrigin = 'ia'
-        } else if (isAutomationOrigin) {
-          detectedOrigin = 'automacao'
-        } else if (isHumanoCrm) {
-          detectedOrigin = 'humano_crm'
+        if (foundMarkOrigin === 'ia' || foundMarkOrigin === 'automacao') {
+          detectedOrigin = foundMarkOrigin
         } else {
-          // 4. Humano Celular: DEFAULT para from_me sem marca de sistema
+          // Não achou em outbox_marks -> humano_celular (sem heurística de prefixo)
           detectedOrigin = 'humano_celular'
         }
       } else {

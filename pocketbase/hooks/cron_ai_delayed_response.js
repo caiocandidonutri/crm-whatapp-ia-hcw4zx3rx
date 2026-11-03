@@ -504,6 +504,14 @@ cronAdd('ai_delayed_response', '33 * * * *', () => {
       } catch (_) {}
       if (!sentMsgId) sentMsgId = 'ai_' + $security.randomString(16)
 
+      // Gravação local imediata em outbox_marks antes do webhook chegar
+      try {
+        var outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+        outboxMarksHelper.recordOutboxMark($app, sentMsgId, 'ia')
+      } catch (markErr) {
+        $app.logger().warn('cron_ai: outbox mark error', 'err', String(markErr))
+      }
+
       var newMsg = new Record(msgCol)
       newMsg.set('user_id', userId)
       if (accountId) newMsg.set('account_id', accountId)
@@ -589,6 +597,14 @@ cronAdd('ai_delayed_response', '33 * * * *', () => {
                 mediaMsgId = mediaRes.json && mediaRes.json.key && mediaRes.json.key.id
               } catch (_) {}
               if (!mediaMsgId) mediaMsgId = 'ai_doc_' + $security.randomString(16)
+
+              // Gravação local imediata em outbox_marks antes do webhook chegar
+              try {
+                var outboxMarksHelperMedia = require(`${__hooks}/outbox_marks_helper.js`)
+                outboxMarksHelperMedia.recordOutboxMark($app, mediaMsgId, 'ia')
+              } catch (markMediaErr) {
+                $app.logger().warn('cron_ai: outbox mark media error', 'err', String(markMediaErr))
+              }
 
               var mediaMsg = new Record(msgCol)
               mediaMsg.set('user_id', userId)
@@ -699,6 +715,14 @@ cronAdd('ai_delayed_response', '33 * * * *', () => {
         sentMsgId = sendRes.json && sendRes.json.key && sendRes.json.key.id
       } catch (_) {}
       if (!sentMsgId) sentMsgId = 'ai_ori_' + $security.randomString(16)
+
+      // Gravação local imediata em outbox_marks antes do webhook chegar (orientação automática do cron de IA)
+      try {
+        var outboxMarksHelperOri = require(`${__hooks}/outbox_marks_helper.js`)
+        outboxMarksHelperOri.recordOutboxMark($app, sentMsgId, 'ia')
+      } catch (markOriErr) {
+        $app.logger().warn('cron_ai: outbox mark ori error', 'err', String(markOriErr))
+      }
 
       var msgCol = $app.findCollectionByNameOrId('whatsapp_messages')
       var newMsg = new Record(msgCol)

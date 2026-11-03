@@ -166,6 +166,16 @@ cronAdd('whatsapp_retry_queue_worker', '7,17,27,37,47,57 * * * *', () => {
           if (res.json && res.json.key && res.json.key.id) {
             returnedMsgId = res.json.key.id
           }
+          // Gravação local imediata em outbox_marks antes do webhook chegar
+          var markMsgId = returnedMsgId || msgId
+          if (markMsgId) {
+            try {
+              var outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+              outboxMarksHelper.recordOutboxMark($app, markMsgId, 'automacao')
+            } catch (markErr) {
+              $app.logger().warn('cron_retry_queue: outbox mark error', 'err', String(markErr))
+            }
+          }
         } else {
           sendErrorMsg = 'HTTP ' + res.statusCode
         }

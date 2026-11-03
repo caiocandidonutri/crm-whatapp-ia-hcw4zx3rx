@@ -483,7 +483,9 @@ export function AutomationsControlCard({
                         {item.patient_name ||
                           (typeof item.remote_jid === 'string' && item.remote_jid.includes('@')
                             ? item.remote_jid.split('@')[0]
-                            : item.remote_jid || 'Paciente')}
+                            : typeof item.remote_jid === 'string'
+                              ? item.remote_jid
+                              : 'Paciente')}
                       </span>
                       <Badge variant="outline" className="text-[10px] font-normal py-0">
                         {formatAuditType(item.automation_type)}
@@ -498,7 +500,7 @@ export function AutomationsControlCard({
                       )}
                     </div>
                     <span className="text-[11px] text-muted-foreground font-mono">
-                      {item.created_at_sp || item.created_at}
+                      {item.created_at_sp || item.created_at || ''}
                     </span>
                   </div>
                   <p className="text-muted-foreground line-clamp-2 leading-relaxed bg-white/60 p-2 rounded-lg border border-border/40 font-mono text-[11px]">

@@ -324,6 +324,15 @@ routerAdd(
                   })
                   cSendStatus =
                     cRes.statusCode === 200 || cRes.statusCode === 201 ? 'sent' : 'failed'
+                  if (cSendStatus === 'sent') {
+                    try {
+                      var cResKeyId = cRes.json && cRes.json.key && cRes.json.key.id
+                      if (cResKeyId) {
+                        var outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+                        outboxMarksHelper.recordOutboxMark($app, cResKeyId, 'automacao')
+                      }
+                    } catch (_) {}
+                  }
                 } catch (_) {}
               }
               cRec.set('status', cSendStatus)

@@ -108,6 +108,12 @@ routerAdd(
         if (medRes.statusCode === 200 || medRes.statusCode === 201) {
           forwardSuccess = true
           if (medRes.json?.key?.id) newMsgId = medRes.json.key.id
+          if (newMsgId) {
+            try {
+              const outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+              outboxMarksHelper.recordOutboxMark($app, newMsgId, 'automacao')
+            } catch (_) {}
+          }
         } else {
           throw new BadRequestError('Falha ao encaminhar mídia pela Evolution API')
         }
@@ -123,6 +129,12 @@ routerAdd(
         if (txtRes.statusCode === 200 || txtRes.statusCode === 201) {
           forwardSuccess = true
           if (txtRes.json?.key?.id) newMsgId = txtRes.json.key.id
+          if (newMsgId) {
+            try {
+              const outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+              outboxMarksHelper.recordOutboxMark($app, newMsgId, 'automacao')
+            } catch (_) {}
+          }
         } else {
           throw new BadRequestError('Falha ao encaminhar texto pela Evolution API')
         }

@@ -279,6 +279,15 @@ cronAdd('confirmation_24h', '39 * * * *', () => {
                     timeout: 5,
                   })
                   alertStatus = res.statusCode === 200 || res.statusCode === 201 ? 'sent' : 'failed'
+                  if (alertStatus === 'sent') {
+                    try {
+                      var resKeyId = res.json && res.json.key && res.json.key.id
+                      if (resKeyId) {
+                        var outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
+                        outboxMarksHelper.recordOutboxMark($app, resKeyId, 'automacao')
+                      }
+                    } catch (_) {}
+                  }
                 } catch (_) {}
               }
             }

@@ -116,14 +116,14 @@ class HomeInternalErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="max-w-7xl mx-auto p-4 md:p-6 w-full animate-fade-in">
+        <div className="max-w-7xl mx-auto p-4 md:p-6 w-full animate-fade-in space-y-4">
           <Alert className="border-amber-300 bg-amber-50/95 text-amber-900 shadow-sm rounded-2xl p-5">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 w-full">
               <div className="flex items-start gap-3.5">
                 <RefreshCw className="h-6 w-6 text-amber-600 shrink-0 mt-0.5 animate-spin" />
                 <div>
                   <AlertTitle className="text-amber-950 text-base font-bold flex items-center gap-2 flex-wrap">
-                    <span>Servidor reiniciando, tentando de novo...</span>
+                    <span>Recuperando painel da clínica...</span>
                     <Badge
                       variant="outline"
                       className="border-amber-400 bg-amber-100 text-[11px] text-amber-900 font-semibold"
@@ -132,20 +132,37 @@ class HomeInternalErrorBoundary extends React.Component<
                     </Badge>
                   </AlertTitle>
                   <AlertDescription className="text-amber-800 text-xs sm:text-sm mt-1">
-                    O painel está recuperando os dados da clínica em modo resiliente. Seus dados
-                    estão seguros e a tela recarrega a cada 4s.
+                    O painel detectou uma inconsistência transitória e está recuperando os dados em
+                    modo protegido. Seus dados estão seguros e a tela recarrega automaticamente.
                   </AlertDescription>
+                  {this.state.error?.message && (
+                    <p className="text-[11px] font-mono text-amber-900/70 mt-1 truncate max-w-xl">
+                      Ref: {this.state.error.message}
+                    </p>
+                  )}
                 </div>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-amber-400 text-amber-950 hover:bg-amber-100 rounded-full h-9 px-4 shrink-0 font-medium"
-                onClick={this.handleRetry}
-              >
-                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                Tentar agora
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-400 text-amber-950 hover:bg-amber-100 rounded-full h-9 px-4 font-medium"
+                  onClick={this.handleRetry}
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                  Tentar agora
+                </Button>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="rounded-full h-9 px-4 font-medium"
+                  onClick={() => {
+                    window.location.reload()
+                  }}
+                >
+                  Recarregar
+                </Button>
+              </div>
             </div>
           </Alert>
         </div>
@@ -596,7 +613,7 @@ function HomeContent() {
     try {
       const todayDate = parseToDate(new Date()) || new Date()
       const s = formatLongDateSaoPaulo(todayDate, false) || ''
-      if (!s) return 'Hoje'
+      if (!s || typeof s !== 'string') return 'Hoje'
       return s.charAt(0).toUpperCase() + s.slice(1)
     } catch {
       return 'Hoje'
@@ -1395,7 +1412,9 @@ function HomeContent() {
       </Card>
 
       {/* ═══ CONTROLE DE MENSAGENS AUTOMÁTICAS (STATUS DISCRETO NO PAINEL) ═══ */}
-      <AutomationsControlCard compact />
+      <React.Suspense fallback={null}>
+        <AutomationsControlCard compact />
+      </React.Suspense>
 
       {/* ═══ SECTION 2: CARDS DE MÉTRICAS EM CAMADAS ABAIXO ═══ */}
       {/* Responsivo: coluna única no mobile (grid-cols-1), 2 colunas em telas médias, 4 em desktop */}
