@@ -468,26 +468,33 @@ function HomeContent() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    return [...myPendingTasks].sort((a, b) => {
-      const aDue = a.due_date ? new Date(a.due_date) : null
-      const bDue = b.due_date ? new Date(b.due_date) : null
+    const safeParseTime = (raw: any): number => {
+      if (!raw) return 0
+      const d = new Date(raw)
+      const t = d.getTime()
+      return Number.isFinite(t) ? t : 0
+    }
 
-      const aOverdue = aDue && aDue < today
-      const bOverdue = bDue && bDue < today
+    return [...myPendingTasks].sort((a, b) => {
+      const aTime = safeParseTime(a?.due_date)
+      const bTime = safeParseTime(b?.due_date)
+
+      const aOverdue = aTime > 0 && aTime < today.getTime()
+      const bOverdue = bTime > 0 && bTime < today.getTime()
 
       if (aOverdue && !bOverdue) return -1
       if (!aOverdue && bOverdue) return 1
 
-      if (aDue && bDue) {
-        if (aDue.getTime() !== bDue.getTime()) return aDue.getTime() - bDue.getTime()
-      } else if (aDue && !bDue) {
+      if (aTime > 0 && bTime > 0) {
+        if (aTime !== bTime) return aTime - bTime
+      } else if (aTime > 0 && bTime === 0) {
         return -1
-      } else if (!aDue && bDue) {
+      } else if (aTime === 0 && bTime > 0) {
         return 1
       }
 
-      const aPri = PRIORITY_WEIGHT[a.priority] || 0
-      const bPri = PRIORITY_WEIGHT[b.priority] || 0
+      const aPri = PRIORITY_WEIGHT[a?.priority] || 0
+      const bPri = PRIORITY_WEIGHT[b?.priority] || 0
       return bPri - aPri
     })
   }, [myPendingTasks])
@@ -1354,23 +1361,34 @@ function HomeContent() {
             </span>
             <span className="flex items-center gap-1.5 text-muted-foreground font-medium">
               <Clock className="w-3.5 h-3.5" />
-              {(commandCenter?.automations?.lastSyncAt ??
-              DEFAULT_COMMAND_CENTER_METRICS.automations.lastSyncAt) ? (
-                <>
-                  Última sincronia:{' '}
-                  {formatRecentActivityDate(
-                    (commandCenter?.automations?.lastSyncAt ??
-                      DEFAULT_COMMAND_CENTER_METRICS.automations.lastSyncAt)!,
-                  )}
-                  {' · '}
-                  {formatTimeSaoPaulo(
-                    (commandCenter?.automations?.lastSyncAt ??
-                      DEFAULT_COMMAND_CENTER_METRICS.automations.lastSyncAt)!,
-                  )}
-                </>
-              ) : (
-                'Última sincronia: sem registro'
-              )}
+              {(() => {
+                const rawSync =
+                  commandCenter?.automations?.lastSyncAt ??
+                  DEFAULT_COMMAND_CENTER_METRICS.automations.lastSyncAt
+                if (!rawSync) return 'Última sincronia: sem registro'
+                let formatted = ''
+                try {
+                  const d = new Date(rawSync)
+                  if (Number.isFinite(d.getTime())) {
+                    formatted = formatRecentActivityDate(rawSync)
+                  }
+                } catch {
+                  formatted = ''
+                }
+                let timeSp = ''
+                try {
+                  timeSp = formatTimeSaoPaulo(rawSync)
+                } catch {
+                  timeSp = ''
+                }
+                if (!formatted) return 'Última sincronia: sem registro'
+                return (
+                  <>
+                    Última sincronia: {formatted}
+                    {timeSp ? ` · ${timeSp}` : ''}
+                  </>
+                )
+              })()}
             </span>
           </div>
         </CardContent>
@@ -2505,10 +2523,15 @@ function HomeContent() {
                     ? chat.last_message_timestamp
                     : chat.updated
                 let relativeTime = ''
-                try {
-                  relativeTime = rawTs ? formatRecentActivityDate(rawTs) : ''
-                } catch (_) {
-                  relativeTime = ''
+                if (rawTs) {
+                  try {
+                    const parsed = new Date(rawTs)
+                    if (Number.isFinite(parsed.getTime())) {
+                      relativeTime = formatRecentActivityDate(rawTs) || ''
+                    }
+                  } catch (_) {
+                    relativeTime = ''
+                  }
                 }
                 return (
                   <div

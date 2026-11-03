@@ -220,8 +220,23 @@ onRecordAfterCreateSuccess((e) => {
         newContact.set('care_status', 'em_dia')
         newContact.set('last_synced_at', nowIso)
         $app.save(newContact)
+        contact = newContact
       } catch (createErr) {
         $app.logger().error('whatsapp_touch_crm_contact: create failed', 'error', String(createErr))
+      }
+    }
+
+    // FIX 3: Recálculo determinístico via care_state_engine compartilhado com cron
+    if (contact) {
+      try {
+        var careEngine = require(`${__hooks}/care_state_engine.js`)
+        careEngine.reconcileAndSaveContactCareState(contact, {
+          nowMs: Date.now(),
+        })
+      } catch (careEngineErr) {
+        $app
+          .logger()
+          .warn('whatsapp_touch_crm_contact: care engine error', 'err', String(careEngineErr))
       }
     }
 

@@ -347,14 +347,21 @@ export function AutomationsControlCard({
                   {paused ? (
                     <span>
                       Pausado
-                      {pausedAt
-                        ? ` em ${new Date(pausedAt).toLocaleDateString('pt-BR', {
+                      {(() => {
+                        if (!pausedAt) return ''
+                        const d = new Date(pausedAt)
+                        if (!Number.isFinite(d.getTime())) return ''
+                        try {
+                          return ` em ${d.toLocaleDateString('pt-BR', {
                             day: '2-digit',
                             month: '2-digit',
                             hour: '2-digit',
                             minute: '2-digit',
                           })}`
-                        : ''}
+                        } catch {
+                          return ''
+                        }
+                      })()}
                       {pausedBy ? ` por ${pausedBy}` : ''}. Nenhum disparo aos pacientes.
                     </span>
                   ) : (

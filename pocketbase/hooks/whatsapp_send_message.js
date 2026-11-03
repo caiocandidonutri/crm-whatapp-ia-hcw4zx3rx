@@ -192,9 +192,8 @@ routerAdd(
     }
 
     const parsedRes = res.json || {}
-    if (parsedRes.key?.id) {
-      msgRecord.set('message_id', parsedRes.key.id)
-    }
+    const sentKeyId = parsedRes.key?.id || 'crm_' + $security.randomString(16)
+    msgRecord.set('message_id', sentKeyId)
     $app.save(msgRecord)
 
     // Fechar pendências abertas do contato/conversa como resolvida_auto

@@ -574,14 +574,18 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         }
       } catch (_) {}
 
+      var existingDbMsg = null
       try {
-        $app.findFirstRecordByFilter(
+        existingDbMsg = $app.findFirstRecordByFilter(
           'whatsapp_messages',
           'message_id = {:msgId} && instance_name = {:name}',
           { msgId: messageId, name: instanceName },
         )
-        return // Duplicate
       } catch (_) {}
+
+      if (existingDbMsg) {
+        return // Duplicate
+      }
 
       const normalizedTs = tsToUnixSeconds(msg.messageTimestamp)
       const currentTs = Math.floor(Date.now() / 1000)
@@ -601,34 +605,47 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         }
       }
 
-      // Determinar origin da mensagem
-      // humano_celular | humano_crm | ia | automacao | desconhecido
+      // FIX 4: Reestruturar a origem de from_me com os 4 ramos SEM ramos idênticos:
+      // 'ia': só quando a mensagem tem flag/id de envio da IA do CRM (nunca heurística de pushName)
+      // 'automacao': lembretes, follow-ups, recall, aniversários, NPS enviados pelo CRM
+      // 'humano_crm': digitada na tela do CRM (enviada por whatsapp_send_message.js)
+      // 'humano_celular': DEFAULT para from_me sem marca de sistema
       let detectedOrigin = 'desconhecido'
       if (fromMe) {
-        const isAiMarked =
-          pendingAiResponse ||
-          pushName.indexOf('Assistente') !== -1 ||
-          pushName.indexOf('IA') !== -1 ||
-          content.indexOf('[IA]') !== -1
-        if (isAiMarked) {
+        var mIdLower = (messageId || '').toLowerCase()
+
+        // 1. IA: Somente com flag/id explícito de envio da IA do CRM (nunca heurística de pushName)
+        var isAiOrigin =
+          mIdLower.indexOf('ai_') === 0 ||
+          mIdLower.indexOf('ai_delayed') !== -1 ||
+          mIdLower.indexOf('ai_resp') !== -1 ||
+          mIdLower.indexOf('ai_ori_') === 0
+
+        // 2. Automação: lembretes, follow-ups, recall, pós-consulta, NPS, fora do expediente enviados pelo CRM
+        var isAutomationOrigin =
+          mIdLower.indexOf('rem_') === 0 ||
+          mIdLower.indexOf('recall_') === 0 ||
+          mIdLower.indexOf('follow_') === 0 ||
+          mIdLower.indexOf('survey_') === 0 ||
+          mIdLower.indexOf('ah_') === 0 ||
+          mIdLower.indexOf('auto_') === 0 ||
+          mIdLower.indexOf('crm_auto') !== -1
+
+        // 3. Humano CRM: enviado manualmente pela tela do CRM
+        var isHumanoCrm =
+          mIdLower.indexOf('crm_') === 0 ||
+          mIdLower.indexOf('crm_send_') === 0 ||
+          mIdLower.indexOf('manual_') === 0
+
+        if (isAiOrigin) {
           detectedOrigin = 'ia'
+        } else if (isAutomationOrigin) {
+          detectedOrigin = 'automacao'
+        } else if (isHumanoCrm) {
+          detectedOrigin = 'humano_crm'
         } else {
-          // Checa se o remetente participante ou da mensagem bate com authorizedSendersList
-          const pJidNorm = (participantJid || '').toLowerCase()
-          const pDigits = pJidNorm.split('@')[0].replace(/\D/g, '')
-          const isSenderAuthorized = authorizedSendersList.some((auth) => {
-            const cleanAuth = auth.replace(/\D/g, '')
-            return (
-              pJidNorm === auth ||
-              pJidNorm.indexOf(auth) !== -1 ||
-              (cleanAuth && pDigits && pDigits.endsWith(cleanAuth))
-            )
-          })
-          if (isSenderAuthorized || authorizedSendersList.length === 0) {
-            detectedOrigin = 'humano_celular'
-          } else {
-            detectedOrigin = 'humano_celular'
-          }
+          // 4. Humano Celular: DEFAULT para from_me sem marca de sistema
+          detectedOrigin = 'humano_celular'
         }
       } else {
         detectedOrigin = 'desconhecido'
