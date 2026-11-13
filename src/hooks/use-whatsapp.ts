@@ -148,8 +148,11 @@ export function useInstanciaAtiva() {
         requestKey: null,
       })
       const safeRecords = Array.isArray(records) ? records : []
+      // Estritamente connected: uma instância morta ('qrcode'/'disconnected') nunca
+      // é adotada como ativa. Sem nenhuma conectada, devolve null — a tela já
+      // tem o fallback de QR (Conversas.tsx) para o owner conectar.
       const connected = safeRecords.find((r) => r && r.status === 'connected')
-      setInstance(connected || safeRecords[0] || null)
+      setInstance(connected || null)
     } catch (e) {
       if (isAbort(e)) return
       console.warn('[useInstanciaAtiva] Falha ao carregar instâncias (fallback silencioso):', e)

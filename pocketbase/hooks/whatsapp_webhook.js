@@ -2009,10 +2009,22 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       const state = data?.state
       if (state === 'open' || state === 'connected') {
         instanceRecord.set('status', 'connected')
+        // Gravar phone_number quando o evento traz o número conectado.
+        // Evolution manda em data.number / data.wuid / data.ownerJid
+        // (wuid/ownerJid vem como JID "5511...@s.whatsapp.net").
+        try {
+          let rawPhone = ''
+          if (data && data.number) rawPhone = String(data.number)
+          else if (data && data.wuid) rawPhone = String(data.wuid)
+          else if (data && data.ownerJid) rawPhone = String(data.ownerJid)
+          if (rawPhone) {
+            const digits = String(rawPhone).replace(/\D/g, '')
+            if (digits.length >= 10 && digits.length <= 15) {
+              instanceRecord.set('phone_number', digits)
+            }
+          }
+        } catch (_) {}
         // Limpar QR cache — não precisamos mais dele depois de pareado
-        if (instanceRecord.fields && instanceRecord.fields.getByName) {
-          // noop helper guard
-        }
         try {
           instanceRecord.set('qrcode_base64', '')
         } catch (_) {}
@@ -2049,6 +2061,11 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       if (newQr) {
         try {
           instanceRecord.set('qrcode_base64', newQr)
+        } catch (_) {}
+        // Estampa a hora do QR novo — o front e o endpoint de status usam
+        // isso para saber se o QR ainda está fresco (~60s de validade).
+        try {
+          instanceRecord.set('qr_updated_at', new Date())
         } catch (_) {}
       }
       $app.save(instanceRecord)

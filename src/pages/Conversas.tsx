@@ -239,6 +239,7 @@ export default function Conversas() {
   const [diagnosticResult, setDiagnosticResult] = useState<any | null>(null)
 
   const handleDiagnose = async (instanceName: string) => {
+    if (!instanceName) return
     try {
       setIsDiagnosing(true)
       const result = await diagnosticarWebhook(instanceName)
@@ -640,8 +641,26 @@ export default function Conversas() {
             <QrCode className="w-8 h-8" />
           </div>
           <h2 className="font-serif text-2xl font-semibold text-primary mb-4">
-            Conecte seu WhatsApp
+            {instance ? 'Conecte seu WhatsApp' : 'Nenhuma instância conectada'}
           </h2>
+          {!instance && (
+            <p className="text-xs text-muted-foreground mb-2">
+              Nenhuma instância ativa encontrada para esta conta. Gere o QR abaixo para conectar um
+              número.
+            </p>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="mb-4"
+            onClick={() => {
+              resetErrors?.()
+              generateQrCode()
+            }}
+            disabled={isGenerating}
+          >
+            {isGenerating ? 'Gerando QR...' : 'Conectar WhatsApp'}
+          </Button>
           <div className="w-64 h-64 bg-white rounded-xl border border-border flex items-center justify-center mb-6 overflow-hidden">
             {isGenerating ? (
               <div className="flex flex-col items-center justify-center space-y-4">
@@ -751,12 +770,12 @@ export default function Conversas() {
                 }
                 onDiagnose={
                   role === 'owner' && instance
-                    ? () => handleDiagnose(instance.instance_name)
+                    ? () => handleDiagnose(instance?.instance_name || '')
                     : undefined
                 }
                 onDisconnect={
                   role === 'owner' && instance
-                    ? () => disconnect(instance.instance_name)
+                    ? () => disconnect(instance?.instance_name || '')
                     : undefined
                 }
                 onFactoryReset={role === 'owner' ? () => setIsResetConfirmOpen(true) : undefined}

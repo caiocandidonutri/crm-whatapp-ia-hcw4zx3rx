@@ -26,6 +26,7 @@ export const consultarStatusInstancia = async (
   instanceName: string
   qrcodeBase64?: string
   state?: string
+  qrUpdatedAt?: string
   error?: string
 }> => {
   try {
@@ -34,6 +35,7 @@ export const consultarStatusInstancia = async (
       instanceName: string
       qrcodeBase64?: string
       state?: string
+      qrUpdatedAt?: string
     }>(`/backend/v1/whatsapp/instance-status?instanceName=${encodeURIComponent(instanceName)}`, {
       method: 'GET',
     })

@@ -79,7 +79,6 @@ routerAdd(
 
     try {
       const body = e.requestInfo().body || {}
-      const instanceName = body.instance_name
       const remoteJid = body.remote_jid
       // Paginação / Filtros temporais:
       // - `before` (Unix segundos): retorna até 50 mensagens com messageTimestamp < before (histórico antigo).
@@ -87,23 +86,66 @@ routerAdd(
       // Sem `before` e sem `since`, comporta-se como sync inicial (50 mais recentes).
       const beforeTs = typeof body.before === 'number' && body.before > 0 ? body.before : 0
       const sinceTs = typeof body.since === 'number' && body.since > 0 ? body.since : 0
-      if (!instanceName || !remoteJid) {
-        return e.badRequestError('instance_name e remote_jid são obrigatórios')
+      if (!remoteJid) {
+        return e.badRequestError('remote_jid é obrigatório')
       }
 
       const authId = e.auth.id
 
-      // Validar ownership da instância
-      let instanceRecord
-      try {
-        instanceRecord = $app.findFirstRecordByFilter(
-          'whatsapp_instances',
-          'instance_name = {:name} && user_id = {:userId}',
-          { name: instanceName, userId: authId },
-        )
-      } catch (_) {
+      // Resolver a instância: quando o front envia um nome válido de uma
+      // instância da conta, usar esse; quando não envia (ou envia uma morta —
+      // erro atual: Instance_not_found para instance_1786021758855), resolver
+      // a ativa da conta: a mais recente 'connected', senão a mais recente.
+      let instanceRecord = null
+      let instanceName = typeof body.instance_name === 'string' ? body.instance_name : ''
+      if (instanceName) {
+        try {
+          instanceRecord = $app.findFirstRecordByFilter(
+            'whatsapp_instances',
+            'instance_name = {:name} && user_id = {:userId}',
+            { name: instanceName, userId: authId },
+          )
+        } catch (_) {}
+      }
+      if (!instanceRecord) {
+        // Nenhuma instância nomeada válida: resolve a ativa da conta —
+        // 1) a mais recente 'connected'; 2) senão, a mais recente em geral.
+        // Nunca 400: conversas antigas pertencem a instâncias que já não
+        // existem no DB (ex.: instance_1786021758855).
+        const accountIdParam = body.account_id || ''
+        if (accountIdParam) {
+          try {
+            const connected = $app.findRecordsByFilter(
+              'whatsapp_instances',
+              'account_id = {:accountId} && status = "connected"',
+              '-created',
+              1,
+              0,
+              { accountId: accountIdParam },
+            )
+            if (connected.length > 0) instanceRecord = connected[0]
+          } catch (_) {}
+        }
+        if (!instanceRecord) {
+          try {
+            const anyFilter = accountIdParam ? 'account_id = {:accountId}' : 'user_id = {:userId}'
+            const anyParams = accountIdParam ? { accountId: accountIdParam } : { userId: authId }
+            const any = $app.findRecordsByFilter(
+              'whatsapp_instances',
+              anyFilter,
+              '-created',
+              1,
+              0,
+              anyParams,
+            )
+            if (any.length > 0) instanceRecord = any[0]
+          } catch (_) {}
+        }
+      }
+      if (!instanceRecord) {
         return e.badRequestError('instance_not_found')
       }
+      instanceName = instanceRecord.getString('instance_name')
 
       let accountId = instanceRecord.getString('account_id')
       if (!accountId) {
@@ -124,6 +166,21 @@ routerAdd(
           { jid: remoteJid, name: instanceName, userId: authId },
         )
       } catch (_) {
+        try {
+          // Conversa criada sob outra instância (ex.: a morta) — reata-la à ativa
+          // para não criar duplicata nem perder histórico já salvo.
+          convRecord = $app.findFirstRecordByFilter(
+            'conversations',
+            'remote_jid = {:jid} && user_id = {:userId}',
+            { jid: remoteJid, userId: authId },
+          )
+          try {
+            convRecord.set('instance_name', instanceName)
+            $app.save(convRecord)
+          } catch (_) {}
+        } catch (_) {}
+      }
+      if (!convRecord) {
         const isGroup = remoteJid.endsWith('@g.us')
         const convCol = $app.findCollectionByNameOrId('conversations')
         convRecord = new Record(convCol)

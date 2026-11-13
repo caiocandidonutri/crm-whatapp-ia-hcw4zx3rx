@@ -30,6 +30,7 @@ export function useQrConnection(
   const [pollErrors, setPollErrors] = useState(0)
   const [rawState, setRawState] = useState<string | null>(null)
   const [connectingSince, setConnectingSince] = useState<number | null>(null)
+  const [qrFetchedAt, setQrFetchedAt] = useState<number | null>(null)
 
   // Resetar contador de erros ao montar/reabrir página
   useEffect(() => {
@@ -41,10 +42,16 @@ export function useQrConnection(
       setInstanceName(existingInstance.instance_name)
       if (existingInstance.qrcode_base64) {
         setQrCodeBase64(existingInstance.qrcode_base64)
+      } else {
+        setQrCodeBase64(null)
       }
       if (existingInstance.status === 'connected') {
         setQrCodeBase64(null)
       }
+      // QR herdado da instância existente pode ser velho (cache server-side de
+      // até 60s + tempo desde então). Zera a marca para que, no 1º poll de
+      // status, a idade do QR seja recalculada e expire em até 60s reais.
+      setQrFetchedAt(existingInstance?.qrcode_base64 ? Date.now() - 30000 : null)
     }
   }, [existingInstance?.instance_name, existingInstance?.qrcode_base64, existingInstance?.status])
 
@@ -71,6 +78,8 @@ export function useQrConnection(
       setInstanceName(res.instanceName)
       if (res.qrcodeBase64) {
         setQrCodeBase64(res.qrcodeBase64)
+        // QR novo acabou de nascer: reinicia a janela de 60s do timer.
+        setQrFetchedAt(Date.now())
       }
     } catch (e: any) {
       // Tratar AbortError silenciosamente (não conta como erro)
@@ -153,6 +162,7 @@ export function useQrConnection(
             }
             if (res.status === 'connected') {
               setQrCodeBase64(null)
+              setQrFetchedAt(null)
               toast({
                 title: 'WhatsApp conectado com sucesso!',
                 className: 'bg-green-50 text-green-900 border-green-200',
@@ -161,6 +171,12 @@ export function useQrConnection(
               return // encerra polling
             } else if (res.status === 'qrcode' && res.qrcodeBase64) {
               setQrCodeBase64(res.qrcodeBase64)
+              // Marca quando ESTE QR chegou. QR do WhatsApp expira em ~60s:
+              // passou disso, regenera via /instance/connect para não mostrar
+              // QR morto (o usuário escaneava um QR que já não valia nada).
+              const serverTs = res.qrUpdatedAt ? new Date(res.qrUpdatedAt).getTime() : 0
+              const freshTs = serverTs > 0 ? serverTs : Date.now()
+              setQrFetchedAt(freshTs)
             }
             nextDelay = 5500
           }
@@ -194,6 +210,19 @@ export function useQrConnection(
       if (timeoutId) clearTimeout(timeoutId)
     }
   }, [instanceName, pollErrors, toast, onConnected])
+
+  // Timer de 60s: força gerar um QR novo quando o atual já expirou.
+  useEffect(() => {
+    if (!instanceName || !qrCodeBase64) return
+    if (qrFetchedAt === null) return
+    const elapsed = Date.now() - qrFetchedAt
+    const remaining = Math.max(500, 60000 - elapsed)
+    const timer = setTimeout(() => {
+      setQrFetchedAt(null)
+      generateQrCode()
+    }, remaining)
+    return () => clearTimeout(timer)
+  }, [instanceName, qrCodeBase64, qrFetchedAt, generateQrCode])
 
   const resetErrors = useCallback(() => {
     setPollErrors(0)

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T19:42:35.356Z",
+  "generatedAt": "2026-11-13T20:00:41.111Z",
   "collections": [
     {
       "name": "users",
@@ -195,6 +195,12 @@
         {
           "name": "health_check_failures",
           "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "qr_updated_at",
+          "type": "date",
           "required": false,
           "system": false
         }

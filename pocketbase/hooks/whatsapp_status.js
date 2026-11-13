@@ -133,17 +133,38 @@ routerAdd(
         cachedQr = record.getString('qrcode_base64') || ''
       } catch (_) {}
 
+      // QR do WhatsApp expira em ~60s. Só devolve o QR em cache se ele nasceu
+      // há menos de 55s (qr_updated_at). Caso contrário, SEMPRE chamar
+      // /instance/connect/{name} para gerar um QR novo — devolver QR morto
+      // fazia o usuário escanear um código que já não valia nada, sem erro.
       if (cachedQr) {
-        if (record.getString('status') !== 'qrcode') {
-          record.set('status', 'qrcode')
-          $app.save(record)
+        let qrUpdatedAt = 0
+        try {
+          const s = record.getString('qr_updated_at') || ''
+          if (s) qrUpdatedAt = new Date(s).getTime()
+        } catch (_) {}
+        const qrAgeMs = Date.now() - qrUpdatedAt
+        const qrFresh = qrUpdatedAt > 0 && qrAgeMs >= 0 && qrAgeMs < 55000
+
+        if (qrFresh) {
+          if (record.getString('status') !== 'qrcode') {
+            record.set('status', 'qrcode')
+            $app.save(record)
+          }
+          return e.json(200, {
+            status: 'qrcode',
+            state: rawState,
+            qrcodeBase64: cachedQr,
+            qrUpdatedAt: new Date(qrUpdatedAt).toISOString(),
+            instanceName: instanceName,
+          })
         }
-        return e.json(200, {
-          status: 'qrcode',
-          state: rawState,
-          qrcodeBase64: cachedQr,
-          instanceName: instanceName,
-        })
+        // QR expirado: limpa o cache para forçar o connect abaixo.
+        cachedQr = ''
+        try {
+          record.set('qrcode_base64', '')
+          $app.saveNoValidate(record)
+        } catch (_) {}
       }
 
       let res
@@ -174,17 +195,22 @@ routerAdd(
       if (res.statusCode === 200 && res.json && res.json.base64) {
         status = 'qrcode'
         qrcodeBase64 = res.json.base64
+        const qrNow = new Date()
         if (record.getString('status') !== 'qrcode') {
           record.set('status', 'qrcode')
         }
         try {
           record.set('qrcode_base64', qrcodeBase64)
         } catch (_) {}
+        try {
+          record.set('qr_updated_at', qrNow)
+        } catch (_) {}
         $app.save(record)
         return e.json(200, {
           status: 'qrcode',
           state: rawState,
           qrcodeBase64: qrcodeBase64,
+          qrUpdatedAt: qrNow.toISOString(),
           instanceName: instanceName,
         })
       }
