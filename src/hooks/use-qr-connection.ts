@@ -49,8 +49,9 @@ export function useQrConnection(
         setQrCodeBase64(null)
       }
       // QR herdado da instância existente pode ser velho (cache server-side de
-      // até 60s + tempo desde então). Zera a marca para que, no 1º poll de
-      // status, a idade do QR seja recalculada e expire em até 60s reais.
+      // até 55s + tempo desde então). Zera a marca para que, no 1º poll de
+      // status, a idade do QR seja recalculada a partir do qr_updated_at que
+      // o servidor agora devolve e expire em até 60s reais.
       setQrFetchedAt(existingInstance?.qrcode_base64 ? Date.now() - 30000 : null)
     }
   }, [existingInstance?.instance_name, existingInstance?.qrcode_base64, existingInstance?.status])
