@@ -162,6 +162,10 @@ routerAdd(
     msgRecord.set('content', caption || '')
     msgRecord.set('media_mimetype', mimetype)
     msgRecord.set('media_filename', safeName)
+    // Envio manual de usuário logado (mesmo padrão do envio de texto): origin humano_crm
+    if (msgCol.fields.getByName('origin')) {
+      msgRecord.set('origin', 'humano_crm')
+    }
 
     const parsedRes = res.json || {}
     if (parsedRes.key?.id) {

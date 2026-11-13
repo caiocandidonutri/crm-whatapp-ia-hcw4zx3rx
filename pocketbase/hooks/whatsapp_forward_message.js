@@ -108,12 +108,6 @@ routerAdd(
         if (medRes.statusCode === 200 || medRes.statusCode === 201) {
           forwardSuccess = true
           if (medRes.json?.key?.id) newMsgId = medRes.json.key.id
-          if (newMsgId) {
-            try {
-              const outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
-              outboxMarksHelper.recordOutboxMark($app, newMsgId, 'automacao')
-            } catch (_) {}
-          }
         } else {
           throw new BadRequestError('Falha ao encaminhar mídia pela Evolution API')
         }
@@ -129,12 +123,6 @@ routerAdd(
         if (txtRes.statusCode === 200 || txtRes.statusCode === 201) {
           forwardSuccess = true
           if (txtRes.json?.key?.id) newMsgId = txtRes.json.key.id
-          if (newMsgId) {
-            try {
-              const outboxMarksHelper = require(`${__hooks}/outbox_marks_helper.js`)
-              outboxMarksHelper.recordOutboxMark($app, newMsgId, 'automacao')
-            } catch (_) {}
-          }
         } else {
           throw new BadRequestError('Falha ao encaminhar texto pela Evolution API')
         }
@@ -162,6 +150,11 @@ routerAdd(
     newMsgRecord.set('is_forwarded', true)
     newMsgRecord.set('status', 'pending')
     newMsgRecord.set('timestamp', Math.floor(Date.now() / 1000))
+    // Encaminhamento manual de usuário logado: origin humano_crm direto no
+    // registro (sem outbox_mark). "automacao" só em rotina automática.
+    if (msgCol.fields.getByName('origin')) {
+      newMsgRecord.set('origin', 'humano_crm')
+    }
     if (newMsgId) newMsgRecord.set('message_id', newMsgId)
     if (mediaFile) newMsgRecord.set('media_file', mediaFile)
     if (mediaUrl) newMsgRecord.set('media_url', mediaUrl)

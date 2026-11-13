@@ -62,6 +62,36 @@ cronAdd('cron_care_state_reconcile', '2,17,32,47 * * * *', () => {
     // Carrega o motor compartilhado de care_state
     const careEngine = require(`${__hooks}/care_state_engine.js`)
 
+    // RODÍZIO de TODOS os contatos: 150 por execução, ordenados por
+    // last_reconciled_at mais antigo (vazio primeiro). Roda ANTES da
+    // prioridade 48h (que é mais urgente) apenas quando sobra orçamento;
+    // aqui usamos um sub-orçamento para não sacrificar os ativos.
+    const ROTATION_BATCH = 150
+    try {
+      const rotationContacts = $app.findRecordsByFilter(
+        'crm_contacts',
+        '',
+        'last_reconciled_at',
+        ROTATION_BATCH,
+        0,
+      )
+      for (let ri = 0; ri < rotationContacts.length; ri++) {
+        if (Date.now() - startTime > maxExecutionMs * 0.4) break // 40% do orçamento p/ rodízio
+        const contact = rotationContacts[ri]
+        const lastRec = contact.getString('last_reconciled_at')
+        // Já reconciliado nos últimos 10 min? Pula (evita retrabalho)
+        if (lastRec) {
+          const lastRecMs = Date.parse(lastRec)
+          if (!isNaN(lastRecMs) && Date.now() - lastRecMs < 10 * 60 * 1000) continue
+        }
+        try {
+          careEngine.reconcileAndSaveContactCareState(contact, { nowMs: Date.now() })
+        } catch (_) {}
+      }
+    } catch (rotErr) {
+      $app.logger().warn('cron_care_state_reconcile: rotation failed', 'err', String(rotErr))
+    }
+
     // Processar contatos candidatos
     for (let i = 0; i < candidateJids.length; i++) {
       if (Date.now() - startTime > maxExecutionMs) {

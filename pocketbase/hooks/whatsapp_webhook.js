@@ -607,15 +607,16 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
 
       // CLASSIFICAÇÃO DE ORIGEM POR MARCA EXPLÍCITA (outbox_marks):
       // A classificação de origem por prefixo de message_id não funciona porque o id é o da Evolution.
-      // Para from_me: busca message_id em outbox_marks com espera de até 2s (1 retry).
+      // Para from_me: UMA busca imediata por message_id em outbox_marks (SEM espera/laço —
+      // o laço de 2s bloqueava o webhook até 2s por mensagem).
       // Achou -> usa a origin marcada ("ia" ou "automacao").
-      // Não achou -> "humano_celular".
+      // Não achou -> "humano_celular" PROVISÓRIO (nunca bloquear o webhook);
+      // o cron outbox_reclassify corrige nos próximos minutos se a marca chegar depois.
       // Se não for from_me -> "desconhecido".
       let detectedOrigin = 'desconhecido'
       if (fromMe) {
         let foundMarkOrigin = ''
         if (messageId) {
-          // Tentativa 1 imediata
           try {
             const markRec1 = $app.findFirstRecordByFilter('outbox_marks', 'message_id = {:mid}', {
               mid: messageId,
@@ -624,28 +625,12 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
               foundMarkOrigin = markRec1.getString('origin')
             }
           } catch (_) {}
-
-          // Se não encontrou na 1ª tentativa, espera de até 2s (1 retry)
-          if (!foundMarkOrigin) {
-            const startWait = Date.now()
-            while (Date.now() - startWait < 2000) {
-              // Pausa síncrona breve de até 2s para chegada/gravação do mark
-            }
-            try {
-              const markRec2 = $app.findFirstRecordByFilter('outbox_marks', 'message_id = {:mid}', {
-                mid: messageId,
-              })
-              if (markRec2) {
-                foundMarkOrigin = markRec2.getString('origin')
-              }
-            } catch (_) {}
-          }
         }
 
         if (foundMarkOrigin === 'ia' || foundMarkOrigin === 'automacao') {
           detectedOrigin = foundMarkOrigin
         } else {
-          // Não achou em outbox_marks -> humano_celular (sem heurística de prefixo)
+          // Não achou em outbox_marks -> humano_celular provisório (sem heurística de prefixo)
           detectedOrigin = 'humano_celular'
         }
       } else {
