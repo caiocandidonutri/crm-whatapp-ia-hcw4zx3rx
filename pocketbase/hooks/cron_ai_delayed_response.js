@@ -110,6 +110,140 @@ cronAdd('ai_delayed_response', '33 * * * *', () => {
       return false
     }
 
+    // ---- Ficha de conhecimento da clínica (knowledge_base) ----
+    // Busca simples por palavras-chave: conta quantos termos da pergunta do
+    // paciente (e do histórico recente) batem com a pergunta/título/resposta
+    // de cada ficha APROVADA da conta. Sem embedding, sem serviço externo.
+    var buildKnowledgeContext = function (accountId, patientText, historyBlock) {
+      if (!accountId || !patientText) return ''
+      var records = []
+      try {
+        records = $app.findRecordsByFilter(
+          'knowledge_base',
+          'account_id = {:aid} && status = "aprovada"',
+          '-updated',
+          60,
+          0,
+          { aid: accountId },
+        )
+      } catch (_) {
+        return ''
+      }
+      if (!records || records.length === 0) return ''
+
+      var stop = {}
+      var stopWords =
+        'a o e de da do das dos em no na nos nas um uma uns umas para por com sem que qual quais quando onde como quanto custa vale tem posso pode você voce doutor dr caio'
+      var swParts = stopWords.split(' ')
+      for (var s = 0; s < swParts.length; s++) stop[swParts[s]] = true
+
+      // Termos de busca: pergunta atual + histórico recente (perguntas de acompanhamento
+      // tipo "e o valor?" só fazem sentido com o fio da conversa)
+      var searchTexts = [String(patientText)]
+      if (historyBlock) searchTexts.push(String(historyBlock))
+      var queryTerms = []
+      for (var t = 0; t < searchTexts.length; t++) {
+        var words = searchTexts[t]
+          .toLowerCase()
+          .replace(/[^a-z0-9à-ú\s]/g, ' ')
+          .split(/\s+/)
+        for (var w = 0; w < words.length; w++) {
+          var word = words[w]
+          if (word.length >= 3 && !stop[word] && queryTerms.indexOf(word) === -1) {
+            queryTerms.push(word)
+          }
+        }
+      }
+      if (queryTerms.length === 0) return ''
+
+      var scored = []
+      for (var i = 0; i < records.length; i++) {
+        var rec = records[i]
+        var hay =
+          (
+            rec.getString('pergunta') +
+            ' ' +
+            rec.getString('titulo') +
+            ' ' +
+            rec.getString('resposta')
+          ).toLowerCase() + ''
+        var score = 0
+        for (var q = 0; q < queryTerms.length; q++) {
+          if (hay.indexOf(queryTerms[q]) !== -1) score++
+        }
+        if (score > 0) scored.push({ rec: rec, score: score })
+      }
+      scored.sort(function (a, b) {
+        return b.score - a.score
+      })
+
+      var lines = []
+      var max = scored.length < 5 ? scored.length : 5
+      for (var k = 0; k < max; k++) {
+        var r = scored[k].rec
+        lines.push('- ' + r.getString('titulo') + ': ' + r.getString('resposta'))
+      }
+      if (lines.length === 0) return ''
+      return (
+        '\n\n[FICHA DE CONHECIMENTO DA CLÍNICA — fonte aprovada pela equipe. ' +
+        'Use estes fatos como verdade; NÃO invente nada além deles]\n' +
+        lines.join('\n') +
+        '\n[FIM DA FICHA DE CONHECIMENTO]'
+      )
+    }
+
+    // ---- Task para a equipe quando a IA não sabe responder com certeza ----
+    // A IA diz ao paciente que vai confirmar; a task registra a dúvida para a
+    // Fabiana/equipe responder com o fato concreto. Sem inventar resposta.
+    var createUncertaintyTask = function (msg, contactName, textContent) {
+      var accountId = msg.getString('account_id')
+      var remoteJid = msg.getString('remote_jid')
+      var instanceName = msg.getString('instance_name')
+
+      if (!accountId || !remoteJid) return
+
+      // Dedup: se já existe task pendente para este contato com a mesma dúvida, não cria outra
+      var existing = null
+      try {
+        existing = $app.findFirstRecordByFilter(
+          'tasks',
+          'account_id = {:aid} && status = "pendente" && title ~ {:frag}',
+          { aid: accountId, frag: String(textContent).substring(0, 20) },
+        )
+      } catch (_) {}
+      if (existing) return
+
+      var contact = null
+      try {
+        contact = $app.findFirstRecordByFilter(
+          'crm_contacts',
+          'instance_name = {:inst} && jid = {:jid}',
+          { inst: instanceName, jid: remoteJid },
+        )
+      } catch (_) {}
+
+      var tasksCol = $app.findCollectionByNameOrId('tasks')
+      var task = new Record(tasksCol)
+      task.set('user_id', msg.getString('user_id'))
+      if (accountId) task.set('account_id', accountId)
+      if (contact) task.set('crm_contact_id', contact.id)
+      task.set('title', 'IA não soube responder: ' + String(textContent).substring(0, 80))
+      task.set(
+        'description',
+        'A IA Fabiana não tinha certeza para responder esta dúvida do paciente ' +
+          contactName +
+          ' (' +
+          remoteJid.replace('@s.whatsapp.net', '') +
+          '). A IA pediu para aguardar confirmação. Dúvida original: "' +
+          String(textContent).substring(0, 500) +
+          '". Verificar o fato (valor/disponibilidade/procedimento) e responder ao paciente.',
+      )
+      task.set('status', 'pendente')
+      task.set('priority', 'media')
+      task.set('care_category', 'precisa_atencao')
+      $app.save(task)
+    }
+
     var processAiResponse = function (msg) {
       var remoteJid = msg.getString('remote_jid')
       var instanceName = msg.getString('instance_name')
@@ -314,15 +448,16 @@ cronAdd('ai_delayed_response', '33 * * * *', () => {
       crmContextBlock += '\n[ FIM DO CONTEXTO DO CONTATO ]'
 
       // ---- HISTÓRICO REAL DA CONVERSA DESTE CONTATO ----
-      // Busca até 15 mensagens anteriores deste contato estrito (remote_jid + instance_name)
-      // para que o modelo tenha o fio da conversa e nunca alucine nomes ou assuntos alheios.
+      // Busca até 20 mensagens anteriores deste contato estrito (remote_jid + instance_name)
+      // para que o modelo tenha o fio da conversa (perguntas de acompanhamento tipo
+      // "e o valor?", "e segunda-feira tem vaga?") e nunca alucine nomes ou assuntos alheios.
       var historyBlock = ''
       try {
         var recentHistory = $app.findRecordsByFilter(
           'whatsapp_messages',
           'remote_jid = {:jid} && instance_name = {:inst} && id != {:curId}',
           '-timestamp',
-          15,
+          20,
           0,
           { jid: remoteJid, inst: instanceName, curId: msg.id },
         )
@@ -375,18 +510,37 @@ cronAdd('ai_delayed_response', '33 * * * *', () => {
 
       var leadContext = crmContextBlock
 
+      // Ficha de conhecimento da clínica (knowledge_base aprovada) + política de atendimento
+      var knowledgeBlock = buildKnowledgeContext(
+        conv.getString('account_id') || msg.getString('account_id') || '',
+        textContent,
+        historyBlock,
+      )
+
+      var policyBlock =
+        '\n\n[POLÍTICA DE ATENDIMENTO]\n' +
+        '- A clínica atende APENAS PARTICULAR — não trabalha com convênio/plano de saúde. ' +
+        'Se perguntarem, acolha e use o argumento de valor: atendimento humanizado, consulta com tempo ' +
+        'estendido, plano alimentar individualizado e acompanhamento próximo da equipe, sem fila de espera.\n' +
+        '- MULTI-PERGUNTA: se a mensagem do paciente tiver VÁRIAS perguntas, responda TODAS as partes, uma a uma.\n' +
+        '- NUNCA INVENTE fatos concretos (valor exato de procedimento, disponibilidade em data específica, ' +
+        'cobertura de procedimento, exames). Quando não tiver certeza pela ficha de conhecimento, diga que vai ' +
+        'confirmar com o Dr. Caio/equipe e já retorna — a equipe é avisada automaticamente por task.\n' +
+        '[FIM DA POLÍTICA]'
+
       var finalMessage =
         '<system_instruction>\nSiga estritamente esta Persona/Instrucao:\n' +
         userAgentPrompt +
         '\n</system_instruction>' +
         leadContext +
         documentContext +
+        policyBlock +
         historyBlock +
+        knowledgeBlock +
         '\n\n[NOVA MENSAGEM RECEBIDA DO PACIENTE ' +
         contactName.toUpperCase() +
         ']:\n' +
         textContent
-
       // ISOLAMENTO DE SESSÃO: Garante conversation_id exclusivo por conversa
       // ISOLAMENTO DE SESSÃO: Garante conversation_id exclusivo por conversa
       var aiConvId = conv.getString('ai_conversation_id') || ''
@@ -445,6 +599,23 @@ cronAdd('ai_delayed_response', '33 * * * *', () => {
 
       var replyText = result.content || ''
       if (!replyText) return false
+
+      // Se a IA sinalizou incerteza (não soube responder com certeza), registra
+      // task para a equipe confirmar o fato — em paralelo à resposta enviada.
+      try {
+        var lowered = String(replyText).toLowerCase()
+        if (
+          lowered.indexOf('vou confirmar') !== -1 ||
+          lowered.indexOf('vou verificar') !== -1 ||
+          lowered.indexOf('confirmar para você') !== -1 ||
+          lowered.indexOf('confirmar com a equipe') !== -1 ||
+          lowered.indexOf('confirmar com o dr') !== -1
+        ) {
+          createUncertaintyTask(msg, contactName, textContent)
+        }
+      } catch (taskErr) {
+        $app.logger().warn('cron_ai: uncertainty task error', 'err', String(taskErr))
+      }
 
       var docToSend = null
       if (availableDocs.length > 0) {

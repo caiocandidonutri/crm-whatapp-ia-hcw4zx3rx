@@ -58,7 +58,7 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
           'whatsapp_messages',
           'remote_jid = {:jid} && instance_name = {:inst}',
           '-timestamp',
-          10,
+          20,
           0,
           { jid: contact.getString('jid'), inst: contact.getString('instance_name') },
         )
@@ -68,6 +68,11 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
       for (var i = recentMsgs.length - 1; i >= 0; i--) {
         var m = recentMsgs[i]
         var c = m.getString('content') || ''
+        if (!c) {
+          // Áudio sem conteúdo legível usa a transcrição (fio da conversa)
+          var mTrans = m.getString('transcription') || ''
+          if (mTrans && mTrans !== 'SKIP_NO_TRANSCRIBE') c = '[Áudio transcrito]: ' + mTrans
+        }
         if (!c) continue
         historyLines.push(
           '- ' +
@@ -77,8 +82,82 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
         )
       }
       var historyBlock = historyLines.length
-        ? '\n\n[HISTÓRICO RECENTE DA CONVERSA]\n' + historyLines.join('\n') + '\n[FIM]'
+        ? '\n\n[HISTÓRICO RECENTE DA CONVERSA — use este fio para entender perguntas de acompanhamento]\n' +
+          historyLines.join('\n') +
+          '\n[FIM DO HISTÓRICO]'
         : ''
+
+      // Ficha de conhecimento da clínica (fatos aprovados: valores, formas de
+      // pagamento, dias de atendimento) buscada por palavras-chave da conversa.
+      var knowledgeBlock = ''
+      try {
+        var kbRecs = $app.findRecordsByFilter(
+          'knowledge_base',
+          'status = "aprovada"',
+          '-updated',
+          60,
+          0,
+        )
+        if (kbRecs && kbRecs.length > 0) {
+          var searchText =
+            historyLines.join(' ') +
+            ' ' +
+            (msg && msg.getString('content') ? msg.getString('content') : '')
+          var kbTerms = []
+          var kbWords = searchText
+            .toLowerCase()
+            .replace(/[^a-z0-9à-ú\s]/g, ' ')
+            .split(/\s+/)
+          var kbStop =
+            'a o e de da do das dos em no na nos nas um uma uns umas para por com sem que qual quais quando onde como você voce'
+          var kbStopMap = {}
+          var kbStopParts = kbStop.split(' ')
+          for (var sw = 0; sw < kbStopParts.length; sw++) kbStopMap[kbStopParts[sw]] = true
+          for (var kw = 0; kw < kbWords.length; kw++) {
+            var kwWord = kbWords[kw]
+            if (kwWord.length >= 3 && !kbStopMap[kwWord] && kbTerms.indexOf(kwWord) === -1) {
+              kbTerms.push(kwWord)
+            }
+            if (kbTerms.length >= 15) break
+          }
+          var kbScored = []
+          for (var kr = 0; kr < kbRecs.length; kr++) {
+            var kbHay = (
+              kbRecs[kr].getString('pergunta') +
+              ' ' +
+              kbRecs[kr].getString('titulo') +
+              ' ' +
+              kbRecs[kr].getString('resposta')
+            ).toLowerCase()
+            var kbScore = 0
+            for (var kt = 0; kt < kbTerms.length; kt++) {
+              if (kbHay.indexOf(kbTerms[kt]) !== -1) kbScore++
+            }
+            if (kbScore > 0) kbScored.push({ rec: kbRecs[kr], score: kbScore })
+          }
+          kbScored.sort(function (a, b) {
+            return b.score - a.score
+          })
+          var kbLines = []
+          var kbMax = kbScored.length < 5 ? kbScored.length : 5
+          for (var kb = 0; kb < kbMax; kb++) {
+            kbLines.push(
+              '- ' +
+                kbScored[kb].rec.getString('titulo') +
+                ': ' +
+                kbScored[kb].rec.getString('resposta'),
+            )
+          }
+          if (kbLines.length > 0) {
+            knowledgeBlock =
+              '\n\n[FICHA DE CONHECIMENTO DA CLÍNICA — fatos aprovados pela equipe. Use como verdade; NÃO invente nada além deles]\n' +
+              kbLines.join('\n') +
+              '\n[FIM DA FICHA DE CONHECIMENTO]'
+          }
+        }
+      } catch (kbErr) {
+        $app.logger().warn('ia_lead_loop: knowledge_base error', 'err', String(kbErr))
+      }
 
       var isFollowup = mode === 'followup'
       var followupCount = contact.getInt('ia_lead_followup_count') || 0
@@ -108,8 +187,12 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
         '  use o argumento de valor: atendimento humanizado, tempo de consulta estendido,\n' +
         '  plano alimentar individualizado e acompanhamento próximo — sem fila de espera.\n' +
         '- NÃO invente horários, preços fechados ou disponibilidade de agenda.\n' +
+        '- MULTI-PERGUNTA: se a mensagem do lead tiver VÁRIAS perguntas, responda TODAS as partes, uma a uma.\n' +
+        '- NUNCA INVENTE fatos concretos (valor exato, disponibilidade em data específica, cobertura de\n' +
+        '  procedimento). Quando não tiver certeza pela ficha de conhecimento, diga que vai confirmar com o\n' +
+        '  Dr. Caio/equipe e já retorna — a equipe é avisada automaticamente.\n' +
         '- Se o lead pedir agendamento, diga que vai confirmar os horários com o Dr. Caio e já retorna.\n' +
-        '- Uma mensagem = um assunto. Tom humano, breve, sem texto corrido longo.\n' +
+        '- Tom de acolhimento e cuidado; breve, sem texto corrido longo.\n' +
         '- NUNCA revele que é IA.\n' +
         '\n[CONTEXTO DO CONTATO]\nNome: ' +
         contactName +
@@ -133,6 +216,7 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
 
       return (
         systemPrompt +
+        knowledgeBlock +
         historyBlock +
         '\n\n[ÚLTIMA MENSAGEM DO LEAD]:\n' +
         (isFollowup ? '(lead ficou em silêncio desde a última mensagem da clínica)' : textContent)
