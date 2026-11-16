@@ -7,6 +7,15 @@ import { Badge } from '@/components/ui/badge'
 import { Bot, RefreshCw } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
+interface LeadTriagem {
+  queixa: string
+  tempo: string
+  modalidade: string
+  periodo: string
+  etapa: string
+  pronto: boolean
+}
+
 interface LeadIaItem {
   id: string
   contact_name: string
@@ -19,6 +28,12 @@ interface LeadIaItem {
   retry_count: number
   minutes_since_trigger: number | null
   care_state: string
+  triagem?: LeadTriagem | null
+}
+
+const MODALIDADE_LABELS: Record<string, string> = {
+  presencial: 'Presencial',
+  online: 'Online',
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -129,6 +144,34 @@ export function LeadsIaAtivosPanel() {
                   {lead.followup_count > 0 && ` · ${lead.followup_count} follow-up(s)`}
                   {lead.retry_count > 0 && ` · ${lead.retry_count} tentativa(s)`}
                 </p>
+                {lead.triagem && (lead.triagem.pronto || lead.triagem.queixa) && (
+                  <div className="mt-2 rounded-md bg-muted/60 px-2.5 py-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-foreground">Triagem</span>
+                      {lead.triagem.pronto ? (
+                        <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
+                          Pronto p/ agendar
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">Triagem em andamento</Badge>
+                      )}
+                    </div>
+                    {lead.triagem.queixa && (
+                      <p className="mt-1">
+                        <span className="text-muted-foreground">Queixa:</span> {lead.triagem.queixa}
+                      </p>
+                    )}
+                    <p className="mt-0.5">
+                      <span className="text-muted-foreground">Modalidade:</span>{' '}
+                      {lead.triagem.modalidade
+                        ? MODALIDADE_LABELS[lead.triagem.modalidade] || lead.triagem.modalidade
+                        : '—'}
+                      {' · '}
+                      <span className="text-muted-foreground">Período:</span>{' '}
+                      {lead.triagem.periodo || '—'}
+                    </p>
+                  </div>
+                )}
               </div>
               <Switch
                 checked={lead.stage !== 'off'}

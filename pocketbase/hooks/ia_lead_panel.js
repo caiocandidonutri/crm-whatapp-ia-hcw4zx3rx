@@ -42,6 +42,31 @@ routerAdd('GET', '/backend/v1/ia-lead/leads', (e) => {
         disabled_by: c.getString('ia_lead_disabled_by') || '',
         minutes_since_trigger: lastMsgTs ? Math.floor((nowTs - lastMsgTs) / 60) : null,
         care_state: c.getString('care_state') || '',
+        // Triagem coletada pela IA (migration 1740000211: ia_lead_triagem_json)
+        triagem: (function () {
+          var t = {
+            queixa: '',
+            modalidade: '',
+            periodo: '',
+            pronto: false,
+            etapa: '',
+          }
+          try {
+            var raw = c.get('ia_lead_triagem_json')
+            if (raw) {
+              var obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+              if (obj && typeof obj === 'object') {
+                t.queixa = String(obj.queixa || '')
+                t.tempo = String(obj.tempo || '')
+                t.modalidade = String(obj.modalidade || '')
+                t.periodo = String(obj.periodo || '')
+                t.etapa = String(obj.etapa || '')
+                t.pronto = obj.pronto === true
+              }
+            }
+          } catch (_) {}
+          return t
+        })(),
       })
     }
   } catch (err) {

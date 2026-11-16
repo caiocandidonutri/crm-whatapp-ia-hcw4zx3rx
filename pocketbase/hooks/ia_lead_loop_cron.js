@@ -46,6 +46,114 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
         return false
       }
     }
+    // ---------- TRIAGEM DO LEAD (campos da migration 1740000211) ----------
+    // Estado da triagem vive em crm_contacts.ia_lead_triagem_json:
+    //   { etapa, queixa, tempo, modalidade, periodo, pronto, fail_count,
+    //     last_attempt_ts, updated_at }
+    var parseTriagem = function (contact) {
+      var t = {
+        etapa: 'queixa',
+        queixa: '',
+        tempo: '',
+        modalidade: '',
+        periodo: '',
+        pronto: false,
+        fail_count: 0,
+        last_attempt_ts: 0,
+        updated_at: '',
+      }
+      try {
+        var raw = contact.get('ia_lead_triagem_json')
+        if (raw) {
+          var obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+          if (obj && typeof obj === 'object') {
+            var keys = ['etapa', 'queixa', 'tempo', 'modalidade', 'periodo', 'updated_at']
+            for (var k = 0; k < keys.length; k++) {
+              if (obj[keys[k]] !== undefined && obj[keys[k]] !== null)
+                t[keys[k]] = String(obj[keys[k]])
+            }
+            if (obj.pronto === true) t.pronto = true
+            if (typeof obj.fail_count === 'number') t.fail_count = obj.fail_count
+            if (typeof obj.last_attempt_ts === 'number') t.last_attempt_ts = obj.last_attempt_ts
+          }
+        }
+      } catch (_) {}
+      if (!t.etapa) t.etapa = 'queixa'
+      return t
+    }
+    var saveTriagem = function (contact, t) {
+      t.updated_at = new Date().toISOString()
+      contact.set('ia_lead_triagem_json', JSON.stringify(t))
+    }
+    // A pergunta pendente SEMPRE é a próxima pendente — o follow-up retoma daqui,
+    // nunca recomeça do zero.
+    var nextTriagemQuestion = function (t) {
+      if (!t.queixa)
+        return 'Qual é a sua principal queixa hoje — o que você está sentindo ou buscando com o acompanhamento?'
+      if (!t.modalidade) return 'Você prefere o atendimento presencial, aqui na clínica, ou online?'
+      if (!t.periodo) return 'E qual o melhor período do dia para você — manhã, tarde ou noite?'
+      return null
+    }
+    // Extração determinística (regex inline, sem custo de IA): modalidade,
+    // período e "há quanto tempo" espontâneo. A queixa é a resposta textual à
+    // pergunta da queixa (guardada inteira, com teto de 300 chars).
+    var extractTriagem = function (rawContent, t) {
+      var text = String(rawContent || '').toLowerCase()
+      if (!t.modalidade) {
+        if (/presencial|na cl[ií]nica|na clinica|pessoalmente|\bpessoal\b/.test(text)) {
+          t.modalidade = 'presencial'
+        } else if (/online|v[ií]deo|virtua|por chamada|whats ?app/.test(text)) {
+          t.modalidade = 'online'
+        }
+      }
+      if (!t.periodo) {
+        var per = []
+        if (/manh[ãa]/.test(text)) per.push('manhã')
+        if (/tarde/.test(text)) per.push('tarde')
+        if (/noite/.test(text)) per.push('noite')
+        if (per.length > 0) t.periodo = per.join(' ou ')
+      }
+      if (!t.tempo) {
+        var mTempo = text.match(/h[áa]\s+\d+\s+(anos?|meses|semanas|dias?)([^.,;!?]*)/)
+        if (mTempo) t.tempo = mTempo[0].trim().substring(0, 60)
+      }
+      if (!t.queixa && t.etapa === 'queixa') {
+        var stripped = text.replace(/[^a-zà-ú\s]/g, '').trim()
+        var shortAnswers = [
+          'presencial',
+          'online',
+          'manha',
+          'manhã',
+          'tarde',
+          'noite',
+          'de manha',
+          'de manhã',
+          'de tarde',
+          'de noite',
+          'a tarde',
+          'à tarde',
+          'a noite',
+          'à noite',
+          'pode ser online',
+          'tanto faz',
+          'qualquer',
+        ]
+        if (stripped && shortAnswers.indexOf(stripped) === -1) {
+          t.queixa = String(rawContent || '')
+            .trim()
+            .substring(0, 300)
+        }
+      }
+      // Avança para a PRÓXIMA pergunta pendente (não recomeça do zero).
+      var nextEtapa = 'pronto'
+      if (!t.queixa) nextEtapa = 'queixa'
+      else if (!t.modalidade) nextEtapa = 'modalidade'
+      else if (!t.periodo) nextEtapa = 'periodo'
+      t.etapa = nextEtapa
+      if (nextEtapa === 'pronto') t.pronto = true
+      return t
+    }
+
     var buildFabianaLeadPrompt = function (contact, msg, mode) {
       var contactName =
         contact.getString('contact_name') || contact.getString('push_name') || 'Paciente'
@@ -160,21 +268,68 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
       }
 
       var isFollowup = mode === 'followup'
+      var isTriagem = mode === 'triagem'
       var followupCount = contact.getInt('ia_lead_followup_count') || 0
 
+      // Estado da triagem + próxima pergunta pendente (uma pergunta por vez)
+      var triagem = parseTriagem(contact)
+      var pendQ = nextTriagemQuestion(triagem)
+      var triagemBlock =
+        '\n[TRIAGEM DO LEAD — dados coletados até agora]\n' +
+        '- Queixa principal: ' +
+        (triagem.queixa || '(ainda não informada)') +
+        '\n' +
+        '- Modalidade (presencial/online): ' +
+        (triagem.modalidade || '(ainda não informada)') +
+        '\n' +
+        '- Período preferido: ' +
+        (triagem.periodo || '(ainda não informado)') +
+        '\n' +
+        '- REGRA RÍGIDA: faça NO MÁXIMO UMA pergunta por mensagem (triagem sem bombardeio). ' +
+        'Nunca pergunte algo que já está coletado acima.'
+
       var goal = ''
-      if (isFollowup) {
-        goal =
-          'MODO: FOLLOW-UP AUTOMÁTICO (lead não respondeu há ~3h). Envie uma mensagem CURTA, ' +
-          'leve e sem cobrança — reabra a conversa com empatia e ofereça ajuda concreta. ' +
-          'Este é o follow-up nº ' +
-          (followupCount + 1) +
-          '. Varie o texto em relação às mensagens anteriores (não repita a mesma frase).'
+      if (isTriagem) {
+        if (pendQ) {
+          goal =
+            'MODO: TRIAGEM DO LEAD — o lead acabou de responder. Acolha brevemente o que ele ' +
+            'disse (1 frase, com empatia) e faça SOMENTE a próxima pergunta pendente da triagem:\n' +
+            'PRÓXIMA PERGUNTA PENDENTE: "' +
+            pendQ +
+            '"\n' +
+            'NÃO faça nenhuma outra pergunta nesta mensagem e não repita perguntas já respondidas.'
+        } else {
+          goal =
+            'MODO: TRIAGEM COMPLETA (queixa, modalidade e período já coletados). NÃO faça mais ' +
+            'perguntas de triagem. Agradeça o compartilhamento com calma, diga que a triagem ' +
+            'está prontinha e que você já vai confirmar os horários com o Dr. Caio e já retorna.'
+        }
+      } else if (isFollowup) {
+        if (pendQ) {
+          goal =
+            'MODO: FOLLOW-UP AUTOMÁTICO (~3h sem resposta do lead) — RETOMADA DE TRIAGEM. ' +
+            'A triagem está INCOMPLETA: NÃO recomece do zero e NÃO repita perguntas já respondidas. ' +
+            'Reabra com leveza e faça SOMENTE a próxima pergunta pendente:\n' +
+            'PRÓXIMA PERGUNTA PENDENTE: "' +
+            pendQ +
+            '"\n' +
+            'Este é o follow-up nº ' +
+            (followupCount + 1) +
+            '.'
+        } else {
+          goal =
+            'MODO: FOLLOW-UP AUTOMÁTICO (lead não respondeu há ~3h). Envie uma mensagem CURTA, ' +
+            'leve e sem cobrança — reabra a conversa com empatia e ofereça ajuda concreta. ' +
+            'Este é o follow-up nº ' +
+            (followupCount + 1) +
+            '. Varie o texto em relação às mensagens anteriores (não repita a mesma frase).'
+        }
       } else {
         goal =
           'MODO: PRIMEIRA RESPOSTA AO LEAD (veio de anúncio de tráfego pago). Acolha com ' +
-          'calidez, agradeça o contato e pergunte com naturalidade qual é a necessidade ' +
-          '(consulta, acompanhamento, convênio, dúvida).'
+          'calidez, agradeça o contato e faça SOMENTE A PRIMEIRA PERGUNTA DA TRIAGEM, com ' +
+          'naturalidade: qual é a queixa principal (o que ele está sentindo ou buscando). ' +
+          'Não pergunte mais nada nesta mensagem.'
       }
 
       var systemPrompt =
@@ -194,12 +349,17 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
         '- Se o lead pedir agendamento, diga que vai confirmar os horários com o Dr. Caio e já retorna.\n' +
         '- Tom de acolhimento e cuidado; breve, sem texto corrido longo.\n' +
         '- NUNCA revele que é IA.\n' +
+        '- TRIAGEM: faça UMA pergunta por vez, espere a resposta e só então faça a próxima.\n' +
+        '  (1) qual é a principal queixa/motivo do contato; (2) prefere atendimento presencial ou\n' +
+        '  online; (3) qual o melhor período do dia (manhã, tarde ou noite). Nunca mande as\n' +
+        '  perguntas juntas numa única mensagem.\n' +
         '\n[CONTEXTO DO CONTATO]\nNome: ' +
         contactName +
         '\nTelefone: ' +
         contactPhone +
         '\nEstágio no CRM: ' +
-        stage
+        stage +
+        triagemBlock
 
       var textContent = msg ? msg.getString('content') || '' : ''
       var transcription = msg ? msg.getString('transcription') || '' : ''
@@ -386,6 +546,12 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
       var sentId = sendIaMessage(contact, replyText)
       if (!sentId) return // falhou o envio → tenta no próximo tick
 
+      // Inicializa o estado da triagem (primeira pergunta: queixa principal)
+      var tInit = parseTriagem(contact)
+      if (!tInit.updated_at && !tInit.queixa && !tInit.pronto) {
+        tInit.etapa = 'queixa'
+        saveTriagem(contact, tInit)
+      }
       contact.set('ia_lead_pending_reply', false)
       contact.set('ia_lead_stage', 'engaged')
       contact.set('ia_lead_retry_count', 0)
@@ -477,6 +643,101 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
       $app.saveNoValidate(contact)
     }
 
+    // Responde a resposta do lead DURANTE a triagem: extrai os dados, grava nos
+    // campos da migration e pergunta a próxima pergunta pendente (1 por vez).
+    var processTriagemReply = function (contact, nowTs) {
+      var remoteJid = contact.getString('jid')
+      var instanceName = contact.getString('instance_name')
+      var t = parseTriagem(contact)
+      if (t.pronto) return // triagem completa — nada a perguntar; equipe assume
+
+      var lastInbound = null
+      var lastInboundTs = 0
+      try {
+        var recents = $app.findRecordsByFilter(
+          'whatsapp_messages',
+          'remote_jid = {:jid} && instance_name = {:inst} && from_me = false',
+          '-timestamp',
+          1,
+          0,
+          { jid: remoteJid, inst: instanceName },
+        )
+        if (recents && recents.length > 0) {
+          lastInbound = recents[0]
+          lastInboundTs = recents[0].getInt('timestamp') || 0
+        }
+      } catch (_) {}
+      if (!lastInbound) return
+
+      // Já houve mensagem da clínica depois da msg do lead? Nada a fazer.
+      var lastMineTs = 0
+      try {
+        var mine = $app.findRecordsByFilter(
+          'whatsapp_messages',
+          'remote_jid = {:jid} && instance_name = {:inst} && from_me = true',
+          '-timestamp',
+          1,
+          0,
+          { jid: remoteJid, inst: instanceName },
+        )
+        if (mine && mine.length > 0) lastMineTs = mine[0].getInt('timestamp') || 0
+      } catch (_) {}
+      if (lastMineTs >= lastInboundTs) return
+
+      // Fail-safe: 3 falhas seguidas da IA → pausa até o lead mandar msg nova
+      if ((t.fail_count || 0) >= 3 && (t.last_attempt_ts || 0) >= lastInboundTs) return
+
+      // Delay natural de ~2 min antes de responder
+      if (nowTs - lastInboundTs < 110) return
+
+      var content = lastInbound.getString('content') || ''
+      var transcription = lastInbound.getString('transcription') || ''
+      if (
+        (!content || content.indexOf('[audio') === 0 || content.indexOf('[Áudio') === 0) &&
+        transcription &&
+        transcription !== 'SKIP_NO_TRANSCRIBE'
+      ) {
+        content = '[Áudio transcrito]: ' + transcription
+      }
+
+      // Extração + avanço de etapa ANTES do prompt (a próxima pergunta já
+      // considera o que acabou de ser respondido).
+      extractTriagem(content, t)
+
+      var result = callFabianaAi(contact, lastInbound, 'triagem', 'ia_lead_loop: triagem AI failed')
+      var ok = false
+      var replyText = result && result.content ? String(result.content).trim() : ''
+      if (replyText) {
+        var sentId = sendIaMessage(contact, replyText)
+        if (sentId) ok = true
+      }
+
+      if (!ok) {
+        // Degradação graciosa: registra a falha e tenta no próximo tick (máx. 3).
+        t.fail_count = (t.fail_count || 0) + 1
+        t.last_attempt_ts = nowTs
+        saveTriagem(contact, t)
+        $app.saveNoValidate(contact)
+        return
+      }
+
+      t.fail_count = 0
+      t.last_attempt_ts = 0
+      saveTriagem(contact, t)
+      $app.saveNoValidate(contact)
+      $app
+        .logger()
+        .info(
+          'ia_lead_loop: triagem processada',
+          'jid',
+          remoteJid,
+          'etapa',
+          t.etapa,
+          'pronto',
+          String(t.pronto),
+        )
+    }
+
     // ---------- fluxo principal ----------
     var processContacts = function (filter, handler) {
       var contacts = []
@@ -518,9 +779,12 @@ cronAdd('ia_lead_loop_cron', '*/5 * * * *', function () {
     processContacts('ia_lead_loop = true', function (contact, nowTs) {
       if (contact.getBool('ia_lead_pending_reply')) {
         processPendingReply(contact, nowTs)
-      } else {
-        processFollowup(contact, nowTs)
+        return
       }
+      // Lead no MEIO da triagem respondeu? Retoma pela próxima pergunta.
+      var t = parseTriagem(contact)
+      if (!t.pronto) processTriagemReply(contact, nowTs)
+      processFollowup(contact, nowTs)
     })
   } catch (fatalErr) {
     $app.logger().error('ia_lead_loop_cron fatal', 'err', String(fatalErr))
