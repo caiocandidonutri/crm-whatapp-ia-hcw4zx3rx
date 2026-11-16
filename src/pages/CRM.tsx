@@ -24,6 +24,7 @@ import {
   UserCheck,
   RefreshCw,
   AlertTriangle,
+  Bot,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -79,6 +80,7 @@ import { SecretaryDashboard } from '@/components/crm/SecretaryDashboard'
 import { CrmImportProgress } from '@/components/crm/CrmImportProgress'
 import { CrmMonthlyReport } from '@/components/crm/CrmMonthlyReport'
 import { CrmAiReport } from '@/components/crm/CrmAiReport'
+import { LeadsIaAtivosPanel } from '@/components/crm/LeadsIaAtivosPanel'
 import { DailySummaryBanner } from '@/components/crm/DailySummaryBanner'
 import { PipelineEditorSheet } from '@/components/crm/PipelineEditorSheet'
 import { CrmBatchActionBar } from '@/components/crm/CrmBatchActionBar'
@@ -94,7 +96,7 @@ import { useCurrentAccount } from '@/hooks/use-current-account'
 
 const COMPANIES_TAB_ID = 'companies'
 
-type ViewMode = 'lista' | 'pipeline' | 'relatorio' | 'ia_report'
+type ViewMode = 'lista' | 'pipeline' | 'relatorio' | 'ia_report' | 'leads_ia'
 
 export default function CRM() {
   const navigate = useNavigate()
@@ -584,6 +586,23 @@ export default function CRM() {
               <Sparkles className="w-3.5 h-3.5" />
               IA
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setViewMode('leads_ia')
+                setActiveTab('all')
+              }}
+              className={cn(
+                'h-7 px-3 rounded-full text-sm font-medium gap-1.5',
+                viewMode === 'leads_ia' && !isCompanies
+                  ? 'bg-background shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Bot className="w-3.5 h-3.5" />
+              Leads IA
+            </Button>
           </div>
 
           {/* Lote do Clube */}
@@ -958,6 +977,9 @@ export default function CRM() {
 
       {/* Relatórios de IA */}
       {!isCompanies && viewMode === 'ia_report' && <CrmAiReport stages={stages} />}
+
+      {/* Leads IA ativos (Loop do Lead de Tráfego Pago) */}
+      {!isCompanies && viewMode === 'leads_ia' && <LeadsIaAtivosPanel />}
 
       {/* Visão Lista */}
       {!isCompanies && viewMode === 'lista' && (

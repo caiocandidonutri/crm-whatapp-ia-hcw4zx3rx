@@ -8,8 +8,9 @@
 //   - janela 00h–04h: sem follow-up (recepcionar ok = só acolhimento inicial)
 //   - Fabiana humana 07h–17h: mensagem humana dela desliga a IA do contato
 // Este arquivo NÃO envia nada por si só: apenas marca/agenda. O envio é feito
-// pelo loop do lead (ia_lead_loop.js) pelo mesmo caminho do cron de IA
+// pelo cron (ia_lead_loop_cron.js) pelo mesmo caminho do cron de IA existente
 // (agent whatsapp-manager + outbox_marks origin 'ia').
+// ZERO deletes: nada aqui remove registros.
 // ============================================================================
 
 var LEAD_TRIGGER_PATTERNS = [
@@ -31,20 +32,22 @@ var LEAD_TRIGGER_PATTERNS = [
   /(primeira|1[ªa])\s+(consulta|sess[aã]o|avalia[cç][aã]o)/i,
 ]
 
-var LEAD_FOLLOWUP_DELIMITERS = /(consulta|acompanhamento|conv[eê]nio|an[uú]ncio)/i
+// Guarda-chave: só casa se o texto citar um dos temas do anúncio (evita falso
+// positivo em conversa comum que contenha "quero saber mais", por exemplo).
+var LEAD_TOPIC_DELIMITERS = /(consulta|acompanhamento|conv[eê]nio|an[uú]ncio|atendimento)/i
 
 function isPaidTrafficLeadMessage(content) {
   if (!content) return false
   var text = String(content).toLowerCase()
   if (text.length < 8) return false
-  if (LEAD_FOLLOWUP_DELIMITERS.test(text) === false) return false
+  if (LEAD_TOPIC_DELIMITERS.test(text) === false) return false
   for (var i = 0; i < LEAD_TRIGGER_PATTERNS.length; i++) {
     if (LEAD_TRIGGER_PATTERNS[i].test(text)) return true
   }
   return false
 }
 
-// Hora local de Brasília (UTC-3,sem DST na prática)
+// Hora local de Brasília (UTC-3, sem DST na prática)
 function brazilHour() {
   return new Date(Date.now() - 3 * 3600 * 1000).getUTCHours()
 }
@@ -87,10 +90,27 @@ function isGlobalAutomationsPaused($app, accountId) {
   }
 }
 
-// Detecção: roda no afterCreate de whatsapp_messages (from_me = false).
+// A msg de saída da própria IA chega pelo webhook com origin provisória
+// 'humano_celular' (reclassificada depois pelo cron_outbox_reclassify via
+// outbox_marks). Antes de tratar uma msg from_me como HUMANA, checa a marca:
+// se saiu da IA/automação, NÃO é humana.
+function isMessageActuallyHuman($app, msg) {
+  try {
+    var markRec = $app.findFirstRecordByFilter('outbox_marks', 'message_id = {:mid}', {
+      mid: msg.getString('message_id') || '',
+    })
+    if (markRec) {
+      var mOrg = markRec.getString('origin') || ''
+      if (mOrg === 'ia' || mOrg === 'automacao') return false
+    }
+  } catch (_) {}
+  return true
+}
+
+// (1)+(2) DETECÇÃO: roda no afterCreate de whatsapp_messages (from_me = false).
 // Se a msg casa com gatilho de lead e o contato ainda não está no loop,
-// marca o contato: ia_lead_loop = true, ia_lead_stage = 'lead',
-// ia_lead_last_trigger_at = agora, e zera follow-up state.
+// marca o contato: ia_lead_loop = true, stage lead/human_pending,
+// ia_lead_pending_reply = true (a IA responde ~2min depois, via cron).
 onRecordAfterCreateSuccess(function (e) {
   try {
     var msg = e.record
@@ -101,7 +121,6 @@ onRecordAfterCreateSuccess(function (e) {
     var instanceName = msg.getString('instance_name')
     var accountId = msg.getString('account_id')
 
-    // Já é resposta minha saindo? Nada a fazer.
     var content = msg.getString('content') || ''
     var transcription = msg.getString('transcription') || ''
     if (
@@ -119,21 +138,20 @@ onRecordAfterCreateSuccess(function (e) {
     var contact = getContactByJid($app, instanceName, remoteJid)
     if (!contact) return e.next()
 
-    // Se a Fabiana humana está de plantão (07h–17h), o lead é dela: IA não assume.
-    // O loop ainda é marcado, mas com 'human_pending' — se passar de 17h sem
-    // resposta humana, o cron assume o follow-up.
     var stage = contact.getString('ia_lead_stage') || ''
     var alreadyInLoop = contact.getBool('ia_lead_loop') || false
 
-    var contactAccountId = contact.getString('account_id') || accountId
+    // Contato já convertido ou desligado manualmente: não reativa sozinho.
+    if (alreadyInLoop && (stage === 'converted' || stage === 'off')) return e.next()
+
     var nowIso = new Date().toISOString()
     var nowTs = Math.floor(Date.now() / 1000)
 
+    // Fabiana humana de plantão (07h–17h): o lead é dela primeiro — o loop
+    // fica 'human_pending' e a IA só assume se ninguém responder até 17h
+    // (ou se o lead chegar fora do plantão).
     var nextStage = 'lead'
     if (isFabianaHumanShift()) nextStage = 'human_pending'
-    else if (isNoFollowupWindow()) nextStage = 'lead' // acolhimento ok, follow-up depois
-
-    if (alreadyInLoop && (stage === 'converted' || stage === 'off')) return e.next()
 
     contact.set('ia_lead_loop', true)
     contact.set('ia_lead_stage', nextStage)
@@ -141,6 +159,7 @@ onRecordAfterCreateSuccess(function (e) {
     contact.set('ia_lead_last_message_ts', nowTs)
     contact.set('ia_lead_pending_reply', true) // aguardando resposta da IA (~2min)
     contact.set('ia_lead_followup_count', 0)
+    contact.set('ia_lead_retry_count', 0)
     contact.set('ia_lead_source', 'trafego_pago')
     try {
       $app.saveNoValidate(contact)
@@ -156,8 +175,8 @@ onRecordAfterCreateSuccess(function (e) {
   return e.next()
 }, 'whatsapp_messages')
 
-// Desligar a IA do contato na hora: mensagem humana da Fabiana
-// (origin humano_celular / humano_crm) sobre um contato que está no loop.
+// (5) HUMANA ASSUME: mensagem humana da Fabiana (origin humano_celular /
+// humano_crm) sobre um contato no loop desliga a IA daquele contato NA HORA.
 onRecordAfterCreateSuccess(function (e) {
   try {
     var msg = e.record
@@ -166,6 +185,9 @@ onRecordAfterCreateSuccess(function (e) {
     if (origin !== 'humano_celular' && origin !== 'humano_crm') return e.next()
     var remoteJid = msg.getString('remote_jid')
     if (!remoteJid || remoteJid.indexOf('@g.us') !== -1) return e.next()
+
+    // Guard: msg da própria IA/automação (outbox mark) não é humana.
+    if (!isMessageActuallyHuman($app, msg)) return e.next()
 
     var contact = getContactByJid($app, msg.getString('instance_name'), remoteJid)
     if (!contact) return e.next()
