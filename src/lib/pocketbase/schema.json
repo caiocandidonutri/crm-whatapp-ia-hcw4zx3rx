@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-16T20:01:18.149Z",
+  "generatedAt": "2026-11-16T20:20:31.577Z",
   "collections": [
     {
       "name": "users",
@@ -603,7 +603,14 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": ["humano_celular", "humano_crm", "ia", "automacao", "desconhecido"]
+          "selectValues": [
+            "humano_celular",
+            "humano_crm",
+            "ia",
+            "automacao",
+            "desconhecido",
+            "paciente"
+          ]
         }
       ],
       "indexes": [

@@ -636,7 +636,8 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       // Achou -> usa a origin marcada ("ia" ou "automacao").
       // Não achou -> "humano_celular" PROVISÓRIO (nunca bloquear o webhook);
       // o cron outbox_reclassify corrige nos próximos minutos se a marca chegar depois.
-      // Se não for from_me -> "desconhecido".
+      // Se não for from_me -> o autor é o próprio contato (paciente/lead): grava
+      // 'paciente' (valor novo no select, migration 1740000207), nunca 'desconhecido'.
       let detectedOrigin = 'desconhecido'
       if (fromMe) {
         let foundMarkOrigin = ''
@@ -658,7 +659,7 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
           detectedOrigin = 'humano_celular'
         }
       } else {
-        detectedOrigin = 'desconhecido'
+        detectedOrigin = 'paciente'
       }
 
       const msgCol = $app.findCollectionByNameOrId('whatsapp_messages')
@@ -678,6 +679,17 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       newMsg.set('status', fromMe ? 'pending' : 'received')
       newMsg.set('timestamp', normalizedTs > 0 ? normalizedTs : currentTs)
       if (msgCol.fields.getByName('origin')) {
+        // Blindagem: se o select ainda não tiver o valor 'paciente' (migration
+        // ainda não aplicada neste deploy), cai em 'desconhecido' em vez de
+        // quebrar o $app.save validado da mensagem.
+        if (detectedOrigin === 'paciente') {
+          let hasPaciente = false
+          try {
+            const values = msgCol.fields.getByName('origin').values || []
+            hasPaciente = values.indexOf('paciente') !== -1
+          } catch (_) {}
+          if (!hasPaciente) detectedOrigin = 'desconhecido'
+        }
         newMsg.set('origin', detectedOrigin)
       }
 

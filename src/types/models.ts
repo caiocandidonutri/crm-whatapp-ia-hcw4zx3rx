@@ -202,6 +202,14 @@ export interface WhatsappMessage extends RecordModel {
   link_description?: string
   link_thumbnail_b64?: string
   is_forwarded?: boolean
+  origin?:
+    | 'humano_celular'
+    | 'humano_crm'
+    | 'ia'
+    | 'automacao'
+    | 'paciente'
+    | 'desconhecido'
+    | (string & {})
 }
 
 export interface Task extends RecordModel {

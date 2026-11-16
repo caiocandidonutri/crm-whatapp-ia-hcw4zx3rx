@@ -192,8 +192,49 @@ cronAdd('transcribe_audio_queue', '8,38 * * * *', () => {
         0,
       )
 
-      if (!candidateAudios || candidateAudios.length === 0) {
+      // RETRY BATCH de áudios com download de mídia falhado (status 'media_failed'):
+      // o webhook grava 'media_failed' quando o base64 não chega/decodifica. O cron
+      // reprocessa buscando o binário na Evolution API (getBase64FromMediaMessage),
+      // salva o arquivo local, restaura status 'received' e segue para transcrição.
+      let mediaFailedAudios = []
+      // Janela de retry: só reprocessa mídias falhadas atualizadas nos últimos 7 dias
+      // (mídia mais antiga que isso não está mais disponível na Evolution API —
+      // permanece 'media_failed' na UI, sem retry infinito).
+      const mediaRetryCutoff = new Date(Date.now() - 7 * 86400 * 1000).toISOString()
+      try {
+        mediaFailedAudios = $app.findRecordsByFilter(
+          'whatsapp_messages',
+          "status = 'media_failed' && (message_type = 'audioMessage' || message_type = 'audio' || message_type = 'ptt' || media_filename ~ '.ogg' || media_mimetype ~ 'ogg' || media_mimetype ~ 'audio') && transcription = '' && updated > '" +
+            mediaRetryCutoff +
+            "'",
+          '+created',
+          10,
+          0,
+        )
+      } catch (mfErr) {
+        console.log('[transcribe_audio_queue] busca media_failed falhou:', mfErr)
+      }
+
+      const hasLocalCandidates = candidateAudios && candidateAudios.length > 0
+      if (!hasLocalCandidates && (!mediaFailedAudios || mediaFailedAudios.length === 0)) {
         return
+      }
+
+      // Une as duas filas (dedup por id) numa única lista de processamento
+      const allAudioCandidates = []
+      const seenIds = {}
+      if (hasLocalCandidates) {
+        for (let c = 0; c < candidateAudios.length; c++) {
+          seenIds[candidateAudios[c].id] = true
+          allAudioCandidates.push(candidateAudios[c])
+        }
+      }
+      if (mediaFailedAudios && mediaFailedAudios.length > 0) {
+        for (let c = 0; c < mediaFailedAudios.length; c++) {
+          if (!seenIds[mediaFailedAudios[c].id]) {
+            allAudioCandidates.push(mediaFailedAudios[c])
+          }
+        }
       }
 
       const baseFilesDir = $app.dataDir() + '/storage'
@@ -204,10 +245,11 @@ cronAdd('transcribe_audio_queue', '8,38 * * * *', () => {
 
       let processedCount = 0
 
-      for (let i = 0; i < candidateAudios.length; i++) {
+      for (let i = 0; i < allAudioCandidates.length; i++) {
         if (processedCount >= 5) break // Processa no máximo 5 por minuto para não sobrecarregar
 
-        const msg = candidateAudios[i]
+        const msg = allAudioCandidates[i]
+        const wasMediaFailed = msg.getString('status') === 'media_failed'
         const remoteJid = msg.getString('remote_jid') || ''
         const instanceName = msg.getString('instance_name') || ''
         const accountId = msg.getString('account_id') || ''
@@ -340,6 +382,99 @@ cronAdd('transcribe_audio_queue', '8,38 * * * *', () => {
             console.log(
               '[transcribe_audio_queue] $http.send download erro para msg ' + msg.id + ':',
               errHttpDl,
+            )
+          }
+        }
+
+        // 2b. Áudio marcado como 'media_failed': o webhook não conseguiu gravar o
+        // binário. Antes de desistir, tenta baixar o base64 direto da Evolution API
+        // (getBase64FromMediaMessage) e PERSISTE o arquivo no registro — assim o
+        // status volta a 'received', media_url/media_file são preenchidos e a UI
+        // volta a tocar o áudio. Única chamada permitida à Evolution nesta rodada.
+        if (!audioFileObj && wasMediaFailed && evApiUrl && evApiKey && messageId && instanceName) {
+          try {
+            const evRes = $http.send({
+              url: evApiUrl + '/chat/getBase64FromMediaMessage/' + instanceName,
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', apikey: evApiKey },
+              body: JSON.stringify({
+                message: {
+                  key: {
+                    id: messageId,
+                    remoteJid: msg.getString('remote_jid'),
+                    fromMe: msg.getBool('from_me'),
+                  },
+                },
+                convertToMp4: false,
+              }),
+              timeout: 6,
+            })
+
+            if (evRes.statusCode === 200 && evRes.json && evRes.json.base64) {
+              let b64 = evRes.json.base64
+              if (b64.indexOf(',') !== -1) b64 = b64.split(',')[1]
+              const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+              const lookup = new Uint8Array(256)
+              for (let li = 0; li < chars.length; li++) lookup[chars.charCodeAt(li)] = li
+              let bufferLength = b64.length * 0.75
+              if (b64[b64.length - 1] === '=') bufferLength--
+              if (b64[b64.length - 2] === '=') bufferLength--
+              const bytes = new Uint8Array(bufferLength)
+              let p = 0
+              for (let bi = 0; bi < b64.length; bi += 4) {
+                const enc1 = lookup[b64.charCodeAt(bi)]
+                const enc2 = lookup[b64.charCodeAt(bi + 1)]
+                const enc3 = lookup[b64.charCodeAt(bi + 2)]
+                const enc4 = lookup[b64.charCodeAt(bi + 3)]
+                bytes[p++] = (enc1 << 2) | (enc2 >> 4)
+                if (p < bufferLength) bytes[p++] = ((enc2 & 15) << 4) | (enc3 >> 2)
+                if (p < bufferLength) bytes[p++] = ((enc3 & 3) << 6) | (enc4 & 63)
+              }
+
+              const mimetype = msg.getString('media_mimetype') || 'audio/ogg; codecs=opus'
+              const ext = mimetype.indexOf('ogg') !== -1 ? '.ogg' : '.mp3'
+              const f = $filesystem.fileFromBytes(bytes, 'retry_' + msg.id + ext)
+              msg.set('media_file', f)
+              msg.set('media_mimetype', mimetype)
+              msg.set('status', 'received')
+              try {
+                $app.saveNoValidate(msg)
+                const savedFile = msg.getString('media_file')
+                if (savedFile) {
+                  const pbUrl = $secrets.get('PB_INSTANCE_URL') || ''
+                  const u = pbUrl.endsWith('/') ? pbUrl.slice(0, -1) : pbUrl
+                  msg.set(
+                    'media_url',
+                    (u ? u : '') + '/api/files/whatsapp_messages/' + msg.id + '/' + savedFile,
+                  )
+                  $app.saveNoValidate(msg)
+                }
+                audioFileObj = $filesystem.fileFromBytes(bytes, 'retry_' + msg.id + ext)
+                console.log(
+                  '[transcribe_audio_queue] media_failed recuperado via Evolution para msg ' +
+                    msg.id,
+                )
+              } catch (persistErr) {
+                console.log(
+                  '[transcribe_audio_queue] falha ao persistir mídia recuperada msg ' +
+                    msg.id +
+                    ':',
+                  persistErr,
+                )
+              }
+            } else {
+              console.log(
+                '[transcribe_audio_queue] Evolution não retornou base64 para msg ' +
+                  msg.id +
+                  ' (HTTP ' +
+                  evRes.statusCode +
+                  ')',
+              )
+            }
+          } catch (evRetryErr) {
+            console.log(
+              '[transcribe_audio_queue] retry media_failed erro msg ' + msg.id + ':',
+              evRetryErr,
             )
           }
         }
