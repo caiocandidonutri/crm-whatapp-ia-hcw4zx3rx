@@ -956,6 +956,9 @@ export function ChatArea({
           </div>
         )}
         {(chat.messages || []).map((msg: any, idx: number) => {
+          // Guard: mensagem malformada (registro antigo/corrompido) nunca derruba
+          // a conversa inteira — pula o item.
+          if (!msg || typeof msg !== 'object') return null
           const isMe = msg.senderId === 'me'
           const prevMsg = chat.messages?.[idx - 1]
           const isFirstInGroup = idx === 0 || prevMsg?.senderId !== msg.senderId
@@ -979,32 +982,34 @@ export function ChatArea({
                   </div>
                 </div>
               )}
-              <MessageItem
-                msg={msg}
-                isMe={isMe}
-                isFirstInGroup={isFirstInGroup}
-                showSenderName={showSenderName}
-                senderColor={senderColor}
-                isSelectionMode={isSelectionMode}
-                isSelected={isSelected}
-                localHighlight={localHighlight}
-                tasksForMessage={tasksByMessageId.get(msg.id)}
-                onToggleSelection={toggleSelection}
-                onSelectMedia={handleSelectMedia}
-                onTaskView={handleTaskView}
-                onReply={handleReplyMessage}
-                onForward={handleForwardMessage}
-                onTranscribe={handleTranscribeMessage}
-                transcribingId={transcribingId}
-              />
+              <ChatComponentErrorBoundary label="mensagem" minHeight="32px">
+                <MessageItem
+                  msg={msg}
+                  isMe={isMe}
+                  isFirstInGroup={isFirstInGroup}
+                  showSenderName={showSenderName}
+                  senderColor={senderColor}
+                  isSelectionMode={isSelectionMode}
+                  isSelected={isSelected}
+                  localHighlight={localHighlight}
+                  tasksForMessage={tasksByMessageId.get(msg.id)}
+                  onToggleSelection={toggleSelection}
+                  onSelectMedia={handleSelectMedia}
+                  onTaskView={handleTaskView}
+                  onReply={handleReplyMessage}
+                  onForward={handleForwardMessage}
+                  onTranscribe={handleTranscribeMessage}
+                  transcribingId={transcribingId}
+                />
+              </ChatComponentErrorBoundary>
             </div>
           )
         })}
 
         {chat.ai_enabled &&
           (chat.messages || []).length > 0 &&
-          chat.messages[chat.messages.length - 1].pending_ai_response &&
-          !chat.messages[chat.messages.length - 1].from_me && (
+          !!chat.messages[chat.messages.length - 1]?.pending_ai_response &&
+          !chat.messages[chat.messages.length - 1]?.from_me && (
             <div className="flex self-start animate-fade-in-up mt-2 mb-2">
               <div className="bg-white text-muted-foreground rounded-2xl rounded-tl-none border border-border/50 px-4 py-2 shadow-sm flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin text-primary" />

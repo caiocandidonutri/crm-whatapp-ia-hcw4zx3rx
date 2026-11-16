@@ -7,6 +7,7 @@ import {
 } from '@/lib/whatsapp-mappers'
 import { ChatList } from '@/components/chat/ChatList'
 import { ChatArea } from '@/components/chat/ChatArea'
+import ChatComponentErrorBoundary from '@/components/chat/ChatComponentErrorBoundary'
 import { ImportProgressBanner } from '@/components/chat/ImportProgressBanner'
 import { AutoRecoveryNotice } from '@/components/chat/AutoRecoveryNotice'
 import { DiagnosticModal } from '@/components/chat/DiagnosticModal'
@@ -81,7 +82,10 @@ export default function Conversas() {
   // Zerar unread_count de forma idempotente local e no PocketBase
   const markChatAsRead = useCallback(
     (convIdOrJid: string) => {
-      const conv = conversations.find((c) => c.id === convIdOrJid || c.remote_jid === convIdOrJid)
+      if (!convIdOrJid) return
+      const conv = conversations.find(
+        (c) => c && (c.id === convIdOrJid || c.remote_jid === convIdOrJid),
+      )
       if (!conv || !conv.unread_count || conv.unread_count <= 0) return
       if (clearingUnreadRef.current.has(conv.id)) return
 
@@ -170,14 +174,15 @@ export default function Conversas() {
   const handleSearchChange = useCallback(
     (term: string) => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
-      if (!term.trim() || !instance?.instance_name || !accountId) {
+      const safeTerm = typeof term === 'string' ? term : ''
+      if (!safeTerm.trim() || !instance?.instance_name || !accountId) {
         setMessageMatchJids(new Set())
         setMessageMatchPreviews(new Map())
         return
       }
       searchDebounceRef.current = setTimeout(async () => {
         try {
-          const result = await searchMessageContent(instance.instance_name, accountId, term)
+          const result = await searchMessageContent(instance.instance_name, accountId, safeTerm)
           setMessageMatchJids(result.jids)
           setMessageMatchPreviews(result.previewByJid)
         } catch {
@@ -193,8 +198,10 @@ export default function Conversas() {
     const convParam = searchParams.get('conversation_id')
     const phoneParam = searchParams.get('phone')
     const msgParam = searchParams.get('msg')
+    // Guard: params podem vir malformados de links antigos
+    if (chatParam !== null && typeof chatParam !== 'string') return
 
-    const targetChat = chatParam || convParam
+    const targetChat = (chatParam || convParam || '') as string
     if (targetChat) {
       setActiveChatId(targetChat)
       if (msgParam) {
@@ -205,8 +212,9 @@ export default function Conversas() {
     }
 
     if (phoneParam && conversations.length > 0) {
-      const cleanTargetPhone = phoneParam.replace(/\D/g, '')
+      const cleanTargetPhone = (phoneParam || '').replace(/\D/g, '')
       const matched = conversations.find((c) => {
+        if (!c) return false
         const cPhone = (
           c.contact_phone || (c.remote_jid ? c.remote_jid.split('@')[0] : '')
         ).replace(/\D/g, '')
@@ -726,8 +734,12 @@ export default function Conversas() {
       </div>
 
       <div className="h-[calc(100vh-10.5rem)] animate-fade-in flex flex-col bg-background rounded-2xl shadow-elevation border border-border overflow-hidden">
-        <ImportProgressBanner instance={instance} />
-        <AutoRecoveryNotice instance={instance} />
+        <ChatComponentErrorBoundary label="banner de importação">
+          <ImportProgressBanner instance={instance} />
+        </ChatComponentErrorBoundary>
+        <ChatComponentErrorBoundary label="aviso de recuperação">
+          <AutoRecoveryNotice instance={instance} />
+        </ChatComponentErrorBoundary>
         <div className="flex-1 flex min-h-0 overflow-hidden">
           {' '}
           <div
@@ -755,35 +767,37 @@ export default function Conversas() {
                   </Button>
                 </div>
               )}
-              <ChatList
-                chats={adaptedChats ?? []}
-                activeChatId={activeChatId}
-                onSelectChat={handleSelectChat}
-                loading={loadingChats || isConnecting}
-                loadingMore={loadingMoreChats}
-                error={chatsError || conversasProcessError}
-                showArchived={showArchived}
-                onToggleArchived={() => setShowArchived((v) => !v)}
-                onRefresh={reloadChats}
-                onReimportHistory={
-                  role === 'owner' ? () => setIsReimportConfirmOpen(true) : undefined
-                }
-                onDiagnose={
-                  role === 'owner' && instance
-                    ? () => handleDiagnose(instance?.instance_name || '')
-                    : undefined
-                }
-                onDisconnect={
-                  role === 'owner' && instance
-                    ? () => disconnect(instance?.instance_name || '')
-                    : undefined
-                }
-                onFactoryReset={role === 'owner' ? () => setIsResetConfirmOpen(true) : undefined}
-                onSearchChange={handleSearchChange}
-                messageMatchJids={messageMatchJids}
-                messageMatchPreviews={messageMatchPreviews}
-                realtimeStatus={realtimeStatus}
-              />
+              <ChatComponentErrorBoundary label="lista de conversas" minHeight="60%">
+                <ChatList
+                  chats={adaptedChats ?? []}
+                  activeChatId={activeChatId}
+                  onSelectChat={handleSelectChat}
+                  loading={loadingChats || isConnecting}
+                  loadingMore={loadingMoreChats}
+                  error={chatsError || conversasProcessError}
+                  showArchived={showArchived}
+                  onToggleArchived={() => setShowArchived((v) => !v)}
+                  onRefresh={reloadChats}
+                  onReimportHistory={
+                    role === 'owner' ? () => setIsReimportConfirmOpen(true) : undefined
+                  }
+                  onDiagnose={
+                    role === 'owner' && instance
+                      ? () => handleDiagnose(instance?.instance_name || '')
+                      : undefined
+                  }
+                  onDisconnect={
+                    role === 'owner' && instance
+                      ? () => disconnect(instance?.instance_name || '')
+                      : undefined
+                  }
+                  onFactoryReset={role === 'owner' ? () => setIsResetConfirmOpen(true) : undefined}
+                  onSearchChange={handleSearchChange}
+                  messageMatchJids={messageMatchJids}
+                  messageMatchPreviews={messageMatchPreviews}
+                  realtimeStatus={realtimeStatus}
+                />
+              </ChatComponentErrorBoundary>
             </div>
           </div>
           <div
@@ -833,24 +847,26 @@ export default function Conversas() {
               )}
             >
               {activeChatWithMessages ? (
-                <ChatArea
-                  chat={activeChatWithMessages}
-                  onBack={() => {
-                    setActiveChatId(null)
-                    setHighlightMsgId(null)
-                  }}
-                  onSendMessage={handleSendMessage}
-                  onSendMedia={handleSendMedia}
-                  onLoadOlder={handleLoadOlder}
-                  hasMoreOlderDb={hasMoreOlderMessages}
-                  loadingOlderDb={loadingOlderMessages}
-                  onLoadOlderDb={loadOlderMessagesFn}
-                  onArchive={(archived) => handleArchive(activeChatWithMessages.id, archived)}
-                  isArchived={activeConversation?.archived === true}
-                  isMobile={isMobile}
-                  highlightMsgId={highlightMsgId}
-                  conversations={conversations}
-                />
+                <ChatComponentErrorBoundary label="conversa aberta" minHeight="60%">
+                  <ChatArea
+                    chat={activeChatWithMessages}
+                    onBack={() => {
+                      setActiveChatId(null)
+                      setHighlightMsgId(null)
+                    }}
+                    onSendMessage={handleSendMessage}
+                    onSendMedia={handleSendMedia}
+                    onLoadOlder={handleLoadOlder}
+                    hasMoreOlderDb={hasMoreOlderMessages}
+                    loadingOlderDb={loadingOlderMessages}
+                    onLoadOlderDb={loadOlderMessagesFn}
+                    onArchive={(archived) => handleArchive(activeChatWithMessages.id, archived)}
+                    isArchived={activeConversation?.archived === true}
+                    isMobile={isMobile}
+                    highlightMsgId={highlightMsgId}
+                    conversations={conversations}
+                  />
+                </ChatComponentErrorBoundary>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50 space-y-4">
                   <div className="w-24 h-24 bg-border rounded-full flex items-center justify-center">
@@ -1043,7 +1059,9 @@ export default function Conversas() {
         </Dialog>
       </div>
 
-      <DiagnosticModal result={diagnosticResult} onClose={() => setDiagnosticResult(null)} />
+      <ChatComponentErrorBoundary label="diagnóstico">
+        <DiagnosticModal result={diagnosticResult} onClose={() => setDiagnosticResult(null)} />
+      </ChatComponentErrorBoundary>
     </div>
   )
 }
