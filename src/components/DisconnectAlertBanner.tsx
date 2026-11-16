@@ -67,7 +67,7 @@ export function DisconnectAlertBanner({
         requestKey: null,
       })
       const safe: Array<{ status?: string; updated?: string; instance_name?: string }> =
-        Array.isArray(records) ? records : []
+        Array.isArray(records) ? (records as unknown as typeof safe) : []
       const connected = safe.find((r) => r && r.status === 'connected')
       setHasInstance(safe.length > 0)
       if (connected) {

@@ -52,6 +52,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { TaskViewDialog } from '@/components/TaskViewDialog'
+import { DisconnectAlertBanner } from '@/components/DisconnectAlertBanner'
 import { consultarStatusInstancia } from '@/services/whatsapp_service'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import {
@@ -942,6 +943,9 @@ function HomeContent() {
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col gap-6 md:gap-8 animate-fade-in pb-12 w-full overflow-x-hidden">
+      {/* Alerta de desconexão do WhatsApp (fixo no topo, dismiss 30min, reaparece) */}
+      <DisconnectAlertBanner />
+
       {/* Section 1: Hero, Instance Status & Manual Refresh */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6">
         <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
