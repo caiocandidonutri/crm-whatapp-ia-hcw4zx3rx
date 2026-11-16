@@ -81,6 +81,28 @@ routerAdd(
         }
 
         if (webhookUrl) {
+          const WEBHOOK_EVENTS = [
+            'APPLICATION_STARTUP',
+            'QRCODE_UPDATED',
+            'MESSAGES_SET',
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'MESSAGES_DELETE',
+            'SEND_MESSAGE',
+            'CONTACTS_SET',
+            'CONTACTS_UPSERT',
+            'CONTACTS_UPDATE',
+            'PRESENCE_UPDATE',
+            'CHATS_SET',
+            'CHATS_UPSERT',
+            'CHATS_UPDATE',
+            'CHATS_DELETE',
+            'GROUPS_UPSERT',
+            'GROUP_UPDATE',
+            'GROUP_PARTICIPANTS_UPDATE',
+            'CONNECTION_UPDATE',
+            'CALL',
+          ]
           try {
             $http.send({
               url: apiUrl + '/webhook/set/' + instanceName,
@@ -91,34 +113,25 @@ routerAdd(
                 url: webhookUrl,
                 byEvents: false,
                 base64: true,
-                events: [
-                  'APPLICATION_STARTUP',
-                  'QRCODE_UPDATED',
-                  'MESSAGES_SET',
-                  'MESSAGES_UPSERT',
-                  'MESSAGES_UPDATE',
-                  'MESSAGES_DELETE',
-                  'SEND_MESSAGE',
-                  'CONTACTS_SET',
-                  'CONTACTS_UPSERT',
-                  'CONTACTS_UPDATE',
-                  'PRESENCE_UPDATE',
-                  'CHATS_SET',
-                  'CHATS_UPSERT',
-                  'CHATS_UPDATE',
-                  'CHATS_DELETE',
-                  'GROUPS_UPSERT',
-                  'GROUP_UPDATE',
-                  'GROUP_PARTICIPANTS_UPDATE',
-                  'CONNECTION_UPDATE',
-                  'CALL',
-                ],
+                events: WEBHOOK_EVENTS,
               }),
               timeout: 10,
             })
           } catch (err) {
             $app.logger().error('Failed to configure webhook', 'instanceName', instanceName)
           }
+
+          // Auditoria: registra quando/quais eventos foram (re)configurados.
+          // Nunca lança — auditoria não pode quebrar o status.
+          try {
+            try {
+              record.set('last_webhook_reconfigured_at', new Date().toISOString().replace('T', ' '))
+            } catch (_) {}
+            try {
+              record.set('webhook_events', WEBHOOK_EVENTS.join(','))
+            } catch (_) {}
+            $app.saveNoValidate(record)
+          } catch (_) {}
         }
 
         return e.json(200, { status: 'connected', state: rawState, instanceName: instanceName })

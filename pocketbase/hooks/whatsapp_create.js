@@ -149,6 +149,30 @@ routerAdd(
       record.set('instance_name', instanceName)
     }
 
+    // REGRA DE INSTÂNCIA ÚNICA: ao gerar um QR novo para esta conta, qualquer
+    // OUTRA instância ainda em 'qrcode' (QR órfão de tentativa anterior) vira
+    // 'disconnected'. Nunca apagamos registro nem limpamos qrcode_base64 delas
+    // (apenas mudamos o status) — o histórico e os dados ficam intactos.
+    // A instância connected (o número 24h do Dr. Caio) NUNCA é tocada.
+    try {
+      const orphans = $app.findRecordsByFilter(
+        'whatsapp_instances',
+        "account_id = {:aid} && status = 'qrcode' && instance_name != {:iname}",
+        '-created',
+        200,
+        0,
+        { aid: accountId, iname: instanceName },
+      )
+      for (let i = 0; i < orphans.length; i++) {
+        try {
+          orphans[i].set('status', 'disconnected')
+          $app.saveNoValidate(orphans[i])
+        } catch (_) {}
+      }
+    } catch (err) {
+      $app.logger().warn('create-instance: falha ao arquivar instâncias qrcode órfãs', String(err))
+    }
+
     record.set('status', 'qrcode')
     try {
       record.set('qrcode_base64', qrcodeBase64)

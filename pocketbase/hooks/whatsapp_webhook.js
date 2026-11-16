@@ -291,6 +291,32 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       } catch (_) {}
     }
 
+    // Lista canônica de eventos habilitados no webhook da Evolution. Usada no
+    // POST /webhook/set e gravada em whatsapp_instances.webhook_events para
+    // auditoria (junto com last_webhook_reconfigured_at).
+    const WEBHOOK_EVENTS = [
+      'APPLICATION_STARTUP',
+      'QRCODE_UPDATED',
+      'MESSAGES_SET',
+      'MESSAGES_UPSERT',
+      'MESSAGES_UPDATE',
+      'MESSAGES_DELETE',
+      'SEND_MESSAGE',
+      'CONTACTS_SET',
+      'CONTACTS_UPSERT',
+      'CONTACTS_UPDATE',
+      'PRESENCE_UPDATE',
+      'CHATS_SET',
+      'CHATS_UPSERT',
+      'CHATS_UPDATE',
+      'CHATS_DELETE',
+      'GROUPS_UPSERT',
+      'GROUP_UPDATE',
+      'GROUP_PARTICIPANTS_UPDATE',
+      'CONNECTION_UPDATE',
+      'CALL',
+    ]
+
     // Helper functions inside the handler
     const configureWebhook = (instName) => {
       const urlStr = $secrets.get('EVOLUTION_API_URL') || ''
@@ -323,28 +349,7 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
               url: webhookUrl,
               byEvents: false,
               base64: true,
-              events: [
-                'APPLICATION_STARTUP',
-                'QRCODE_UPDATED',
-                'MESSAGES_SET',
-                'MESSAGES_UPSERT',
-                'MESSAGES_UPDATE',
-                'MESSAGES_DELETE',
-                'SEND_MESSAGE',
-                'CONTACTS_SET',
-                'CONTACTS_UPSERT',
-                'CONTACTS_UPDATE',
-                'PRESENCE_UPDATE',
-                'CHATS_SET',
-                'CHATS_UPSERT',
-                'CHATS_UPDATE',
-                'CHATS_DELETE',
-                'GROUPS_UPSERT',
-                'GROUP_UPDATE',
-                'GROUP_PARTICIPANTS_UPDATE',
-                'CONNECTION_UPDATE',
-                'CALL',
-              ],
+              events: WEBHOOK_EVENTS,
             }),
             timeout: 10,
           })
@@ -360,6 +365,25 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
             )
         }
       }
+
+      // Auditoria: grava quando/quais eventos foram (re)configurados no registro
+      // da instância. Nunca lança — auditoria não pode quebrar o webhook.
+      try {
+        const instRec = $app.findFirstRecordByFilter(
+          'whatsapp_instances',
+          'instance_name = {:iname}',
+          { iname: instName },
+        )
+        if (instRec) {
+          try {
+            instRec.set('last_webhook_reconfigured_at', new Date().toISOString().replace('T', ' '))
+          } catch (_) {}
+          try {
+            instRec.set('webhook_events', WEBHOOK_EVENTS.join(','))
+          } catch (_) {}
+          $app.saveNoValidate(instRec)
+        }
+      } catch (_) {}
     }
 
     // Carrega remetentes autorizados de care_alert_settings para identificar humano_celular
