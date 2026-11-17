@@ -138,6 +138,11 @@ export default function Conversas() {
     disconnect,
   } = useQrConnection(undefined, instance)
 
+  // Guard de instância única connected: quando a conta JÁ tem uma instância
+  // conectada (número 24h), a tela NUNCA gera QR novo — mostra aviso no lugar.
+  // O backend (whatsapp_create.js) também protege, mas aqui evitamos nem chamar.
+  const hasConnectedInstance = instance?.status === 'connected'
+  const [alreadyConnectedNotice, setAlreadyConnectedNotice] = useState<string | null>(null)
   // Rastreia se rawState passou por 'qrcode' nesta sessão.
   // Usado para distinguir "boot noise" da Evolution API (que retorna
   // state='connecting' antes do QR estar pronto) de um "connecting"
@@ -166,6 +171,31 @@ export default function Conversas() {
   const { role, accountId } = useCurrentAccount()
 
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null)
+
+  // Caso real do bug: useInstanciaAtiva pode falhar no boot (rede/429) e vir
+  // nula MESMO com instância connected no banco — se cair na tela de QR nesse
+  // estado, gerar um QR novo desligaria o número 24h. Consulta one-shot (com
+  // catch silencioso; sem aviso, segue o fluxo normal de QR) para detectar.
+  useEffect(() => {
+    if (hasConnectedInstance || loadingInstance || !accountId || instance) return
+    let cancelled = false
+    pb.collection('whatsapp_instances')
+      .getFirstListItem(`account_id = "${accountId}" && status = "connected"`, {
+        requestKey: null,
+        fields: 'instance_name,phone_number',
+      })
+      .then((rec) => {
+        if (cancelled || !rec) return
+        const nome = rec.phone_number || rec.instance_name || ''
+        setAlreadyConnectedNotice(`sua instância já está conectada (${nome})`)
+      })
+      .catch(() => {
+        // sem instância connected — tela de QR segue normal
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hasConnectedInstance, loadingInstance, accountId, instance])
 
   const [messageMatchJids, setMessageMatchJids] = useState<Set<string>>(new Set())
   const [messageMatchPreviews, setMessageMatchPreviews] = useState<Map<string, string>>(new Map())
@@ -296,12 +326,23 @@ export default function Conversas() {
   }
 
   useEffect(() => {
-    if (!loadingInstance && (!instance || instance.status !== 'connected')) {
+    // Guard: conta com instância connected NUNCA dispara generateQrCode()
+    // (nem no boot, nem pós-reload). O número 24h fica intacto.
+    if (hasConnectedInstance) return
+    if (!loadingInstance && !instance) {
       if (!qrCodeBase64 && !isGenerating && pollErrors === 0) {
         generateQrCode()
       }
     }
-  }, [instance, loadingInstance, qrCodeBase64, isGenerating, pollErrors, generateQrCode])
+  }, [
+    instance,
+    loadingInstance,
+    qrCodeBase64,
+    isGenerating,
+    pollErrors,
+    generateQrCode,
+    hasConnectedInstance,
+  ])
 
   const activeConversation = React.useMemo(() => {
     if (!Array.isArray(conversations)) return null
@@ -637,6 +678,30 @@ export default function Conversas() {
               O administrador da conta precisa conectar um número de WhatsApp antes que você possa
               visualizar as conversas.
             </p>
+          </div>
+        </div>
+      )
+    }
+
+    // Instância connected existe mas o hook useInstanciaAtiva ainda não a
+    // adotou (ex.: instância ativa veio nula pós-reload) — mostra o aviso
+    // "já conectada" no lugar do QR, sem nunca gerar QR novo.
+    if (alreadyConnectedNotice) {
+      return (
+        <div className="h-[calc(100vh-8rem)] animate-fade-in flex items-center justify-center bg-background rounded-2xl shadow-elevation border border-border overflow-hidden">
+          <div className="glass-card p-8 flex flex-col items-center justify-center text-center max-w-md w-full mx-4">
+            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-700 mb-6">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <h2 className="font-serif text-2xl font-semibold text-primary mb-4">
+              WhatsApp conectado
+            </h2>
+            <p className="text-sm text-muted-foreground text-balance mb-6">
+              {alreadyConnectedNotice}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+              Recarregar página
+            </Button>
           </div>
         </div>
       )

@@ -25,6 +25,26 @@ routerAdd(
       syncPeriodDays = body.syncPeriodDays
     }
 
+    // GUARD DE INSTÂNCIA ÚNICA CONNECTED: se esta conta JÁ tem uma instância
+    // conectada (o número 24h), NÃO tocamos na Evolution API — retornamos a
+    // instância existente com alreadyConnected: true. Evita criar instâncias
+    // duplicadas e proteger o número que nunca pode ser desconectado.
+    try {
+      const connected = $app.findFirstRecordByFilter(
+        'whatsapp_instances',
+        "account_id = {:aid} && status = 'connected'",
+        { aid: accountId },
+      )
+      return e.json(200, {
+        instanceName: connected.get('instance_name'),
+        qrcodeBase64: '',
+        status: 'connected',
+        alreadyConnected: true,
+      })
+    } catch (_) {
+      // nenhuma instância connected para esta conta — segue o fluxo normal de QR
+    }
+
     const urlStr = $secrets.get('EVOLUTION_API_URL') || ''
     const apiUrl = urlStr.endsWith('/') ? urlStr.slice(0, -1) : urlStr
     const apiKey = $secrets.get('EVOLUTION_API_KEY') || ''

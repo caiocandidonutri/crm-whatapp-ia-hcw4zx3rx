@@ -431,18 +431,17 @@ export function ChatArea({
       return
     }
     const checkCrm = async () => {
+      // Passa pelo service com cache 30s + dedupe de promessa + backoff em 429 —
+      // consulta direta aqui martelava o backend com 429 a cada troca de conversa.
       try {
-        const records = await pb.collection('crm_contacts').getList(1, 1, {
-          filter: `jid = '${chat.remote_jid}' && instance_name = '${chat.instance_name}'`,
-          requestKey: null,
-        })
-        setIsInCrm(records.items.length > 0)
+        const contact = await getCrmContactByJid(chat.instance_name, chat.remote_jid)
+        setIsInCrm(!!contact)
       } catch (err) {
         setIsInCrm(false)
       }
     }
     checkCrm()
-  }, [chat])
+  }, [chat?.remote_jid, chat?.instance_name, chat?.type])
 
   const handleOpenAddToCrm = () => {
     if (!chat || chat.type === 'group' || isInCrm) return

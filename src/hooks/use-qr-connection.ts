@@ -57,6 +57,10 @@ export function useQrConnection(
   }, [existingInstance?.instance_name, existingInstance?.qrcode_base64, existingInstance?.status])
 
   const generateQrCode = useCallback(async () => {
+    // Guard espelhando o backend (whatsapp_create.js): se a conta JÁ tem
+    // instância connected, NUNCA chama a Evolution API nem cria registro —
+    // protege o número 24h conectado.
+    if (existingInstance?.status === 'connected') return
     if (accountLoading) {
       toast({
         title: 'Aguarde',
@@ -108,7 +112,7 @@ export function useQrConnection(
     } finally {
       setIsGenerating(false)
     }
-  }, [toast, existingInstance?.instance_name, accountId, accountLoading])
+  }, [toast, existingInstance?.instance_name, existingInstance?.status, accountId, accountLoading])
 
   const disconnect = useCallback(async (name: string) => {
     try {
