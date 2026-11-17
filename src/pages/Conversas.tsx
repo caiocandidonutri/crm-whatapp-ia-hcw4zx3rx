@@ -648,7 +648,10 @@ export default function Conversas() {
     }
   }
 
-  if (loadingInstance) {
+  // A tela só espera o primeiro fetch de instâncias se AINDA não há nem um
+  // cache hidratado. Com cache do localStorage, renderiza já com o status
+  // 'conectado' (o fetch em background confirma/corrige — fix dos ~40s).
+  if (loadingInstance && !instance) {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
         <Skeleton className="w-full h-full rounded-2xl" />

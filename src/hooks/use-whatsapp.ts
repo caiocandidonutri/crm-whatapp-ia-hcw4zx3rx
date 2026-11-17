@@ -123,12 +123,69 @@ function applyMessageEvent(
   return Array.from(map.values()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
 }
 
+// Cache local da última instância connected, por conta. Hidrata o hook ANTES
+// da rede para que o status 'conectado' apareça em <1s (o fetch real confirma
+// ou corrige logo em seguida; realtime patcheia por cima). NADA de validação
+// estrita removida: o cache só é usado como valor inicial otimista.
+const LAST_CONNECTED_KEY = 'crm:last_connected_instance'
+
+function readCachedConnectedInstance(accountId: string | null): WhatsappInstance | null {
+  if (!accountId || typeof window === 'undefined' || !window.localStorage) return null
+  try {
+    const raw = window.localStorage.getItem(`${LAST_CONNECTED_KEY}:${accountId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { record?: WhatsappInstance; cachedAt?: number }
+    const rec = parsed?.record
+    if (!rec || typeof rec !== 'object' || rec.status !== 'connected' || !rec.id) return null
+    // Cache vence em 7 dias (segurança contra instância antiga que caiu e o
+    // app ficou fechado desde então — a rede confirma em seguida de qualquer forma)
+    const cachedAt = typeof parsed.cachedAt === 'number' ? parsed.cachedAt : 0
+    if (cachedAt <= 0 || Date.now() - cachedAt > 7 * 24 * 60 * 60 * 1000) return null
+    return rec
+  } catch {
+    return null
+  }
+}
+
+function writeCachedConnectedInstance(accountId: string | null, rec: WhatsappInstance | null) {
+  if (!accountId || typeof window === 'undefined' || !window.localStorage) return
+  try {
+    if (rec && rec.status === 'connected') {
+      window.localStorage.setItem(
+        `${LAST_CONNECTED_KEY}:${accountId}`,
+        JSON.stringify({ record: rec, cachedAt: Date.now() }),
+      )
+    } else {
+      // Instância conectada deixou de existir: invalida o cache.
+      window.localStorage.removeItem(`${LAST_CONNECTED_KEY}:${accountId}`)
+    }
+  } catch {
+    // storage cheio/indisponível — silencioso, nunca quebra o hook
+  }
+}
+
 export function useInstanciaAtiva() {
   const { user } = useAuth()
   const { accountId } = useCurrentAccount()
+  // Valor inicial otimista: lê o cache de forma LAZY (no primeiro render),
+  // usando accountId ainda nulo → o efeito de hidratação abaixo corrige.
   const [instance, setInstance] = useState<WhatsappInstance | null>(null)
   const [loading, setLoading] = useState(true)
   const abortRef = useRef<AbortController | null>(null)
+  const hydratedAccountRef = useRef<string | null>(null)
+
+  // Hidratação instantânea: ANTES da rede, o estado já tem a última instância
+  // connected conhecida desta conta. Enquanto o fetch confirma, `loading`
+  // continua true mas `instance` já está disponível — as telas mostram
+  // 'conectado' imediatamente e o realtime/fetch corrigem se tiver caído.
+  useEffect(() => {
+    if (!accountId || hydratedAccountRef.current === accountId) return
+    hydratedAccountRef.current = accountId
+    const cached = readCachedConnectedInstance(accountId)
+    if (cached) {
+      setInstance((prev) => (prev && prev.status === 'connected' ? prev : cached))
+    }
+  }, [accountId])
 
   const load = useCallback(async () => {
     if (!user || !accountId) {
@@ -151,12 +208,17 @@ export function useInstanciaAtiva() {
       // Estritamente connected: uma instância morta ('qrcode'/'disconnected') nunca
       // é adotada como ativa. Sem nenhuma conectada, devolve null — a tela já
       // tem o fallback de QR (Conversas.tsx) para o owner conectar.
-      const connected = safeRecords.find((r) => r && r.status === 'connected')
-      setInstance(connected || null)
+      const connected = safeRecords.find((r) => r && r.status === 'connected') || null
+      if (!ctrl.signal.aborted) {
+        setInstance(connected)
+        writeCachedConnectedInstance(accountId, connected)
+      }
     } catch (e) {
       if (isAbort(e)) return
       console.warn('[useInstanciaAtiva] Falha ao carregar instâncias (fallback silencioso):', e)
-      setInstance(null)
+      // Falha de rede: mantém o cache hidratado (não derruba o status que já
+      // aparecia) — o próximo ciclo/realtime corrige.
+      setInstance((prev) => (prev?.status === 'connected' ? prev : null))
     } finally {
       if (!ctrl.signal.aborted) setLoading(false)
     }

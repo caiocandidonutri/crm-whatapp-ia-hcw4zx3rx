@@ -175,6 +175,10 @@ class HomeInternalErrorBoundary extends React.Component<
 
 export default function Home() {
   return (
+    // Defesa extra em camada: qualquer erro de INICIALIZAÇÃO de módulo que
+    // escape do HomeInternalErrorBoundary (ex.: imports top-level com side
+    // effects) não chega mais ao ErrorBoundary GLOBAL da rota — mostra o
+    // fallback interno com retry, que também cobre o boot.
     <HomeInternalErrorBoundary>
       <HomeContent />
     </HomeInternalErrorBoundary>

@@ -45,6 +45,7 @@ export function DisconnectAlertBanner({
   const [tick, setTick] = useState(0)
   const [connectedUpdatedAt, setConnectedUpdatedAt] = useState<string | null>(null)
   const [hasInstance, setHasInstance] = useState(false)
+  const [hasConnectedInstance, setHasConnectedInstance] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const toastShownRef = useRef(false)
 
@@ -71,8 +72,16 @@ export function DisconnectAlertBanner({
       const connected = safe.find((r) => r && r.status === 'connected')
       setHasInstance(safe.length > 0)
       if (connected) {
-        setConnectedUpdatedAt(connected.updated || new Date().toISOString())
+        // FIX do alerta falso: se QUALQUER instância está connected, NUNCA mostra
+        // o alerta — o critério de idade do `updated` só vale quando não há
+        // nenhuma connected (uma instância estável não é salva de novo e o
+        // autodate `updated` envelhece sem significar queda). Connected com
+        // updated vazio/malformado também é tratada como conectada (age 0).
+        setHasConnectedInstance(true)
+        const connectedTs = safeTimestampMs(connected.updated)
+        setConnectedUpdatedAt(connectedTs > 0 ? connected.updated : new Date().toISOString())
       } else {
+        setHasConnectedInstance(false)
         // Nenhuma connected: usa o updated mais recente de qualquer instância —
         // se houve uma connected que caiu, o alerta nasce 5 min após a queda.
         const maxUpdated = safe.reduce<string | null>((max, r) => {
@@ -87,6 +96,7 @@ export function DisconnectAlertBanner({
       if (isNetworkError(e)) return // transitória: tenta de novo no próximo ciclo
       console.warn('[DisconnectAlertBanner] Falha ao carregar instâncias:', e)
       setHasInstance(false)
+      setHasConnectedInstance(false)
       setConnectedUpdatedAt(null)
     } finally {
       setLoaded(true)
@@ -101,14 +111,28 @@ export function DisconnectAlertBanner({
 
   const shouldShow = useMemo(() => {
     if (!loaded || accountLoading || dismissed || !hasInstance) return false
-    if (safeTimestampMs(connectedUpdatedAt) <= 0) return false
+    // FIX do alerta falso: existe QUALQUER instância connected na conta → nunca
+    // mostra o alerta. O critério de idade do `updated` só vale quando não há
+    // nenhuma connected (instância estável não é salva de novo e o autodate
+    // `updated` envelhece sem significar queda).
+    if (hasConnectedInstance) return false
     if (!connectedUpdatedAt) return false
-    // Idade desde a última vez que ALGUMA instância esteve connected:
-    // - se hoje há uma connected, `connectedUpdatedAt` é o updated dela (sempre recente, PB atualiza o autodate a cada save de status)
-    // - se nenhuma está connected, é o updated da última que esteve — passou do limiar, alerta
+    if (safeTimestampMs(connectedUpdatedAt) <= 0) return false
+    // Idade desde a última vez que ALGUMA instância esteve connected: se nenhuma
+    // está connected hoje, `connectedUpdatedAt` é o updated da última que esteve
+    // — passado o limiar, alerta.
     const age = Date.now() - safeTimestampMs(connectedUpdatedAt)
     return age > thresholdMs
-  }, [loaded, accountLoading, dismissed, hasInstance, connectedUpdatedAt, thresholdMs, tick])
+  }, [
+    loaded,
+    accountLoading,
+    dismissed,
+    hasInstance,
+    hasConnectedInstance,
+    connectedUpdatedAt,
+    thresholdMs,
+    tick,
+  ])
 
   // Toast uma única vez quando o alerta nasce
   useEffect(() => {
