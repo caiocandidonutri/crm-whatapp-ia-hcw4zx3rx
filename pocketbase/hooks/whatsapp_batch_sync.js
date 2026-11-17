@@ -18,6 +18,58 @@ cronAdd('whatsapp_batch_sync', '21 */2 * * *', () => {
   try {
     var cronStartMs = Date.now()
 
+    // IMPORTANTE (escopo da JSVM do PocketBase): callbacks rodam em pool
+    // separado — declarações top-level (function/var) do arquivo NÃO são
+    // visíveis dentro do callback em runtime (ReferenceError). Por isso,
+    // TODA lógica auxiliar (previewFor, tsToUnix) vive INLINE no corpo
+    // deste callback, nunca no escopo top-level do arquivo.
+    //
+    // Preview curto do last_message para tipos de mídia (mesmo padrão do
+    // sync-conversation e do webhook).
+    function previewFor(msgType, content) {
+      if (content && content.trim()) return content
+      if (!msgType) return ''
+      if (msgType.indexOf('image') >= 0) return '[Imagem]'
+      if (msgType.indexOf('audio') >= 0) return '[Áudio]'
+      if (msgType.indexOf('video') >= 0) return '[Vídeo]'
+      if (msgType.indexOf('document') >= 0) return '[Documento]'
+      if (msgType.indexOf('sticker') >= 0) return '[Sticker]'
+      return ''
+    }
+
+    // Normaliza messageTimestamp do Evolution/Baileys (number, string, Long
+    // protobuf {low, high, unsigned} ou null) para Unix segundos — mesma
+    // função de whatsapp_sync_conversation.js/whatsapp_webhook.js, duplicada
+    // de propósito para não depender de shared-scope da JSVM.
+    function tsToUnix(ts) {
+      if (ts == null) return 0
+      if (typeof ts === 'number') {
+        if (!isFinite(ts) || ts <= 0) return 0
+        return ts > 1e12 ? Math.floor(ts / 1000) : Math.floor(ts)
+      }
+      if (typeof ts === 'string') {
+        const n = parseInt(ts, 10)
+        if (!isFinite(n) || n <= 0) return 0
+        return n > 1e12 ? Math.floor(n / 1000) : n
+      }
+      if (typeof ts === 'object') {
+        if (typeof ts.low === 'number' && typeof ts.high === 'number') {
+          const n = ts.high * 4294967296 + (ts.low >>> 0)
+          if (!isFinite(n) || n <= 0) return 0
+          return n > 1e12 ? Math.floor(n / 1000) : n
+        }
+        if (typeof ts.toNumber === 'function') {
+          try {
+            const n = ts.toNumber()
+            if (typeof n === 'number' && isFinite(n) && n > 0) {
+              return n > 1e12 ? Math.floor(n / 1000) : n
+            }
+          } catch (_) {}
+        }
+      }
+      return 0
+    }
+
     // ISENTO do kill-switch global (global_automations_paused): o import é
     // somente leitura (chat/findMessages da Evolution) + INSERT dedup por
     // message_id no banco local. NUNCA envia mensagem, NUNCA apaga, NUNCA
@@ -291,49 +343,3 @@ cronAdd('whatsapp_batch_sync', '21 */2 * * *', () => {
     $app.logger().error('whatsapp_batch_sync_fatal', 'error', String(fatalErr))
   }
 })
-
-// Preview curto do last_message para tipos de mídia (mesmo padrão do
-// sync-conversation e do webhook).
-function previewFor(msgType, content) {
-  if (content && content.trim()) return content
-  if (!msgType) return ''
-  if (msgType.indexOf('image') >= 0) return '[Imagem]'
-  if (msgType.indexOf('audio') >= 0) return '[Áudio]'
-  if (msgType.indexOf('video') >= 0) return '[Vídeo]'
-  if (msgType.indexOf('document') >= 0) return '[Documento]'
-  if (msgType.indexOf('sticker') >= 0) return '[Sticker]'
-  return ''
-}
-
-// Normaliza messageTimestamp do Evolution/Baileys (number, string, Long
-// protobuf {low, high, unsigned} ou null) para Unix segundos — mesma função
-// de whatsapp_sync_conversation.js/whatsapp_webhook.js, duplicada de propósito
-// para não depender de shared-scope da JSVM do PocketBase.
-function tsToUnix(ts) {
-  if (ts == null) return 0
-  if (typeof ts === 'number') {
-    if (!isFinite(ts) || ts <= 0) return 0
-    return ts > 1e12 ? Math.floor(ts / 1000) : Math.floor(ts)
-  }
-  if (typeof ts === 'string') {
-    const n = parseInt(ts, 10)
-    if (!isFinite(n) || n <= 0) return 0
-    return n > 1e12 ? Math.floor(n / 1000) : n
-  }
-  if (typeof ts === 'object') {
-    if (typeof ts.low === 'number' && typeof ts.high === 'number') {
-      const n = ts.high * 4294967296 + (ts.low >>> 0)
-      if (!isFinite(n) || n <= 0) return 0
-      return n > 1e12 ? Math.floor(n / 1000) : n
-    }
-    if (typeof ts.toNumber === 'function') {
-      try {
-        const n = ts.toNumber()
-        if (typeof n === 'number' && isFinite(n) && n > 0) {
-          return n > 1e12 ? Math.floor(n / 1000) : n
-        }
-      } catch (_) {}
-    }
-  }
-  return 0
-}
