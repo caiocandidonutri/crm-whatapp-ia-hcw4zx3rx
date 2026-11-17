@@ -171,11 +171,8 @@ routerAdd(
     }
     let realPhoneNumber = ''
     try {
-      const connInfo = evoInstances.find(
-        (x) => (x.name || x.instanceName || '') === real.name,
-      )
-      const profName =
-        connInfo && connInfo.profileName ? connInfo.profileName : ''
+      const connInfo = evoInstances.find((x) => (x.name || x.instanceName || '') === real.name)
+      const profName = connInfo && connInfo.profileName ? connInfo.profileName : ''
       const owner =
         connInfo && connInfo.ownerJid
           ? connInfo.ownerJid
@@ -241,15 +238,17 @@ routerAdd(
       }
     }
 
-    $app.logger().info(
-      'fix_real_instance_done',
-      'real',
-      real.name,
-      'webhook',
-      webhookUrl,
-      'updates',
-      JSON.stringify(result.dbUpdates),
-    )
+    $app
+      .logger()
+      .info(
+        'fix_real_instance_done',
+        'real',
+        real.name,
+        'webhook',
+        webhookUrl,
+        'updates',
+        JSON.stringify(result.dbUpdates),
+      )
     return e.json(200, { success: true, result })
   },
   $apis.requireAuth(),

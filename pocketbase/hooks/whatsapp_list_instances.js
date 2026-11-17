@@ -68,7 +68,9 @@ routerAdd('GET', '/backend/v1/whatsapp/list-instances', (e) => {
     }
   } catch (_) {}
 
-  $app.logger().info('list_instances_result', 'total', summary.length, 'summary', JSON.stringify(summary))
+  $app
+    .logger()
+    .info('list_instances_result', 'total', summary.length, 'summary', JSON.stringify(summary))
   $app.logger().info('list_instances_local', 'local', JSON.stringify(local))
 
   return e.json(200, {

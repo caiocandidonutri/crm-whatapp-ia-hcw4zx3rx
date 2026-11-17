@@ -222,9 +222,13 @@ routerAdd(
         } else if (typeKey === 'extendedTextMessage') {
           content = (msg.message.extendedTextMessage || {}).text || ''
         } else if (
-          ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'].indexOf(
-            typeKey,
-          ) !== -1
+          [
+            'imageMessage',
+            'videoMessage',
+            'audioMessage',
+            'documentMessage',
+            'stickerMessage',
+          ].indexOf(typeKey) !== -1
         ) {
           content = (msg.message[typeKey] || {}).caption || ''
         }
@@ -266,7 +270,10 @@ routerAdd(
               .sort((a, b) => (b.key.fromMe === true ? 1 : 0) - (a.key.fromMe === true ? 1 : 0))
             if (newer.length > 0) {
               const tk = Object.keys(newer[0].message).find((k) => k !== 'messageContextInfo')
-              const lastTxt = previewFor(tk, (newer[0].message[tk] || {}).text || (newer[0].message[tk] || {}).caption || '')
+              const lastTxt = previewFor(
+                tk,
+                (newer[0].message[tk] || {}).text || (newer[0].message[tk] || {}).caption || '',
+              )
               if (lastTxt) conv.set('last_message', lastTxt)
             }
           }
@@ -277,15 +284,17 @@ routerAdd(
       result.totalInserted += convInserted
     }
 
-    $app.logger().info(
-      'import_last_24h_done',
-      'instance',
-      realInstance,
-      'inserted',
-      result.totalInserted,
-      'errors',
-      result.errors.length,
-    )
+    $app
+      .logger()
+      .info(
+        'import_last_24h_done',
+        'instance',
+        realInstance,
+        'inserted',
+        result.totalInserted,
+        'errors',
+        result.errors.length,
+      )
     return e.json(200, { success: true, result })
   },
   $apis.requireAuth(),

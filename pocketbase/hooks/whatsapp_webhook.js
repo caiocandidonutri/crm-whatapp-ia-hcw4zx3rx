@@ -52,8 +52,32 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
         { name: instanceName },
       )
     } catch (_) {
-      $app.logger().warn('Webhook received for unknown instance', 'instanceName', instanceName)
-      return e.json(200, { received: true, ignored: true, reason: 'unknown_instance' })
+      // AUTO-PROVISIONAMENTO: instância sem registro local. Antes isso DESCARTAVA
+      // o evento (unknown_instance) — e quando o registro da instância real
+      // conectada faltava no banco, TODAS as mensagens morriam aqui em silêncio.
+      // Agora: cria o registro herdando user/account da instância mais recente
+      // da conta (o webhook é aberto, a Evolution é a fonte da verdade sobre
+      // quais instâncias existem) e segue o processamento normalmente.
+      $app.logger().warn('Webhook auto-provisioning unknown instance', 'instanceName', instanceName)
+      try {
+        const col = $app.findCollectionByNameOrId('whatsapp_instances')
+        const newest = $app.findRecordsByFilter('whatsapp_instances', '', '-updated', 1, 0)
+        const newRec = new Record(col)
+        newRec.set('instance_name', instanceName)
+        newRec.set('status', 'connected')
+        if (newest.length > 0) {
+          newRec.set('user_id', newest[0].getString('user_id'))
+          newRec.set('account_id', newest[0].getString('account_id'))
+        }
+        $app.saveNoValidate(newRec)
+        instanceRecord = newRec
+        $app.logger().info('Webhook instance auto-created', 'instanceName', instanceName)
+      } catch (provErr) {
+        $app
+          .logger()
+          .warn('Webhook auto-provision failed', 'instanceName', instanceName, String(provErr))
+        return e.json(200, { received: true, ignored: true, reason: 'auto_provision_failed' })
+      }
     }
 
     // HEARTBEAT: todo POST válido (qualquer evento) atualiza
@@ -2073,6 +2097,26 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
           instanceRecord.set('qrcode_base64', '')
         } catch (_) {}
         $app.save(instanceRecord)
+        // REGRA DE INSTÂNCIA ÚNICA: quando ESTA instância conecta, qualquer
+        // OUTRA instância da conta ainda 'connected' no banco é órfã (a
+        // Evolution só tem uma sessão real 24h). Vira 'disconnected' — nunca
+        // apagadas. Sem isso, o silêncio-monitor vigiava a instância errada.
+        try {
+          const others = $app.findRecordsByFilter(
+            'whatsapp_instances',
+            "status = 'connected' && instance_name != {:name}",
+            '-updated',
+            200,
+            0,
+            { name: instanceName },
+          )
+          for (const o of others) {
+            try {
+              o.set('status', 'disconnected')
+              $app.saveNoValidate(o)
+            } catch (_) {}
+          }
+        } catch (_) {}
         configureWebhook(instanceName)
       } else if (state === 'close' || state === 'disconnected') {
         // Não sobrescrever 'qrcode' quando há re-pareamento em andamento.
