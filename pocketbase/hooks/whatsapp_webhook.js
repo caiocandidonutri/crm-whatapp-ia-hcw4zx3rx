@@ -56,6 +56,14 @@ routerAdd('POST', '/backend/v1/whatsapp/webhook', (e) => {
       return e.json(200, { received: true, ignored: true, reason: 'unknown_instance' })
     }
 
+    // HEARTBEAT: todo POST válido (qualquer evento) atualiza
+    // last_webhook_event_at. O cron de monitor de silêncio usa isso para
+    // detectar webhook morto (connected + >15min sem evento → refaz o set).
+    try {
+      instanceRecord.set('last_webhook_event_at', new Date().toISOString().replace('T', ' '))
+      $app.save(instanceRecord)
+    } catch (_) {}
+
     const userId = instanceRecord.getString('user_id')
     let accountId = instanceRecord.getString('account_id')
     if (!accountId) {

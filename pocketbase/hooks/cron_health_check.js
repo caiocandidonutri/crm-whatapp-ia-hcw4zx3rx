@@ -21,8 +21,16 @@ cronAdd('health_check', '51 * * * *', function () {
       'Content-Type': 'application/json',
     }
 
-    var pbUrl = ($secrets.get('POCKETBASE_URL') || '').trim()
-    var webhookUrl = pbUrl ? pbUrl.replace(/\/$/, '') + '/api/whatsapp/webhook' : ''
+    var pbUrl = (
+      $secrets.get('POCKETBASE_URL') ||
+      $secrets.get('PB_WEBHOOK_URL') ||
+      $secrets.get('PB_INSTANCE_URL') ||
+      ''
+    ).trim()
+    // Rota REAL do webhook (whatsapp_webhook.js registra /backend/v1/whatsapp/webhook).
+    // A rota antiga /api/whatsapp/webhook NÃO existe — apontar para ela faz o
+    // health check regravar o webhook da Evolution numa rota morta e mata a entrega.
+    var webhookUrl = pbUrl ? pbUrl.replace(/\/$/, '') + '/backend/v1/whatsapp/webhook' : ''
     var webhookEvents = [
       'MESSAGES_UPSERT',
       'MESSAGES_UPDATE',

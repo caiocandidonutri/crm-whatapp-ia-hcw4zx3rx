@@ -12,24 +12,18 @@
 // API é tocada apenas em leitura.
 //
 // Roda a cada 2h no minuto 21 (minuto escalonado, não colide com outros
-// crons; respeita as otimizações vigentes — mínimo de 30min entre sincronias,
-// Night Shield 21h-07h e kill-switch global).
+// crons; respeita Night Shield 21h-07h e as otimizações vigentes — mínimo
+// de 30min entre sincronias). ISENTO do kill-switch global (leitura pura).
 cronAdd('whatsapp_batch_sync', '21 */2 * * *', () => {
   try {
     var cronStartMs = Date.now()
 
-    // Kill-switch global: automações pausadas = não roda.
-    try {
-      const paused = $app.findFirstRecordByFilter(
-        'care_alert_settings',
-        'global_automations_paused = true',
-      )
-      if (paused) {
-        $app.logger().info('whatsapp_batch_sync_aborted', 'reason', 'kill_switch_on')
-        return
-      }
-    } catch (_) {}
-
+    // ISENTO do kill-switch global (global_automations_paused): o import é
+    // somente leitura (chat/findMessages da Evolution) + INSERT dedup por
+    // message_id no banco local. NUNCA envia mensagem, NUNCA apaga, NUNCA
+    // toca na instância. O kill-switch existe para impedir ENVIO/PUSH —
+    // bloquear o espelhamento de leitura deixaria o inbox cego.
+    //
     // Night Shield (21h-07h, horário de Brasília): importação pesada não roda.
     var hSp = new Date(cronStartMs - 3 * 3600 * 1000).getUTCHours()
     if (hSp >= 21 || hSp < 7) return
@@ -50,10 +44,10 @@ cronAdd('whatsapp_batch_sync', '21 */2 * * *', () => {
     }
     if (!instances || instances.length === 0) return
 
-    // Início do buraco a fechar (Unix segundos): 00h10 de 17/11 (Brasília).
+    // Início do buraco a fechar (Unix segundos): 05h48 de 18/11 (Brasília).
     // Mensagens posteriores que chegaram pelo webhook são dedupicadas, então
-    // cobrir "desde 00h10" é seguro e idempotente.
-    var sinceTs = 1794874200
+    // cobrir "desde 05h48" é seguro e idempotente.
+    var sinceTs = 1794972480
 
     var urlStr = $secrets.get('EVOLUTION_API_URL') || ''
     var apiUrl = urlStr.endsWith('/') ? urlStr.slice(0, -1) : urlStr

@@ -75,9 +75,12 @@ export function TaskFormDialog({
 
       // Pré-preenche a Descrição com o resumo de todas as mensagens
       const descParts = sortedMsgs.map((msg) => {
-        const dateStr = msg.timestamp
-          ? format(new Date(msg.timestamp), 'dd/MM/yyyy HH:mm', { locale: ptBR })
-          : ''
+        // Guard de timestamp inválido (0/nulo/Invalid Date): format() do
+        // date-fns LANÇA RangeError em Invalid Date e derruba o dialog
+        // (e a tela) inteiro. Inválido → '—' (data desconhecida, nunca exceção).
+        const d = msg.timestamp ? new Date(msg.timestamp) : null
+        const dateStr =
+          d && !isNaN(d.getTime()) ? format(d, 'dd/MM/yyyy HH:mm', { locale: ptBR }) : '—'
         const sender = msg.from_me ? 'Você' : msg.pushName || chat.name || 'Contato'
         return `> [${dateStr}] ${sender}:\n> ${msg.text || '[Mídia/Documento]'}`
       })

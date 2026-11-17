@@ -166,11 +166,18 @@ export function whatsappMessagesToMessages(messages: WhatsappMessage[]) {
       pushName: m.participant_pushname || m.push_name,
       text: m.content || '',
       status: m.status,
-      timestamp: m.timestamp
-        ? new Date(m.timestamp * 1000).toISOString()
-        : m.created
-          ? new Date(m.created).toISOString()
-          : new Date().toISOString(),
+      // Guard de timestamp inválido (0/nulo/lixo): nunca inventar data nem
+      // deixar Invalid Date escapar (format() lança RangeError e derruba a
+      // renderização em /conversas). Inválido → '' e a UI exibe '—' / vazio.
+      timestamp: (() => {
+        const d =
+          m.timestamp && m.timestamp > 0
+            ? new Date(m.timestamp * 1000)
+            : m.created
+              ? new Date(m.created)
+              : null
+        return d && !isNaN(d.getTime()) ? d.toISOString() : ''
+      })(),
       isRead: m.status === 'read' || m.status === 'played',
       isForwarded: m.is_forwarded === true,
       linkPreview,
