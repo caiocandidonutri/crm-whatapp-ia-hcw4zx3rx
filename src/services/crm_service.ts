@@ -26,16 +26,67 @@ export const adicionarContatoDoChat = async (
   })
 }
 
+// Cache + dedupe + backoff para lookup de contato por jid.
+// Sem isso, o boot/pós-reconexão martelava o backend com dezenas de reqs
+// idênticas por segundo (todas 429) para o mesmo jid — causa do timeout no sync_state.
+const CRM_CONTACT_CACHE_TTL_MS = 30_000
+const crmContactByJidCache = new Map<string, { promise: Promise<CrmContact | null>; at: number }>()
+let crmContactBackoffMs = 0
+let crmContactBackoffUntil = 0
+
 export const getCrmContactByJid = async (instance_name: string, jid: string) => {
-  try {
-    return await pb
-      .collection('crm_contacts')
-      .getFirstListItem<CrmContact>(`instance_name = '${instance_name}' && jid = '${jid}'`, {
-        requestKey: null,
-      })
-  } catch (e) {
-    return null
+  if (!instance_name || !jid) return null
+  const key = `${instance_name}::${jid}`
+  const now = Date.now()
+
+  // Backoff global pós-rajada de 429: não martela o banco durante a janela
+  if (now < crmContactBackoffUntil) {
+    return crmContactByJidCache.get(key)?.promise ?? null
   }
+
+  const cached = crmContactByJidCache.get(key)
+  if (cached && now - cached.at < CRM_CONTACT_CACHE_TTL_MS) {
+    return cached.promise
+  }
+
+  // Dedupe em voo: chamadas simultâneas para o mesmo jid compartilham 1 única req
+  const promise = (async () => {
+    try {
+      const rec = await pb
+        .collection('crm_contacts')
+        .getFirstListItem<CrmContact>(`instance_name = "${instance_name}" && jid = "${jid}"`, {
+          requestKey: null,
+        })
+      crmContactBackoffMs = 0
+      crmContactBackoffUntil = 0
+      return rec
+    } catch (e: any) {
+      const status = e?.status ?? e?.response?.status ?? 0
+      if (status === 429) {
+        crmContactBackoffMs = Math.min(
+          30_000,
+          crmContactBackoffMs ? crmContactBackoffMs * 2 : 2_000,
+        )
+        crmContactBackoffUntil = Date.now() + crmContactBackoffMs
+        console.warn(
+          `[crm_service] 429 em crm_contacts (lookup por jid) — backoff ${crmContactBackoffMs}ms`,
+        )
+      }
+      // 404 (não encontrado) e 429 também ficam em cache negativo pelo TTL,
+      // para o loop de histórico não repetir a mesma busca infinitamente.
+      return null
+    }
+  })()
+
+  crmContactByJidCache.set(key, { promise, at: now })
+  // Limpeza do cache para não crescer sem limite
+  if (crmContactByJidCache.size > 500) {
+    const cutoff = now - CRM_CONTACT_CACHE_TTL_MS
+    for (const [k, v] of crmContactByJidCache) {
+      if (v.at < cutoff) crmContactByJidCache.delete(k)
+    }
+  }
+  return promise
 }
 
 export const getCrmContacts = async (instance_name: string) => {
