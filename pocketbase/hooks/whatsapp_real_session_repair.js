@@ -10,12 +10,20 @@
 //      instância real (POST /webhook/set — mesma payload dos hooks existentes),
 //      cria/atualiza o registro local (real = connected, phone_number da
 //      Evolution) e marca TODAS as outras como disconnected. ZERO deletes.
-//   3. Import de mensagens presas (leitura via /chat/findMessages, dedupe por
+//   3. ConnectionState real: GET /instance/connectionState/{name}. Se o estado
+//      divergir de "open" (socket zumbi: banco/Evolution dizem connected mas a
+//      sessão não entrega eventos), OU se o webhook foi regravado com sucesso
+//      3x seguidas sem nenhum evento chegar (webhook_reconfigured_streak vs.
+//      heartbeat last_webhook_event_at): POST /instance/restart/{name} —
+//      RESTART apenas, NUNCA logout, NUNCA delete (restart não despareia o
+//      celular). Depois do restart o contador zera. Night Shield 21h-07h:
+//      restart NÃO roda de madrugada (só task/alerta via monitor de silêncio).
+//   4. Import de mensagens presas (leitura via /chat/findMessages, dedupe por
 //      message_id + instance_name) desde a MEIA-NOITE de hoje (São Paulo) nas
 //      últimas 48h da instância real. Só INSERT/UPDATE no banco, nunca envia.
-// NUNCA envia mensagem, NUNCA apaga, NUNCA faz logout/restart na Evolution.
+// NUNCA envia mensagem, NUNCA apaga, NUNCA faz logout na Evolution.
 // ISENTO do kill-switch global (não envia nada — kill-switch existe p/ envio).
-// Roda também dentro do Night Shield: é reparo de leitura/config, sem envio.
+// Fora do Night Shield o restart é permitido (reparo de sessão, sem envio).
 cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
   try {
     var cronStartMs = Date.now()
@@ -132,6 +140,32 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
 
     var realPhone = String(realOwnerJid).split('@')[0].replace(/\D/g, '')
 
+    // ---------- 1b. ConnectionState REAL da instância ----------
+    // fetchInstances pode trazer status em cache; o estado de verdade da
+    // sessão vem de /instance/connectionState/{name}.
+    var realConnState = ''
+    try {
+      var resConn = $http.send({
+        url: apiUrl + '/instance/connectionState/' + encodeURIComponent(realName),
+        method: 'GET',
+        headers: { apikey: apiKey, 'Content-Type': 'application/json' },
+        timeout: 6,
+      })
+      if (resConn.json) {
+        var stObj = resConn.json
+        if (stObj.instance && stObj.instance.state) realConnState = stObj.instance.state
+        else if (stObj.state) realConnState = stObj.state
+        else if (typeof stObj.connectionStatus === 'string') realConnState = stObj.connectionStatus
+      }
+    } catch (connErr) {
+      $app.logger().warn('real_session_repair_connstate_err', 'error', String(connErr))
+    }
+    var stateDiverged = realConnState !== '' && realConnState !== 'open'
+
+    // Night Shield 21h-07h (horário de Brasília): restart só de dia.
+    var hSp = new Date(Date.now() - 3 * 3600 * 1000).getUTCHours()
+    var nightShield = hSp >= 21 || hSp < 7
+
     // ---------- 2. Estado local vs. Evolution ----------
     var needRepair = false
     var localRealRec = null
@@ -156,6 +190,23 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
     }
     if (!localRealRec) needRepair = true
 
+    // ---------- 2b. Heartbeat + streak de regravações sem evento ----------
+    var heartbeatTs = 0
+    try {
+      var heRaw = localRealRec ? localRealRec.getString('last_webhook_event_at') || '' : ''
+      if (heRaw) {
+        var heMs = Date.parse(heRaw.replace(' ', 'T') + (heRaw.indexOf('Z') >= 0 ? '' : 'Z'))
+        if (isFinite(heMs)) heartbeatTs = Math.floor(heMs / 1000)
+      }
+    } catch (_) {}
+    var currentStreak = 0
+    try {
+      if (localRealRec) currentStreak = localRealRec.getInt('webhook_reconfigured_streak') || 0
+    } catch (_) {}
+    var nowSecs2 = Math.floor(cronStartMs / 1000)
+    var heartbeatFresh = heartbeatTs > 0 && nowSecs2 - heartbeatTs < 15 * 60
+    var streakAfterSet = heartbeatFresh ? 0 : currentStreak + 1
+
     // Confere o webhook na instância real ANTES de gravar (evita regravar
     // sem necessidade — só grava se a URL divergir da alvo).
     var webhookOk = false
@@ -177,6 +228,7 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
     if (!webhookOk) needRepair = true
 
     // ---------- 3. Gravar webhook na instância real ----------
+    var webhookWasSet = false
     if (!webhookOk) {
       try {
         var resSet = $http.send({
@@ -215,6 +267,7 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
           }),
           timeout: 10,
         })
+        webhookWasSet = true
         $app
           .logger()
           .info(
@@ -223,6 +276,8 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
             realName,
             'status',
             resSet.statusCode,
+            'streak',
+            streakAfterSet,
           )
       } catch (setErr) {
         $app.logger().warn('real_session_repair_webhook_set_err', 'error', String(setErr))
@@ -232,6 +287,7 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
 
     // ---------- 4. Banco: real=connected, resto disconnected (zero deletes) ----------
     var nowIso = new Date().toISOString().replace('T', ' ')
+    var realRecordId = localRealRec ? localRealRec.id : ''
     var accountId = ''
     var userId = ''
     try {
@@ -246,6 +302,12 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
             if (realPhone && rec2.getString('phone_number') !== realPhone)
               rec2.set('phone_number', realPhone)
             rec2.set('last_webhook_reconfigured_at', nowIso)
+            // Contador de regravações sem evento: zera se o heartbeat está
+            // fresco (eventos chegando), soma 1 a cada regravação em silêncio.
+            rec2.set(
+              'webhook_reconfigured_streak',
+              webhookWasSet ? streakAfterSet : heartbeatFresh ? 0 : currentStreak,
+            )
           }
           if (changed || rName2 === realName) {
             $app.saveNoValidate(rec2)
@@ -290,6 +352,69 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
     } catch (dbErr) {
       $app.logger().warn('real_session_repair_db_err', 'error', String(dbErr))
       return
+    }
+
+    // ---------- 4b. RESTART da instância (socket zumbi) ----------
+    // Dispara se o connectionState real divergiu de "open" OU se o webhook foi
+    // regravado com sucesso 3x seguidas sem NENHUM evento chegar. Restart NUNCA
+    // despareia o celular; logout/delete são proibidos (decisão Dr. Caio).
+    var streakNow = heartbeatFresh ? 0 : currentStreak + (webhookWasSet ? 1 : 0)
+    var restartNeeded = stateDiverged || streakNow >= 3
+    if (restartNeeded) {
+      if (nightShield) {
+        $app
+          .logger()
+          .warn(
+            'real_session_repair_restart_deferred',
+            'instance',
+            realName,
+            'conn_state',
+            realConnState,
+            'streak',
+            streakNow,
+            'reason',
+            'night_shield',
+          )
+      } else {
+        try {
+          var resRestart = $http.send({
+            url: apiUrl + '/instance/restart/' + encodeURIComponent(realName),
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: apiKey },
+            body: JSON.stringify({}),
+            timeout: 15,
+          })
+          $app
+            .logger()
+            .info(
+              'real_session_repair_restart',
+              'instance',
+              realName,
+              'status',
+              resRestart.statusCode,
+              'conn_state_before',
+              realConnState,
+              'streak_before',
+              streakNow,
+            )
+          try {
+            var recRestart = $app.findRecordById('whatsapp_instances', realRecordId)
+            recRestart.set('last_instance_restart_at', nowIso)
+            recRestart.set('webhook_reconfigured_streak', 0)
+            $app.saveNoValidate(recRestart)
+          } catch (_) {}
+        } catch (restartErr) {
+          $app
+            .logger()
+            .warn(
+              'real_session_repair_restart_err',
+              'instance',
+              realName,
+              'error',
+              String(restartErr),
+            )
+        }
+      }
     }
 
     // ---------- 5. Import das mensagens presas (leitura, dedupe) ----------

@@ -83,6 +83,8 @@ export interface WhatsappInstance extends RecordModel {
   last_webhook_reconfigured_at?: string
   last_instance_restart_at?: string
   health_check_failures?: number
+  last_webhook_event_at?: string
+  webhook_reconfigured_streak?: number
 }
 
 export interface Conversation extends RecordModel {

@@ -120,8 +120,12 @@ export default function Conversas() {
   const crmNameByJid = React.useMemo(() => {
     const map = new Map<string, string>()
     for (const c of crmContacts) {
-      if (!isInvalidContactName(c.contact_name)) {
-        map.set(c.jid, (c.contact_name as string).trim())
+      if (!c) continue
+      const jid = typeof c.jid === 'string' ? c.jid : ''
+      const name = c.contact_name
+      if (!jid) continue
+      if (typeof name === 'string' && !isInvalidContactName(name)) {
+        map.set(jid, name.trim())
       }
     }
     return map
@@ -245,11 +249,13 @@ export default function Conversas() {
       const cleanTargetPhone = (phoneParam || '').replace(/\D/g, '')
       const matched = conversations.find((c) => {
         if (!c) return false
-        const cPhone = (
-          c.contact_phone || (c.remote_jid ? c.remote_jid.split('@')[0] : '')
+        const cPhone = String(
+          c.contact_phone || (typeof c.remote_jid === 'string' ? c.remote_jid.split('@')[0] : ''),
         ).replace(/\D/g, '')
         return (
-          cPhone.endsWith(cleanTargetPhone.slice(-8)) || cleanTargetPhone.endsWith(cPhone.slice(-8))
+          cPhone.length > 0 &&
+          (cPhone.endsWith(cleanTargetPhone.slice(-8)) ||
+            cleanTargetPhone.endsWith(cPhone.slice(-8)))
         )
       })
       if (matched) {
@@ -626,7 +632,7 @@ export default function Conversas() {
       return { inserted: 0, hasMore: false }
     }
     const oldestLocal = rawMessages.reduce((min, m) => {
-      const ts = m.timestamp || 0
+      const ts = (m && typeof m.timestamp === 'number' ? m.timestamp : 0) || 0
       if (ts > 0 && (min === 0 || ts < min)) return ts
       return min
     }, 0)
@@ -655,6 +661,28 @@ export default function Conversas() {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
         <Skeleton className="w-full h-full rounded-2xl" />
+      </div>
+    )
+  }
+  // Boot defensivo: se qualquer derive de dados acima lançar (dado nulo/corrompido
+  // do backend), a página ainda renderiza o shell com erro — nunca o ErrorBoundary global.
+  if (conversasProcessError && safeConversations.length === 0 && !loadingChats) {
+    return (
+      <div className="h-[calc(100vh-8rem)] animate-fade-in flex items-center justify-center bg-background rounded-2xl shadow-elevation border border-border overflow-hidden">
+        <div className="glass-card p-8 flex flex-col items-center justify-center text-center max-w-md w-full mx-4">
+          <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 mb-6">
+            <AlertTriangle className="w-8 h-8" />
+          </div>
+          <h2 className="font-serif text-2xl font-semibold text-primary mb-4">
+            Não foi possível carregar as conversas
+          </h2>
+          <p className="text-sm text-muted-foreground text-balance mb-6">
+            Ocorreu um erro inesperado ao processar os dados. Tente recarregar.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+            Recarregar página
+          </Button>
+        </div>
       </div>
     )
   }
