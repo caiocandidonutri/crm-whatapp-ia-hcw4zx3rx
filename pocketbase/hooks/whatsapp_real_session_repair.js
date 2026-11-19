@@ -12,9 +12,10 @@
 //      Evolution) e marca TODAS as outras como disconnected. ZERO deletes.
 //   3. ConnectionState real: GET /instance/connectionState/{name}. Se o estado
 //      divergir de "open" (socket zumbi: banco/Evolution dizem connected mas a
-//      sessão não entrega eventos), OU se o webhook foi regravado com sucesso
-//      3x seguidas sem nenhum evento chegar (webhook_reconfigured_streak vs.
+//      sessão não entrega eventos), OU se 3 ciclos de reparo (2min cada)
+//      passarem sem nenhum evento chegar (webhook_reconfigured_streak vs.
 //      heartbeat last_webhook_event_at): POST /instance/restart/{name} —
+//      no máximo 1 restart a cada 30min (cooldown anti-tempestade).
 //      RESTART apenas, NUNCA logout, NUNCA delete (restart não despareia o
 //      celular). Depois do restart o contador zera. Night Shield 21h-07h:
 //      restart NÃO roda de madrugada (só task/alerta via monitor de silêncio).
@@ -205,6 +206,10 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
     } catch (_) {}
     var nowSecs2 = Math.floor(cronStartMs / 1000)
     var heartbeatFresh = heartbeatTs > 0 && nowSecs2 - heartbeatTs < 15 * 60
+    // Streak = ciclos de reparo (2min) sem NENHUM evento do webhook chegar.
+    // Incrementa a cada ciclo em silêncio, MESMO quando a URL do webhook já
+    // está correta na Evolution (zumbi: regravar não muda nada, mas o restart
+    // precisa acontecer do mesmo jeito).
     var streakAfterSet = heartbeatFresh ? 0 : currentStreak + 1
 
     // Confere o webhook na instância real ANTES de gravar (evita regravar
@@ -304,10 +309,7 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
             rec2.set('last_webhook_reconfigured_at', nowIso)
             // Contador de regravações sem evento: zera se o heartbeat está
             // fresco (eventos chegando), soma 1 a cada regravação em silêncio.
-            rec2.set(
-              'webhook_reconfigured_streak',
-              webhookWasSet ? streakAfterSet : heartbeatFresh ? 0 : currentStreak,
-            )
+            rec2.set('webhook_reconfigured_streak', streakAfterSet)
           }
           if (changed || rName2 === realName) {
             $app.saveNoValidate(rec2)
@@ -355,11 +357,22 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
     }
 
     // ---------- 4b. RESTART da instância (socket zumbi) ----------
-    // Dispara se o connectionState real divergiu de "open" OU se o webhook foi
-    // regravado com sucesso 3x seguidas sem NENHUM evento chegar. Restart NUNCA
+    // Dispara se o connectionState real divergiu de "open" OU se 3 ciclos de
+    // reparo (2min cada) passarem sem NENHUM evento chegar. Restart NUNCA
     // despareia o celular; logout/delete são proibidos (decisão Dr. Caio).
-    var streakNow = heartbeatFresh ? 0 : currentStreak + (webhookWasSet ? 1 : 0)
-    var restartNeeded = stateDiverged || streakNow >= 3
+    var streakNow = heartbeatFresh ? 0 : currentStreak + 1
+    // Cooldown: no máximo 1 restart a cada 30min (evita tempestade durante
+    // silêncio total; com streak por ciclo, o 1º restart sai em ~6min).
+    var lastRestartMs = 0
+    try {
+      var lrRaw = localRealRec ? localRealRec.getString('last_instance_restart_at') || '' : ''
+      if (lrRaw) {
+        var lrParsed = Date.parse(lrRaw.replace(' ', 'T') + (lrRaw.indexOf('Z') >= 0 ? '' : 'Z'))
+        if (isFinite(lrParsed)) lastRestartMs = lrParsed
+      }
+    } catch (_) {}
+    var restartCooldownOk = cronStartMs - lastRestartMs >= 30 * 60 * 1000
+    var restartNeeded = (stateDiverged || streakNow >= 3) && restartCooldownOk
     if (restartNeeded) {
       if (nightShield) {
         $app
