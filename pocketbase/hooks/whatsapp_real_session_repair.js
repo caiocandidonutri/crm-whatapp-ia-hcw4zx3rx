@@ -134,8 +134,185 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
       }
     }
     if (!realName) {
-      // Nenhuma instância connected na Evolution: nada a reparar (não criar
-      // instância, não marcar connected no banco — evitar órfãs).
+      // Nenhuma instância connected na Evolution. ANTES de sair, checa socket
+      // zumbi: registro local 'connected' cujo webhook parou de entregar
+      // eventos (>15min). Consulta o connectionState real — 'close',
+      // 'connecting' ou erro = sessão morta por dentro → caminho de reparo
+      // (streak + restart + import). NUNCA criar instância, NUNCA logout,
+      // NUNCA delete (decisão Dr. Caio: o número fica 24h conectado).
+      var zRecords = []
+      try {
+        zRecords = $app.findRecordsByFilter('whatsapp_instances', '', '', 200, 0)
+      } catch (zErr) {
+        $app.logger().warn('real_session_repair_zombie_db_read', 'error', String(zErr))
+        return
+      }
+      var nowZSecs = Math.floor(cronStartMs / 1000)
+      var zombieRec = null
+      var zombieHeartTs = 0
+      for (var zi = 0; zi < zRecords.length; zi++) {
+        var zrec = zRecords[zi]
+        if (zrec.getString('status') !== 'connected') continue
+        var zHeartTs = 0
+        try {
+          var zRaw = zrec.getString('last_webhook_event_at') || ''
+          if (zRaw) {
+            var zMs = Date.parse(zRaw.replace(' ', 'T') + (zRaw.indexOf('Z') >= 0 ? '' : 'Z'))
+            if (isFinite(zMs)) zHeartTs = Math.floor(zMs / 1000)
+          }
+        } catch (_) {}
+        if (zHeartTs > 0 && nowZSecs - zHeartTs < 15 * 60) continue // eventos frescos
+        if (zHeartTs >= zombieHeartTs) {
+          zombieHeartTs = zHeartTs
+          zombieRec = zrec
+        }
+      }
+      if (!zombieRec) return // sem candidato zumbi: nada a reparar aqui
+
+      var zombieName = zombieRec.getString('instance_name')
+
+      // ConnectionState real (leitura) — o estado de verdade da sessão.
+      var zConnState = ''
+      try {
+        var zResConn = $http.send({
+          url: apiUrl + '/instance/connectionState/' + encodeURIComponent(zombieName),
+          method: 'GET',
+          headers: { apikey: apiKey, 'Content-Type': 'application/json' },
+          timeout: 6,
+        })
+        if (zResConn.json) {
+          var zSt = zResConn.json
+          if (zSt.instance && zSt.instance.state) zConnState = zSt.instance.state
+          else if (zSt.state) zConnState = zSt.state
+          else if (typeof zSt.connectionStatus === 'string') zConnState = zSt.connectionStatus
+        }
+      } catch (zConnErr) {
+        $app.logger().warn('real_session_repair_zombie_connstate_err', 'error', String(zConnErr))
+      }
+      if (zConnState === 'open') return // sessão viva de verdade: nada a fazer
+
+      $app
+        .logger()
+        .warn(
+          'real_session_repair_zombie_detected',
+          'instance',
+          zombieName,
+          'conn_state',
+          zConnState,
+          'heartbeat_age_min',
+          Math.floor((nowZSecs - zombieHeartTs) / 60),
+        )
+
+      // Streak sobe TAMBÉM neste caminho (ciclo sem evento), não só na regravação.
+      var zStreak = 0
+      try {
+        zStreak = zombieRec.getInt('webhook_reconfigured_streak') || 0
+      } catch (_) {}
+      var zStreakAfter = zStreak + 1
+      try {
+        zombieRec.set('webhook_reconfigured_streak', zStreakAfter)
+        $app.saveNoValidate(zombieRec)
+      } catch (zStreakErr) {
+        $app.logger().warn('real_session_repair_zombie_streak_err', 'error', String(zStreakErr))
+      }
+
+      // Cooldown de 30min entre restarts + Night Shield (restart só de dia).
+      var zLastRestartMs = 0
+      try {
+        var zLrRaw = zombieRec.getString('last_instance_restart_at') || ''
+        if (zLrRaw) {
+          var zLrParsed = Date.parse(
+            zLrRaw.replace(' ', 'T') + (zLrRaw.indexOf('Z') >= 0 ? '' : 'Z'),
+          )
+          if (isFinite(zLrParsed)) zLastRestartMs = zLrParsed
+        }
+      } catch (_) {}
+      var zCooldownOk = cronStartMs - zLastRestartMs >= 30 * 60 * 1000
+      var zHSp = new Date(cronStartMs - 3 * 3600 * 1000).getUTCHours()
+      var zNightShield = zHSp >= 21 || zHSp < 7
+
+      var zRestartAttempted = false
+      var zRestartOk = false
+      if (zStreakAfter >= 3 && !zNightShield) {
+        if (zCooldownOk) {
+          zRestartAttempted = true
+          try {
+            var zResRestart = $http.send({
+              url: apiUrl + '/instance/restart/' + encodeURIComponent(zombieName),
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', apikey: apiKey },
+              body: JSON.stringify({}),
+              timeout: 15,
+            })
+            zRestartOk = zResRestart.statusCode >= 200 && zResRestart.statusCode < 300
+            $app
+              .logger()
+              .info(
+                'real_session_repair_zombie_restart',
+                'instance',
+                zombieName,
+                'status',
+                zResRestart.statusCode,
+                'conn_state_before',
+                zConnState,
+                'streak_before',
+                zStreakAfter,
+              )
+          } catch (zRestartErr) {
+            $app
+              .logger()
+              .warn('real_session_repair_zombie_restart_err', 'error', String(zRestartErr))
+          }
+          if (zRestartOk) {
+            try {
+              var zRecFresh = $app.findRecordById('whatsapp_instances', zombieRec.id)
+              zRecFresh.set(
+                'last_instance_restart_at',
+                new Date(cronStartMs).toISOString().replace('T', ' '),
+              )
+              zRecFresh.set('webhook_reconfigured_streak', 0)
+              $app.saveNoValidate(zRecFresh)
+            } catch (_) {}
+            // Import das mensagens presas (48h, dedupe por message_id) — leitura pura.
+            importStuckMessages(
+              zombieName,
+              zombieRec.getString('account_id') || '',
+              zombieRec.getString('user_id') || '',
+            )
+          }
+        }
+      } else if (zStreakAfter >= 3 && zNightShield) {
+        $app
+          .logger()
+          .warn(
+            'real_session_repair_zombie_restart_deferred',
+            'instance',
+            zombieName,
+            'reason',
+            'night_shield',
+            'streak',
+            zStreakAfter,
+          )
+      }
+
+      // Sem sessão viva de verdade mesmo após o restart: banco reflete a
+      // realidade (disconnected) + UM alerta amigável para escanear novo QR.
+      // (cooldown ativo = restart recente não reviveu a sessão; restart
+      // falhou = Evolution não aceitou; Night Shield adia para não confundir.)
+      var zombieDeadConfirmed =
+        zStreakAfter >= 3 && !zNightShield && (!zCooldownOk || (zRestartAttempted && !zRestartOk))
+      if (zombieDeadConfirmed) {
+        try {
+          var zRec2 = $app.findRecordById('whatsapp_instances', zombieRec.id)
+          if (zRec2.getString('status') === 'connected') {
+            zRec2.set('status', 'disconnected')
+            $app.saveNoValidate(zRec2)
+          }
+          createReconnectTask(zRec2)
+        } catch (zDiscErr) {
+          $app.logger().warn('real_session_repair_zombie_disconnect_err', 'error', String(zDiscErr))
+        }
+      }
       return
     }
 
@@ -430,209 +607,281 @@ cronAdd('whatsapp_real_session_repair', '*/2 * * * *', () => {
       }
     }
 
-    // ---------- 5. Import das mensagens presas (leitura, dedupe) ----------
-    // Janela: meia-noite de hoje (São Paulo = UTC-3) até 48h atrás, o que for
-    // mais recente. Idempotente: dedupe por message_id + instance_name.
-    var midnightSp = Math.floor((cronStartMs - (cronStartMs % 86400000) - 3 * 3600 * 1000) / 1000)
-    var fortyEightHAgo = Math.floor((cronStartMs - 48 * 3600 * 1000) / 1000)
-    var sinceTs = midnightSp > fortyEightHAgo ? midnightSp : fortyEightHAgo
-
-    // Conversas ativas da conta nas últimas 48h (qualquer instance_name — o
-    // registro antigo pode estar numa instância legada).
-    var convs = []
-    try {
-      var convFilter = 'is_group = false && last_message_timestamp > {:cutoff}'
-      var convParams = { cutoff: sinceTs }
-      if (accountId) {
-        convFilter = 'account_id = {:acc} && is_group = false && last_message_timestamp > {:cutoff}'
-        convParams = { acc: accountId, cutoff: sinceTs }
-      }
-      convs = $app.findRecordsByFilter(
-        'conversations',
-        convFilter,
-        '-last_message_timestamp',
-        50,
-        0,
-        convParams,
-      )
-    } catch (cErr) {
-      $app.logger().warn('real_session_repair_convs_error', 'error', String(cErr))
-      return
-    }
-
-    var msgCol = $app.findCollectionByNameOrId('whatsapp_messages')
-    var convColUpd = $app.findCollectionByNameOrId('conversations')
-    var totalInserted = 0
-
-    for (var j = 0; j < convs.length; j++) {
-      if (Date.now() - cronStartMs > 55 * 1000) break
-      var conv = convs[j]
-      var remoteJid = conv.getString('remote_jid')
-      if (!remoteJid) continue
-
+    // ---------- 4c. Task única de reconexão (novo QR) ----------
+    // UMA vez só: não duplica enquanto já existir alerta aberto com o mesmo título.
+    function createReconnectTask(instRec) {
       try {
-        var resMsg = $http.send({
-          url: apiUrl + '/chat/findMessages/' + encodeURIComponent(realName),
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: apiKey },
-          body: JSON.stringify({ where: { key: { remoteJid: remoteJid } } }),
-          timeout: 8,
-        })
-        if (resMsg.statusCode !== 200 && resMsg.statusCode !== 201) continue
-
-        var all = []
-        if (Array.isArray(resMsg.json)) all = resMsg.json
-        else if (resMsg.json && Array.isArray(resMsg.json.records)) all = resMsg.json.records
-        else if (resMsg.json && resMsg.json.messages && Array.isArray(resMsg.json.messages.records))
-          all = resMsg.json.messages.records
-        else if (resMsg.json && Array.isArray(resMsg.json.messages)) all = resMsg.json.messages
-
-        var newestTs = 0
-        var newestFromMe = false
-        var newestPreview = ''
-
-        for (var k = 0; k < all.length; k++) {
-          var msg = all[k]
-          if (!msg || !msg.key || !msg.message) continue
-          var ts = tsToUnix(msg.messageTimestamp)
-          if (ts <= sinceTs) continue
-          var messageId = msg.key.id
-          if (!messageId) continue
-
-          // Dedupe por message_id + instance_name (a instância real).
-          try {
-            $app.findFirstRecordByFilter(
-              'whatsapp_messages',
-              'message_id = {:mid} && instance_name = {:inst}',
-              { mid: messageId, inst: realName },
-            )
-            continue
-          } catch (_) {}
-
-          var typeKey = Object.keys(msg.message).find(
-            (kt) => kt !== 'messageContextInfo' && kt !== 'base64',
+        var tUserId = instRec.getString('user_id')
+        if (!tUserId) return
+        try {
+          $app.findFirstRecordByFilter(
+            'tasks',
+            "title = {:t} && (status = 'pendente' || status = 'em_andamento')",
+            { t: 'Reconectar WhatsApp: escanear novo QR code' },
           )
-          if (!typeKey) continue
-          if (
-            ['protocolMessage', 'senderKeyDistributionMessage', 'secretEncryptedMessage'].indexOf(
-              typeKey,
-            ) >= 0
-          )
-            continue
-
-          var fromMe = msg.key.fromMe === true
-          var pushName = msg.pushName || ''
-          var content = ''
-          var msgType = ''
-          var isMedia = false
-
-          if (typeKey === 'conversation') {
-            content = msg.message.conversation || ''
-            msgType = 'conversation'
-          } else if (typeKey === 'extendedTextMessage') {
-            var etm = msg.message.extendedTextMessage || {}
-            content = etm.text || ''
-            msgType = 'extendedTextMessage'
-          } else if (
-            [
-              'imageMessage',
-              'videoMessage',
-              'audioMessage',
-              'documentMessage',
-              'stickerMessage',
-            ].indexOf(typeKey) >= 0
-          ) {
-            msgType = typeKey
-            var mediaData = msg.message[typeKey] || {}
-            content = mediaData.caption || ''
-            isMedia = true
-          } else if (typeKey === 'pollCreationMessage' || typeKey === 'pollUpdateMessage') {
-            msgType = 'pollMessage'
-            content = '[Enquete]'
-          } else if (typeKey === 'locationMessage') {
-            msgType = 'locationMessage'
-            content = '[Localização compartilhada]'
-          } else if (
-            typeKey === 'contactMessage' ||
-            typeKey === 'contactsMessage' ||
-            typeKey === 'contactsArrayMessage'
-          ) {
-            msgType = 'contactMessage'
-            content = '[Contato compartilhado]'
-          } else if (typeKey === 'ephemeralMessage') {
-            msgType = 'ephemeralMessage'
-            content = '[Mensagem temporária]'
-          } else {
-            msgType = typeKey || 'unknown'
-            content = '[Mensagem não suportada]'
-          }
-
-          if (ts > newestTs) {
-            newestTs = ts
-            newestFromMe = fromMe
-            newestPreview = previewFor(msgType, content)
-          }
-
-          try {
-            var newMsg = new Record(msgCol)
-            newMsg.set('user_id', userId)
-            if (accountId) newMsg.set('account_id', accountId)
-            newMsg.set('instance_name', realName)
-            newMsg.set('remote_jid', remoteJid)
-            newMsg.set('from_me', fromMe)
-            newMsg.set('message_id', messageId)
-            newMsg.set('push_name', fromMe ? '' : pushName)
-            newMsg.set('content', content)
-            newMsg.set('message_type', msgType)
-            newMsg.set('status', isMedia ? 'media_failed' : fromMe ? 'pending' : 'received')
-            newMsg.set('timestamp', ts || Math.floor(Date.now() / 1000))
-            try {
-              if (msgCol.fields.getByName('participant_jid'))
-                newMsg.set('participant_jid', msg.key.participant || '')
-            } catch (_) {}
-            try {
-              if (msgCol.fields.getByName('participant_pushname'))
-                newMsg.set('participant_pushname', pushName)
-            } catch (_) {}
-            $app.saveNoValidate(newMsg)
-            totalInserted++
-          } catch (saveErr) {}
-        }
-
-        // Atualiza a conversa para a instância real + last_message.
-        if (newestTs > 0) {
-          try {
-            var convFresh = $app.findRecordById('conversations', conv.id)
-            var curLast = convFresh.getInt('last_message_timestamp') || 0
-            if (newestTs > curLast) {
-              convFresh.set('last_message_timestamp', newestTs)
-              if (newestPreview) convFresh.set('last_message', newestPreview)
-              if (convFresh.getString('instance_name') !== realName)
-                convFresh.set('instance_name', realName)
-              if (!newestFromMe) {
-                try {
-                  convFresh.set('unread_count', (convFresh.getInt('unread_count') || 0) + 1)
-                } catch (_) {}
-              }
-              $app.saveNoValidate(convFresh)
-            } else if (convFresh.getString('instance_name') !== realName) {
-              convFresh.set('instance_name', realName)
-              $app.saveNoValidate(convFresh)
-            }
-          } catch (_) {}
-        }
-      } catch (loopErr) {
+          return // já existe alerta aberto — sem spam
+        } catch (_) {}
+        var tCol = $app.findCollectionByNameOrId('tasks')
+        var t = new Record(tCol)
+        t.set('user_id', tUserId)
+        var tAcc = instRec.getString('account_id')
+        if (tAcc) t.set('account_id', tAcc)
+        t.set('title', 'Reconectar WhatsApp: escanear novo QR code')
+        t.set(
+          'description',
+          'A conexão interna do WhatsApp da clínica caiu e as mensagens novas pararam de chegar ao CRM. ' +
+            'Suas conversas estão salvas — basta ir em Integrações → WhatsApp e escanear o novo QR code para reconectar. ' +
+            'O número continua o mesmo e a conexão não é desfeita depois disso.',
+        )
+        t.set('status', 'pendente')
+        t.set('priority', 'alta')
+        t.set('care_category', 'sem_categoria')
+        $app.save(t)
         $app
           .logger()
-          .warn('real_session_repair_conv_error', 'jid', remoteJid, 'error', String(loopErr))
+          .info(
+            'real_session_repair_qr_task_created',
+            'instance',
+            instRec.getString('instance_name'),
+          )
+      } catch (tErr) {
+        $app.logger().warn('real_session_repair_qr_task_err', 'error', String(tErr))
       }
     }
 
-    if (totalInserted > 0) {
-      $app
-        .logger()
-        .info('real_session_repair_import', 'instance', realName, 'inserted', totalInserted)
+    // ---------- 5. Import das mensagens presas (leitura, dedupe) ----------
+    // Função reaproveitada também pelo caminho do socket zumbi (após restart OK).
+    // Janela: meia-noite de hoje (São Paulo = UTC-3) até 48h atrás, o que for
+    // mais recente. Idempotente: dedupe por message_id + instance_name.
+    function importStuckMessages(realName, accountId, userId) {
+      var midnightSp = Math.floor((cronStartMs - (cronStartMs % 86400000) - 3 * 3600 * 1000) / 1000)
+      var fortyEightHAgo = Math.floor((cronStartMs - 48 * 3600 * 1000) / 1000)
+      var sinceTs = midnightSp > fortyEightHAgo ? midnightSp : fortyEightHAgo
+
+      // Conversas ativas da conta nas últimas 48h (qualquer instance_name — o
+      // registro antigo pode estar numa instância legada).
+      var convs = []
+      try {
+        var convFilter = 'is_group = false && last_message_timestamp > {:cutoff}'
+        var convParams = { cutoff: sinceTs }
+        if (accountId) {
+          convFilter =
+            'account_id = {:acc} && is_group = false && last_message_timestamp > {:cutoff}'
+          convParams = { acc: accountId, cutoff: sinceTs }
+        }
+        convs = $app.findRecordsByFilter(
+          'conversations',
+          convFilter,
+          '-last_message_timestamp',
+          50,
+          0,
+          convParams,
+        )
+      } catch (cErr) {
+        $app.logger().warn('real_session_repair_convs_error', 'error', String(cErr))
+        return
+      }
+
+      var msgCol = $app.findCollectionByNameOrId('whatsapp_messages')
+      var convColUpd = $app.findCollectionByNameOrId('conversations')
+      var totalInserted = 0
+
+      for (var j = 0; j < convs.length; j++) {
+        if (Date.now() - cronStartMs > 55 * 1000) break
+        var conv = convs[j]
+        var remoteJid = conv.getString('remote_jid')
+        if (!remoteJid) continue
+
+        try {
+          var resMsg = $http.send({
+            url: apiUrl + '/chat/findMessages/' + encodeURIComponent(realName),
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: apiKey },
+            body: JSON.stringify({ where: { key: { remoteJid: remoteJid } } }),
+            timeout: 8,
+          })
+          if (resMsg.statusCode !== 200 && resMsg.statusCode !== 201) continue
+
+          var all = []
+          if (Array.isArray(resMsg.json)) all = resMsg.json
+          else if (resMsg.json && Array.isArray(resMsg.json.records)) all = resMsg.json.records
+          else if (
+            resMsg.json &&
+            resMsg.json.messages &&
+            Array.isArray(resMsg.json.messages.records)
+          )
+            all = resMsg.json.messages.records
+          else if (resMsg.json && Array.isArray(resMsg.json.messages)) all = resMsg.json.messages
+
+          var newestTs = 0
+          var newestFromMe = false
+          var newestPreview = ''
+
+          for (var k = 0; k < all.length; k++) {
+            var msg = all[k]
+            if (!msg || !msg.key || !msg.message) continue
+            var ts = tsToUnix(msg.messageTimestamp)
+            if (ts <= sinceTs) continue
+            var messageId = msg.key.id
+            if (!messageId) continue
+
+            // Dedupe por message_id + instance_name (a instância real).
+            try {
+              $app.findFirstRecordByFilter(
+                'whatsapp_messages',
+                'message_id = {:mid} && instance_name = {:inst}',
+                { mid: messageId, inst: realName },
+              )
+              continue
+            } catch (_) {}
+
+            var typeKey = Object.keys(msg.message).find(
+              (kt) => kt !== 'messageContextInfo' && kt !== 'base64',
+            )
+            if (!typeKey) continue
+            if (
+              ['protocolMessage', 'senderKeyDistributionMessage', 'secretEncryptedMessage'].indexOf(
+                typeKey,
+              ) >= 0
+            )
+              continue
+
+            var fromMe = msg.key.fromMe === true
+            var pushName = msg.pushName || ''
+            var content = ''
+            var msgType = ''
+            var isMedia = false
+
+            if (typeKey === 'conversation') {
+              content = msg.message.conversation || ''
+              msgType = 'conversation'
+            } else if (typeKey === 'extendedTextMessage') {
+              var etm = msg.message.extendedTextMessage || {}
+              content = etm.text || ''
+              msgType = 'extendedTextMessage'
+            } else if (
+              [
+                'imageMessage',
+                'videoMessage',
+                'audioMessage',
+                'documentMessage',
+                'stickerMessage',
+              ].indexOf(typeKey) >= 0
+            ) {
+              msgType = typeKey
+              var mediaData = msg.message[typeKey] || {}
+              content = mediaData.caption || ''
+              isMedia = true
+            } else if (typeKey === 'pollCreationMessage' || typeKey === 'pollUpdateMessage') {
+              msgType = 'pollMessage'
+              content = '[Enquete]'
+            } else if (typeKey === 'locationMessage') {
+              msgType = 'locationMessage'
+              content = '[Localização compartilhada]'
+            } else if (
+              typeKey === 'contactMessage' ||
+              typeKey === 'contactsMessage' ||
+              typeKey === 'contactsArrayMessage'
+            ) {
+              msgType = 'contactMessage'
+              content = '[Contato compartilhado]'
+            } else if (typeKey === 'ephemeralMessage') {
+              msgType = 'ephemeralMessage'
+              content = '[Mensagem temporária]'
+            } else {
+              msgType = typeKey || 'unknown'
+              content = '[Mensagem não suportada]'
+            }
+
+            if (ts > newestTs) {
+              newestTs = ts
+              newestFromMe = fromMe
+              newestPreview = previewFor(msgType, content)
+            }
+
+            try {
+              var newMsg = new Record(msgCol)
+              newMsg.set('user_id', userId)
+              if (accountId) newMsg.set('account_id', accountId)
+              newMsg.set('instance_name', realName)
+              newMsg.set('remote_jid', remoteJid)
+              newMsg.set('from_me', fromMe)
+              newMsg.set('message_id', messageId)
+              newMsg.set('push_name', fromMe ? '' : pushName)
+              newMsg.set('content', content)
+              newMsg.set('message_type', msgType)
+              newMsg.set('status', isMedia ? 'media_failed' : fromMe ? 'pending' : 'received')
+              newMsg.set('timestamp', ts || Math.floor(Date.now() / 1000))
+              try {
+                if (msgCol.fields.getByName('participant_jid'))
+                  newMsg.set('participant_jid', msg.key.participant || '')
+              } catch (_) {}
+              try {
+                if (msgCol.fields.getByName('participant_pushname'))
+                  newMsg.set('participant_pushname', pushName)
+              } catch (_) {}
+              $app.saveNoValidate(newMsg)
+              totalInserted++
+            } catch (saveErr) {}
+          }
+
+          // Atualiza a conversa para a instância real + last_message.
+          if (newestTs > 0) {
+            try {
+              var convFresh = $app.findRecordById('conversations', conv.id)
+              var curLast = convFresh.getInt('last_message_timestamp') || 0
+              if (newestTs > curLast) {
+                convFresh.set('last_message_timestamp', newestTs)
+                if (newestPreview) convFresh.set('last_message', newestPreview)
+                if (convFresh.getString('instance_name') !== realName)
+                  convFresh.set('instance_name', realName)
+                if (!newestFromMe) {
+                  try {
+                    convFresh.set('unread_count', (convFresh.getInt('unread_count') || 0) + 1)
+                  } catch (_) {}
+                }
+                $app.saveNoValidate(convFresh)
+              } else if (convFresh.getString('instance_name') !== realName) {
+                convFresh.set('instance_name', realName)
+                $app.saveNoValidate(convFresh)
+              }
+            } catch (_) {}
+          }
+        } catch (loopErr) {
+          $app
+            .logger()
+            .warn('real_session_repair_conv_error', 'jid', remoteJid, 'error', String(loopErr))
+        }
+      }
+
+      if (totalInserted > 0) {
+        $app
+          .logger()
+          .info('real_session_repair_import', 'instance', realName, 'inserted', totalInserted)
+      }
     }
+    // Caminho normal também marca desconexão real (uma vez) + task de QR quando
+    // a sessão não sobrevive ao restart (mesma regra do caminho zumbi).
+    var normalDeadConfirmed =
+      streakNow >= 3 &&
+      !nightShield &&
+      realConnState !== '' &&
+      realConnState !== 'open' &&
+      (!restartCooldownOk || restartNeeded)
+    if (normalDeadConfirmed) {
+      try {
+        var recDead = $app.findRecordById('whatsapp_instances', realRecordId)
+        if (recDead.getString('status') === 'connected') {
+          recDead.set('status', 'disconnected')
+          $app.saveNoValidate(recDead)
+        }
+        createReconnectTask(recDead)
+      } catch (deadErr) {
+        $app.logger().warn('real_session_repair_dead_disconnect_err', 'error', String(deadErr))
+      }
+    }
+
+    importStuckMessages(realName, accountId, userId)
   } catch (fatalErr) {
     $app.logger().error('real_session_repair_fatal', 'error', String(fatalErr))
   }
